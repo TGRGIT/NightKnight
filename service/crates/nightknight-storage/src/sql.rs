@@ -248,6 +248,16 @@ pub fn get_user_by_id(id: &str) -> (String, Vec<Param>) {
     )
 }
 
+/// Re-key a user in place: change only `subject`, leaving `id` (and therefore every
+/// `user_id` reference) untouched. Guarded by `WHERE subject=?` so it is a safe no-op
+/// once a row has already been migrated.
+pub fn rekey_user_subject(old_subject: &str, new_subject: &str) -> (String, Vec<Param>) {
+    (
+        "UPDATE users SET subject=? WHERE subject=?".to_string(),
+        vec![Param::text(new_subject), Param::text(old_subject)],
+    )
+}
+
 pub fn insert_device_token(tok: &DeviceToken) -> (String, Vec<Param>) {
     let sql = format!("INSERT INTO device_tokens ({TOKEN_COLS}) VALUES (?,?,?,?,?,?,?,?,?)");
     let scopes = serde_json::to_string(&tok.scopes).unwrap_or_else(|_| "[]".to_string());

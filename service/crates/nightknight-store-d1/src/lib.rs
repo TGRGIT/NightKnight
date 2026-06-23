@@ -230,6 +230,16 @@ impl Storage for D1Store {
         Ok(self.first(&q, params).await?.map(|v| row_to_user(&v)))
     }
 
+    async fn rekey_user_subject(&self, old_subject: &str, new_subject: &str) -> Result<bool> {
+        // Existence check keeps the boolean honest without relying on driver metadata.
+        let existed = self.get_user_by_subject(old_subject).await?.is_some();
+        if existed {
+            let (q, params) = sql::rekey_user_subject(old_subject, new_subject);
+            self.run(&q, params).await?;
+        }
+        Ok(existed)
+    }
+
     async fn insert_device_token(&self, token: &DeviceToken) -> Result<()> {
         let (q, params) = sql::insert_device_token(token);
         self.run(&q, params).await

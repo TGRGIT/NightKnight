@@ -106,6 +106,10 @@ pub trait Storage {
     async fn upsert_user(&self, user: &User) -> Result<()>;
     async fn get_user_by_subject(&self, subject: &str) -> Result<Option<User>>;
     async fn get_user_by_id(&self, id: &str) -> Result<Option<User>>;
+    /// Re-key a user from `old_subject` to `new_subject`, preserving the row's `id`
+    /// (and therefore every row that references it by `user_id`). Returns whether a row
+    /// was changed. Used by the one-time legacy-subject migration.
+    async fn rekey_user_subject(&self, old_subject: &str, new_subject: &str) -> Result<bool>;
 
     // ----- device tokens ---------------------------------------------------
 

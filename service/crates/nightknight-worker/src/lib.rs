@@ -36,9 +36,14 @@ fn connector_key(env: &Env) -> Option<[u8; 32]> {
 fn build_service(env: &Env) -> Result<ApiService<D1Store>> {
     let store = D1Store::new(env.d1("DB")?);
     let required_group = env.var("CF_REQUIRED_GROUP").ok().map(|v| v.to_string());
+    let migrate_legacy = env
+        .var("MIGRATE_LEGACY_SUBJECTS")
+        .map(|v| v.to_string().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     Ok(ApiService::new(store)
         .require_group(required_group)
-        .with_connector_key(connector_key(env)))
+        .with_connector_key(connector_key(env))
+        .migrate_legacy_subjects(migrate_legacy))
 }
 
 thread_local! {
@@ -129,7 +134,8 @@ async fn resolve_edge(req: &Request, env: &Env) -> std::result::Result<Option<Ed
             Ok(Some(EdgeIdentity {
                 subject: id.subject,
                 kind: id.kind,
-                display_name: id.email,
+                display_name: id.email.clone(),
+                email: id.email,
                 groups,
             }))
         }

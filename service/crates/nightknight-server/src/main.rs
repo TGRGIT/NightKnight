@@ -158,10 +158,16 @@ async fn main() {
     let connector_key = std::env::var("NK_CONNECTOR_KEY")
         .ok()
         .and_then(|v| nightknight_crypto::parse_key(&v).ok());
+    // One-time legacy-subject migration (re-key bare-email users → namespaced). Enable
+    // for the migration window only.
+    let migrate_legacy = std::env::var("NK_MIGRATE_LEGACY_SUBJECTS")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let service = Arc::new(
         ApiService::new(store)
             .require_group(required_group)
-            .with_connector_key(connector_key),
+            .with_connector_key(connector_key)
+            .migrate_legacy_subjects(migrate_legacy),
     );
 
     // Start the optional CGM cloud connector (Dexcom Share / LibreLinkUp) poller.
@@ -255,6 +261,7 @@ fn resolve_edge(auth: &AuthMode, headers: &HeaderMap) -> Option<EdgeIdentity> {
                     .and_then(|v| v.to_str().ok())
                     .map(str::to_string)
                     .or_else(|| Some(email.to_string())),
+                email: Some(email.to_string()),
                 groups: headers
                     .get(groups_header.as_str())
                     .and_then(|v| v.to_str().ok())
@@ -266,6 +273,7 @@ fn resolve_edge(auth: &AuthMode, headers: &HeaderMap) -> Option<EdgeIdentity> {
             subject: subject.clone(),
             kind: PrincipalKind::Human,
             display_name: None,
+            email: Some(subject.clone()),
             groups: groups.clone(),
         }),
         AuthMode::None => None,

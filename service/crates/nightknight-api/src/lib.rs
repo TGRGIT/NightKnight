@@ -57,6 +57,9 @@ pub struct EdgeIdentity {
     pub subject: String,
     pub kind: PrincipalKind,
     pub display_name: Option<String>,
+    /// The verified email, when the edge provided one. Display + (one-time) legacy
+    /// subject migration only — it is NOT the tenancy key (see [`tenant_subject`]).
+    pub email: Option<String>,
     /// Group memberships the runtime resolved for a human (from the Access
     /// `get-identity` endpoint, or a trusted proxy header). Empty for service tokens.
     pub groups: Vec<String>,
@@ -74,6 +77,28 @@ impl EdgeIdentity {
             PrincipalKind::Service => "service",
         };
         format!("{prefix}:{}", self.subject.trim())
+    }
+
+    /// Pre-namespacing subjects a human row might have been stored under (the bare
+    /// email, as the old code keyed it), for the one-time legacy migration. Empty for
+    /// machines (service tokens were never email-keyed).
+    fn legacy_subject_candidates(&self) -> Vec<String> {
+        if !matches!(self.kind, PrincipalKind::Human) {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for raw in [self.email.as_deref(), Some(self.subject.as_str())].into_iter().flatten() {
+            let e = raw.trim();
+            if e.is_empty() {
+                continue;
+            }
+            for cand in [e.to_string(), e.to_ascii_lowercase()] {
+                if !out.contains(&cand) {
+                    out.push(cand);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -121,6 +146,11 @@ pub struct ApiService<S: Storage> {
     /// AES-256 key sealing connector credentials at rest. `None` disables the
     /// connector endpoints (they return 503).
     connector_key: Option<[u8; 32]>,
+    /// One-time migration: when on, a human whose namespaced subject is not yet stored
+    /// is matched against the pre-namespacing (bare-email) key and that row is re-keyed
+    /// in place. Default off; enable only for the migration window (and only where the
+    /// edge's email is trustworthy — e.g. behind Cloudflare Access).
+    migrate_legacy_subjects: bool,
 }
 
 impl<S: Storage> ApiService<S> {
@@ -129,6 +159,7 @@ impl<S: Storage> ApiService<S> {
             storage,
             required_group: None,
             connector_key: None,
+            migrate_legacy_subjects: false,
         }
     }
 
@@ -136,6 +167,12 @@ impl<S: Storage> ApiService<S> {
     /// in-app group check (the edge gate still applies).
     pub fn require_group(mut self, group: Option<String>) -> Self {
         self.required_group = group.filter(|g| !g.is_empty());
+        self
+    }
+
+    /// Enable the one-time legacy-subject migration (see [`migrate_legacy_subjects`]).
+    pub fn migrate_legacy_subjects(mut self, on: bool) -> Self {
+        self.migrate_legacy_subjects = on;
         self
     }
 
@@ -278,6 +315,24 @@ impl<S: Storage> ApiService<S> {
         if let Some(u) = self.storage.get_user_by_subject(&subject).await? {
             return Ok(u);
         }
+        // One-time migration: adopt a pre-namespacing row (keyed by the bare email) by
+        // re-keying it in place to the namespaced subject. No data moves — every row
+        // references the user by its unchanged `id`. Bounded: only legacy (un-prefixed)
+        // rows match, and once re-keyed the legacy key no longer exists.
+        if self.migrate_legacy_subjects {
+            for legacy in edge.legacy_subject_candidates() {
+                if legacy == subject {
+                    continue;
+                }
+                if self.storage.get_user_by_subject(&legacy).await?.is_some()
+                    && self.storage.rekey_user_subject(&legacy, &subject).await?
+                {
+                    if let Some(u) = self.storage.get_user_by_subject(&subject).await? {
+                        return Ok(u);
+                    }
+                }
+            }
+        }
         let user = User {
             id: Uuid::new_v4().to_string(),
             subject: subject.clone(),
@@ -308,6 +363,7 @@ impl<S: Storage> ApiService<S> {
             subject: subject.to_string(),
             kind: PrincipalKind::Service,
             display_name: None,
+            email: None,
             groups: Vec::new(),
         };
         let user = self.get_or_create_user(&edge, now_ms).await?;

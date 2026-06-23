@@ -290,6 +290,11 @@ impl Storage for SqlStore {
         }
     }
 
+    async fn rekey_user_subject(&self, old_subject: &str, new_subject: &str) -> Result<bool> {
+        let (sql, params) = sql::rekey_user_subject(old_subject, new_subject);
+        Ok(self.execute(&sql, params).await? > 0)
+    }
+
     async fn insert_device_token(&self, token: &DeviceToken) -> Result<()> {
         let (sql, params) = sql::insert_device_token(token);
         self.execute(&sql, params).await?;

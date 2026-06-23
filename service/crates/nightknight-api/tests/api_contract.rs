@@ -6,7 +6,7 @@
 //! a security guarantee) and asserts the externally-visible behaviour.
 
 use nightknight_api::{ApiRequest, ApiResponse, ApiService, EdgeIdentity, Headers, Method, PrincipalKind};
-use nightknight_storage::Storage;
+use nightknight_storage::{Collection, Storage, StoredDoc, User};
 use nightknight_store_sql::SqlStore;
 use serde_json::{json, Value};
 
@@ -25,6 +25,7 @@ fn human(email: &str) -> EdgeIdentity {
         subject: email.to_string(),
         kind: PrincipalKind::Human,
         display_name: None,
+        email: Some(email.to_string()),
         groups: Vec::new(),
     }
 }
@@ -35,6 +36,7 @@ fn human_in(email: &str, groups: &[&str]) -> EdgeIdentity {
         subject: email.to_string(),
         kind: PrincipalKind::Human,
         display_name: None,
+        email: Some(email.to_string()),
         groups: groups.iter().map(|s| s.to_string()).collect(),
     }
 }
@@ -45,6 +47,7 @@ fn service_token(name: &str) -> EdgeIdentity {
         subject: name.to_string(),
         kind: PrincipalKind::Service,
         display_name: None,
+        email: None,
         groups: Vec::new(),
     }
 }
@@ -393,6 +396,64 @@ async fn service_token_is_least_privilege() {
     assert_eq!(mint.status, 403, "service token cannot mint device tokens");
     let me = svc.handle(request("PUT", "/api/v4/me", &[], json!({ "preferredUnit": "mmol/l" })), NOW, st()).await;
     assert_eq!(me.status, 403, "service token cannot change settings");
+}
+
+/// MIGRATION: a pre-namespacing user (keyed by the bare email, with data) is adopted on
+/// next login — the row is re-keyed IN PLACE to the namespaced subject, preserving its
+/// `id`, so none of their existing readings are orphaned.
+#[tokio::test]
+async fn legacy_email_keyed_user_is_adopted_on_login() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    // Seed the PRE-migration state: a user keyed by the bare email, plus one reading.
+    let legacy = User {
+        id: "u-legacy".into(),
+        subject: "alice@cooney.be".into(),
+        display_name: None,
+        is_admin: false,
+        preferred_unit: "mg/dl".into(),
+        created_at: NOW,
+    };
+    store.upsert_user(&legacy).await.unwrap();
+    store
+        .upsert_document(
+            Collection::Entries,
+            StoredDoc {
+                identifier: "doc1".into(),
+                user_id: "u-legacy".into(),
+                mills: NOW - 60_000,
+                doc_type: Some("sgv".into()),
+                srv_created: NOW,
+                srv_modified: NOW,
+                is_valid: true,
+                is_read_only: false,
+                subject: Some("alice@cooney.be".into()),
+                doc: sgv(111),
+            },
+        )
+        .await
+        .unwrap();
+
+    let svc = ApiService::new(store).migrate_legacy_subjects(true);
+
+    // Alice logs in. Her namespaced subject ("human:alice@cooney.be") has no row yet, so
+    // the legacy email row is adopted — and she sees her existing reading.
+    let r = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, Some(human("alice@cooney.be"))).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(body_json(&r).as_array().unwrap().len(), 1, "existing reading is not orphaned");
+    assert_eq!(body_json(&r)[0]["sgv"], 111);
+
+    // The row was re-keyed in place: legacy key gone, same id under the namespaced key.
+    assert!(
+        svc.storage().get_user_by_subject("alice@cooney.be").await.unwrap().is_none(),
+        "legacy bare-email key no longer resolves"
+    );
+    let migrated = svc.storage().get_user_by_subject("human:alice@cooney.be").await.unwrap().unwrap();
+    assert_eq!(migrated.id, "u-legacy", "same user id preserved across the migration");
+
+    // Migration is idempotent: a second login is a plain lookup, still the same user.
+    let again = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, Some(human("alice@cooney.be"))).await;
+    assert_eq!(body_json(&again).as_array().unwrap().len(), 1);
 }
 
 /// SECURITY (defence in depth): when a required group is configured, the app itself
