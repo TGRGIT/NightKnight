@@ -1,0 +1,21 @@
+[package]
+name = "nightknight-crypto"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Authenticated encryption (AES-256-GCM) for NightKnight secrets at rest — used to store vendor connector credentials. Pure Rust; compiles for the worker and the container."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+aes-gcm = { workspace = true }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+thiserror = { workspace = true }
+
+# getrandom needs the JS backend to compile/run for the worker.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

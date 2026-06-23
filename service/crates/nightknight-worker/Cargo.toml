@@ -1,0 +1,29 @@
+[package]
+name = "nightknight-worker"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Cloudflare Worker entrypoint for NightKnight: verifies the Cloudflare Access JWT, dispatches to the shared API over D1, and serves the web SPA from Static Assets. wasm32 only."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nightknight-core = { workspace = true }
+nightknight-storage = { workspace = true }
+nightknight-auth = { workspace = true }
+nightknight-api = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+
+# Workers runtime + the D1 backend only exist on wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { workspace = true }
+nightknight-store-d1 = { path = "../nightknight-store-d1" }
+nightknight-connectors = { workspace = true }
+nightknight-crypto = { workspace = true }

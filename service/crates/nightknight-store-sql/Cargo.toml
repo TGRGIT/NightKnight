@@ -1,0 +1,24 @@
+[package]
+name = "nightknight-store-sql"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "sqlx-backed Storage implementation for NightKnight — SQLite (tests + lightweight self-host) and Postgres (container self-host). Native only; never compiled into the wasm worker."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+nightknight-core = { workspace = true }
+nightknight-storage = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+sqlx = { workspace = true }
+
+[dev-dependencies]
+nightknight-storage = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

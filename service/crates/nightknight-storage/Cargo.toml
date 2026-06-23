@@ -1,0 +1,18 @@
+[package]
+name = "nightknight-storage"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Storage abstraction for NightKnight: the Storage trait, document/user/token model, and the portable SQL shared by the D1 and Postgres/SQLite backends."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+nightknight-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }

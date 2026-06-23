@@ -1,0 +1,54 @@
+# Cloudflare Worker configuration for NightKnight.
+#
+# Deploy from this directory:  wrangler deploy
+# Local dev (Miniflare + D1):   wrangler dev
+#
+# The Worker handles only /api/* (run_worker_first); the web SPA in web/dist is
+# served directly by Cloudflare Static Assets, with single-page-app fallback.
+name = "nightknight"
+main = "build/worker/shim.mjs"
+compatibility_date = "2024-11-01"
+
+# Reachable ONLY via the Access-gated custom domain (nightknight.cooney.be) — the
+# *.workers.dev route and preview URLs are disabled so there is no path that bypasses
+# the Cloudflare Access gate.
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+# CGM cloud sync schedules: every minute (latest readings), hourly (≈1 week
+# trailing backfill), and daily at 00:00 UTC (all available history). All three are
+# capped by what each vendor exposes (Dexcom Share ≤24h/288 pts; LibreLinkUp graph
+# ≈12h). Requires the connector key secret:
+#   wrangler secret put CF_CONNECTOR_KEY   (32 bytes, base64 or hex)
+[triggers]
+crons = ["* * * * *", "0 * * * *", "0 0 * * *"]
+
+# D1 database. Create it once with `wrangler d1 create nightknight` and paste the id.
+#[[d1_databases]]
+#binding = "DB"
+#database_name = "nightknight"
+#database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[[d1_databases]]
+binding = "DB" # i.e. available in your Worker on env.DB
+database_name = "nightknight"
+database_id = "bd51cfa4-c418-4859-9d7e-484eb28dcca9"
+
+# Static assets = the built web SPA (path is relative to this file).
+[assets]
+directory = "../../../web/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# Non-secret vars. CF_ACCESS_AUD is set as a secret at deploy time:
+#   wrangler secret put CF_ACCESS_AUD       (value: terraform output -raw nightknight_access_aud)
+# CF_TEAM_DOMAIN is your Zero Trust team subdomain (e.g. "cooney").
+[vars]
+CF_TEAM_DOMAIN = "cooney"
+# The worker independently requires a human to be in this Pocket ID group (in
+# addition to the Cloudflare Access edge policy). Service tokens / device tokens
+# (the API-key path) are exempt. Leave unset to disable the in-app group check.
+CF_REQUIRED_GROUP = "night_knight_users"

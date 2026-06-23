@@ -1,0 +1,229 @@
+//! NightKnight container server.
+//!
+//! An `axum` HTTP server that wraps the shared [`nightknight_api::ApiService`] over
+//! the SQLite/Postgres store and serves the web SPA. This is the deployment target
+//! for self-hosting **outside** Cloudflare (Docker + Postgres). The Cloudflare Worker
+//! runtime is a separate crate; both share all the logic underneath.
+//!
+//! ## Identity behind the gate
+//!
+//! The container expects to run behind a reverse proxy / identity provider (Pocket
+//! ID via oauth2-proxy, APISIX, etc.) that authenticates the user and forwards their
+//! identity in a header. `NK_AUTH_MODE` selects how the human identity is resolved:
+//!
+//! * `trust-header` (default) — read the email from `NK_AUTH_HEADER`
+//!   (default `x-auth-request-email`, what oauth2-proxy sets). **Only safe if the
+//!   proxy strips this header from inbound client requests.**
+//! * `dev` — a fixed identity from `NK_DEV_USER` (local development only).
+//! * `none` — no human identity; only device-token (`api-secret`/Bearer) auth works.
+//!
+//! Device-token auth always works regardless of mode (handled inside `ApiService`).
+
+mod connector;
+
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use axum::body::Bytes;
+use axum::http::{HeaderMap, Method as HttpMethod, StatusCode, Uri};
+use axum::response::Response;
+use axum::routing::{any, get};
+use axum::Router;
+use tower_http::services::{ServeDir, ServeFile};
+
+use nightknight_api::{ApiRequest, ApiResponse, ApiService, EdgeIdentity, Headers, Method, PrincipalKind};
+use nightknight_storage::Storage;
+use nightknight_store_sql::SqlStore;
+
+/// How human identity is resolved from the request (device tokens are separate).
+#[derive(Clone)]
+enum AuthMode {
+    TrustHeader { header: String, groups_header: String },
+    Dev { subject: String, groups: Vec<String> },
+    None,
+}
+
+/// Split a groups string (comma- or whitespace-separated) into trimmed entries.
+fn split_groups(s: &str) -> Vec<String> {
+    s.split([',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[derive(Clone)]
+struct AppState {
+    service: Arc<ApiService<SqlStore>>,
+    auth: AuthMode,
+}
+
+fn env_or(key: &str, default: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("NK_LOG")
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let database_url = env_or("NK_DATABASE_URL", "sqlite://nightknight.db?mode=rwc");
+    let bind = env_or("NK_BIND", "0.0.0.0:8787");
+    let web_dir = env_or("NK_WEB_DIR", "web/dist");
+
+    // Group requirement, enforced in-app (in addition to any upstream gate). When
+    // set, human principals must carry this group; service/device tokens are exempt.
+    let required_group = std::env::var("NK_REQUIRED_GROUP").ok().filter(|s| !s.is_empty());
+    // In dev mode the demo user gets the required group by default so local use works;
+    // override with NK_DEV_GROUPS to exercise the deny path.
+    let dev_groups = match std::env::var("NK_DEV_GROUPS") {
+        Ok(s) if !s.is_empty() => split_groups(&s),
+        _ => required_group.clone().into_iter().collect(),
+    };
+    let auth = match env_or("NK_AUTH_MODE", "trust-header").as_str() {
+        "dev" => AuthMode::Dev {
+            subject: env_or("NK_DEV_USER", "dev@localhost"),
+            groups: dev_groups,
+        },
+        "none" => AuthMode::None,
+        _ => AuthMode::TrustHeader {
+            header: env_or("NK_AUTH_HEADER", "x-auth-request-email"),
+            groups_header: env_or("NK_AUTH_GROUPS_HEADER", "x-auth-request-groups"),
+        },
+    };
+
+    tracing::info!(%database_url, %bind, %web_dir, ?required_group, "starting NightKnight server");
+
+    let store = SqlStore::connect(&database_url)
+        .await
+        .expect("connect to database");
+    store.migrate().await.expect("apply database schema");
+    // Connector encryption key (enables per-user CGM connector credentials + sync).
+    let connector_key = std::env::var("NK_CONNECTOR_KEY")
+        .ok()
+        .and_then(|v| nightknight_crypto::parse_key(&v).ok());
+    let service = Arc::new(
+        ApiService::new(store)
+            .require_group(required_group)
+            .with_connector_key(connector_key),
+    );
+
+    // Start the optional CGM cloud connector (Dexcom Share / LibreLinkUp) poller.
+    connector::spawn(service.clone());
+
+    let state = AppState { service, auth };
+
+    // SPA: serve static files, falling back to index.html for client-side routes.
+    let index = format!("{web_dir}/index.html");
+    let spa = ServeDir::new(&web_dir).not_found_service(ServeFile::new(index));
+
+    let app = Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .route("/api/{*rest}", any(api_handler))
+        .fallback_service(spa)
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind(&bind)
+        .await
+        .expect("bind listener");
+    tracing::info!("listening on http://{bind}");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("server error");
+}
+
+/// Translate an axum request into an [`ApiRequest`], dispatch it, and translate the
+/// [`ApiResponse`] back.
+async fn api_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    method: HttpMethod,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let req = build_request(&method, &uri, &headers, body.to_vec());
+    let edge = resolve_edge(&state.auth, &headers);
+    let resp = state.service.handle(req, now_ms(), edge).await;
+    to_axum_response(resp)
+}
+
+fn build_request(method: &HttpMethod, uri: &Uri, headers: &HeaderMap, body: Vec<u8>) -> ApiRequest {
+    let query = uri
+        .query()
+        .map(|q| {
+            q.split('&')
+                .filter_map(|kv| kv.split_once('='))
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let header_pairs = headers.iter().filter_map(|(k, v)| {
+        v.to_str().ok().map(|v| (k.as_str().to_string(), v.to_string()))
+    });
+    ApiRequest {
+        method: Method::parse(method.as_str()),
+        path: uri.path().to_string(),
+        query,
+        headers: Headers::from_pairs(header_pairs),
+        body,
+    }
+}
+
+/// Resolve the human identity from the configured auth mode. Returns `None` when no
+/// human identity is present (device-token-only requests).
+fn resolve_edge(auth: &AuthMode, headers: &HeaderMap) -> Option<EdgeIdentity> {
+    match auth {
+        AuthMode::TrustHeader { header, groups_header } => headers
+            .get(header.as_str())
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|email| EdgeIdentity {
+                subject: email.to_string(),
+                kind: PrincipalKind::Human,
+                display_name: headers
+                    .get("x-auth-request-user")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string),
+                groups: headers
+                    .get(groups_header.as_str())
+                    .and_then(|v| v.to_str().ok())
+                    .map(split_groups)
+                    .unwrap_or_default(),
+            }),
+        AuthMode::Dev { subject, groups } => Some(EdgeIdentity {
+            subject: subject.clone(),
+            kind: PrincipalKind::Human,
+            display_name: None,
+            groups: groups.clone(),
+        }),
+        AuthMode::None => None,
+    }
+}
+
+fn to_axum_response(resp: ApiResponse) -> Response {
+    let mut builder = Response::builder().status(StatusCode::from_u16(resp.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR));
+    for (k, v) in resp.headers {
+        builder = builder.header(k, v);
+    }
+    builder
+        .body(axum::body::Body::from(resp.body))
+        .unwrap_or_else(|_| Response::new(axum::body::Body::empty()))
+}
+
+/// Wait for Ctrl-C / SIGTERM for graceful shutdown.
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+    tracing::info!("shutdown signal received");
+}

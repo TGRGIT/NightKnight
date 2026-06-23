@@ -1,0 +1,154 @@
+# XcodeGen spec for the NightKnight iOS app.
+#   brew install xcodegen && cd ios && xcodegen generate && open NightKnight.xcodeproj
+#
+# We generate the project from this spec so the repo stays diff-friendly (no giant
+# .pbxproj). iOS 17+ for Swift Charts + App Intents.
+name: NightKnight
+options:
+  bundleIdPrefix: be.cooney.nightknight
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "" # set your Apple Developer team id
+
+targets:
+  NightKnight:
+    type: application
+    platform: iOS
+    sources:
+      - path: NightKnight
+      - path: Shared
+    info:
+      path: NightKnight/Info.plist
+      properties:
+        CFBundleDisplayName: NightKnight
+        UILaunchScreen: {}
+        NSHealthShareUsageDescription: "NightKnight reads glucose from Apple Health to show and analyse it."
+        NSHealthUpdateUsageDescription: "NightKnight writes glucose readings to Apple Health."
+        UIBackgroundModes: [fetch, processing]
+        # Allow http to localhost / local network (used for local dev against the server).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: NightKnight/NightKnight.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: [health-records]
+        com.apple.security.application-groups: [group.be.cooney.nightknight]
+        aps-environment: development
+    dependencies:
+      - target: NightKnightWidget
+      # Embed the watch app for a single App Store binary. link:false is essential —
+      # otherwise Xcode tries to LINK the watchOS app into the iOS binary and compiles
+      # the watch widget for iOS (breaking on watch-only families). embed:true copies
+      # the watch app (built for watchOS) into NightKnight.app/Watch/.
+      - target: NightKnightWatch
+        embed: true
+        link: false
+
+  NightKnightWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NightKnightWidget
+      - path: Shared
+    info:
+      path: NightKnightWidget/Info.plist
+      properties:
+        CFBundleDisplayName: NightKnight
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        # An app extension's bundle id MUST be a child of the host app's id.
+        PRODUCT_BUNDLE_IDENTIFIER: be.cooney.nightknight.NightKnight.Widget
+    entitlements:
+      path: NightKnightWidget/Widget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.be.cooney.nightknight]
+
+  NightKnightWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: NightKnightWatch
+      - path: Shared
+    info:
+      path: NightKnightWatch/Info.plist
+      properties:
+        CFBundleDisplayName: NightKnight
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: be.cooney.nightknight.NightKnight
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.cooney.nightknight.NightKnight.watchkitapp
+    entitlements:
+      path: NightKnightWatch/Watch.entitlements
+      properties:
+        com.apple.security.application-groups: [group.be.cooney.nightknight]
+    dependencies:
+      - target: NightKnightWatchWidget
+
+  NightKnightWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: NightKnightWatchWidget
+      - path: Shared
+    info:
+      path: NightKnightWatchWidget/Info.plist
+      properties:
+        CFBundleDisplayName: NightKnight
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: be.cooney.nightknight.NightKnight.watchkitapp.Widget
+    entitlements:
+      path: NightKnightWatchWidget/WatchWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.be.cooney.nightknight]
+
+  NightKnightUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: NightKnightUITests
+    dependencies:
+      - target: NightKnight
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: NightKnight
+
+schemes:
+  NightKnight:
+    build:
+      targets:
+        NightKnight: [run, test, profile, analyze, archive]
+        NightKnightUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - NightKnightUITests
+  # Build ONLY the watch app (+ its widget dependency) — not the iOS app/widget.
+  NightKnightWatch:
+    build:
+      targets:
+        NightKnightWatch: [run, profile, analyze, archive]
+    run:
+      config: Debug

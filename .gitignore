@@ -1,0 +1,48 @@
+# Rust
+/target
+**/target
+Cargo.lock.bak
+
+# Cloudflare / wrangler
+.wrangler/
+build/
+worker/
+
+# Node / web
+node_modules/
+web/build/
+web/.svelte-kit/
+# NB: web/dist/ is the hand-authored SPA (no build step) and IS tracked — do not
+# add a bare `dist/` rule here, it would swallow it.
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# D1 / sqlite local
+*.sqlite
+*.sqlite3
+*.db
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code per-user state (launch.json is shared dev config and IS tracked)
+.claude/settings.local.json
+.claude/worktrees/
+
+# iOS (phase 2)
+ios/build/
+ios/DerivedData/
+# xcodebuild output dirs (.build-sim, .build-embed, .build-watch, …)
+ios/.build-*/
+*.xcuserstate
+# Per-user Xcode state inside the (tracked) project — ignore just the noise.
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
