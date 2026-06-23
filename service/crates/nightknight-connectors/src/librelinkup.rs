@@ -28,6 +28,14 @@ pub fn regional_base(region: &str) -> String {
     format!("https://api-{}.libreview.io", region.trim().to_ascii_lowercase())
 }
 
+/// LibreView region codes are short alphanumeric tokens (e.g. `"eu"`, `"us"`, `"de"`).
+/// Validate before interpolating into the API host so a malformed/hostile value (a
+/// `/`, `@`, `.` …) can't repoint the request elsewhere via [`regional_base`].
+pub fn is_valid_region(region: &str) -> bool {
+    let r = region.trim();
+    !r.is_empty() && r.len() <= 16 && r.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
 /// SHA-256 hex of the user id — the value LibreLinkUp expects in the `account-id`
 /// header on authenticated requests.
 pub fn account_id_hash(user_id: &str) -> String {
@@ -102,6 +110,11 @@ pub fn parse_login(body: &[u8]) -> Result<LoginResult, ConnectorError> {
             .get("region")
             .and_then(|r| r.as_str())
             .ok_or_else(|| ConnectorError::Auth("login redirect without region".into()))?;
+        if !is_valid_region(region) {
+            return Err(ConnectorError::Auth(format!(
+                "login redirect with invalid region {region:?}"
+            )));
+        }
         return Ok(LoginResult::Redirect { region: region.to_string() });
     }
     let token = data
@@ -345,6 +358,16 @@ mod tests {
         let redir = br#"{"status":0,"data":{"redirect":true,"region":"eu"}}"#;
         assert_eq!(parse_login(redir).unwrap(), LoginResult::Redirect { region: "eu".into() });
         assert_eq!(regional_base("EU"), "https://api-eu.libreview.io");
+    }
+
+    /// A redirect carrying a hostile "region" (one that would reshape the API host)
+    /// is rejected rather than interpolated into the URL.
+    #[test]
+    fn rejects_redirect_with_invalid_region() {
+        assert!(is_valid_region("eu") && is_valid_region("ap-west"));
+        assert!(!is_valid_region("x/@evil.com") && !is_valid_region("a.b") && !is_valid_region(""));
+        let redir = br#"{"status":0,"data":{"redirect":true,"region":"x/@evil.com"}}"#;
+        assert!(matches!(parse_login(redir), Err(ConnectorError::Auth(_))));
     }
 
     /// A non-zero `status` (no `data` object) must surface the real reason — so the

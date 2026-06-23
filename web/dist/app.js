@@ -17,6 +17,16 @@ const state = {
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
+// Build an element safely. `text` is set via textContent (never parsed as HTML), so
+// user/vendor-controlled strings (token names, connector status) can't inject markup.
+function el(tag, { class: cls, text } = {}, children = []) {
+  const node = document.createElement(tag);
+  if (cls != null) node.className = cls;
+  if (text != null) node.textContent = text;
+  for (const c of children) node.appendChild(c);
+  return node;
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     credentials: "include",
@@ -120,7 +130,9 @@ async function refreshAnalytics() {
 async function loadMe() {
   try {
     const me = await api("/api/v4/me");
-    $("#user-email").textContent = me.subject || "";
+    // Prefer the human-readable display name; `subject` is now a namespaced internal
+    // key (e.g. "human:<sub>"), not an email.
+    $("#user-email").textContent = me.displayName || me.subject || "";
     if (me.preferredUnit) { state.unit = me.preferredUnit; localStorage.setItem("nk-unit", state.unit); }
   } catch (_) {}
   syncActive(".unit-toggle", "unit", state.unit);
@@ -144,12 +156,15 @@ async function loadConnectors() {
     for (const c of connectors) {
       const ok = (c.lastStatus || "").startsWith("ok");
       const dot = c.lastStatus ? (ok ? "ok" : "err") : "";
-      const li = document.createElement("li");
-      li.innerHTML =
-        `<span><span class="s-dot ${dot}"></span><span class="s-title">${names[c.provider] || c.provider}</span>` +
-        `<div class="s-sub">${c.lastStatus || "awaiting first sync"} · ${fmtAgo(c.lastSyncAt)}</div></span>`;
-      const btn = document.createElement("button");
-      btn.textContent = "Remove";
+      // textContent-only: `lastStatus` carries upstream/vendor text and must not be
+      // rendered as HTML.
+      const wrap = el("span", {}, [
+        el("span", { class: `s-dot ${dot}` }),
+        el("span", { class: "s-title", text: names[c.provider] || c.provider }),
+        el("div", { class: "s-sub", text: `${c.lastStatus || "awaiting first sync"} · ${fmtAgo(c.lastSyncAt)}` }),
+      ]);
+      const li = el("li", {}, [wrap]);
+      const btn = el("button", { text: "Remove" });
       btn.onclick = async () => { await api(`/api/v4/connectors/${c.provider}`, { method: "DELETE" }); loadConnectors(); };
       li.appendChild(btn);
       list.appendChild(li);
@@ -180,10 +195,13 @@ async function loadTokens() {
     const { tokens } = await api("/api/v4/tokens");
     const list = $("#token-list"); list.innerHTML = "";
     for (const t of tokens.filter((t) => !t.revoked)) {
-      const li = document.createElement("li");
-      li.innerHTML = `<span><span class="s-title">${t.name}</span><div class="s-sub">${t.scopes.join(", ")}</div></span>`;
-      const btn = document.createElement("button");
-      btn.textContent = "Revoke";
+      // textContent-only: token name/scopes are arbitrary strings from the API.
+      const wrap = el("span", {}, [
+        el("span", { class: "s-title", text: t.name }),
+        el("div", { class: "s-sub", text: t.scopes.join(", ") }),
+      ]);
+      const li = el("li", {}, [wrap]);
+      const btn = el("button", { text: "Revoke" });
       btn.onclick = async () => { await api(`/api/v4/tokens/${t.id}`, { method: "DELETE" }); loadTokens(); };
       li.appendChild(btn); list.appendChild(li);
     }

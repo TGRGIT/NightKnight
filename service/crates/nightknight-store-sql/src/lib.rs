@@ -372,3 +372,21 @@ impl Storage for SqlStore {
 
 #[cfg(test)]
 mod contract_tests;
+
+#[cfg(test)]
+mod placeholder_tests {
+    use super::to_pg_placeholders;
+
+    /// `?` placeholders are rewritten to `$1, $2, …` in order, and text without
+    /// placeholders is untouched. NB: this rewrite is only correct while none of the
+    /// shared SQL uses Postgres `?`/`?|`/`?&` JSON operators — keep it that way.
+    #[test]
+    fn rewrites_question_marks_in_order() {
+        assert_eq!(to_pg_placeholders("a=? AND b=?"), "a=$1 AND b=$2");
+        assert_eq!(
+            to_pg_placeholders("INSERT INTO t VALUES (?,?,?)"),
+            "INSERT INTO t VALUES ($1,$2,$3)"
+        );
+        assert_eq!(to_pg_placeholders("SELECT 1"), "SELECT 1");
+    }
+}

@@ -293,6 +293,108 @@ async fn users_are_isolated_end_to_end() {
     assert_eq!(arr[0]["sgv"], 222);
 }
 
+/// SECURITY (IDOR): knowing another user's document identifier must grant no access to
+/// it. Every store query is scoped to the caller's own `user_id` and the primary key
+/// is `(user_id, identifier)`, so the same id in another user's namespace is a wholly
+/// separate row. Bob can neither read, delete, nor overwrite Alice's document by its
+/// exact id, and the same isolation holds for device tokens.
+#[tokio::test]
+async fn one_user_cannot_reach_anothers_data_by_id() {
+    let svc = service().await;
+    let alice = || Some(human("alice@cooney.be"));
+    let bob = || Some(human("bob@cooney.be"));
+
+    // Alice creates a document; we learn its exact identifier.
+    let created = svc
+        .handle(request("POST", "/api/v3/entries", &[], sgv(111)), NOW, alice())
+        .await;
+    assert_eq!(created.status, 201);
+    let alice_id = body_json(&created)["result"]["identifier"].as_str().unwrap().to_string();
+    let path = format!("/api/v3/entries/{alice_id}");
+
+    // Bob cannot READ Alice's document by its id …
+    let read = svc.handle(request("GET", &path, &[], Value::Null), NOW, bob()).await;
+    assert_eq!(read.status, 404, "Bob must not read Alice's document by id");
+
+    // … nor DELETE it …
+    let del = svc.handle(request("DELETE", &path, &[], Value::Null), NOW, bob()).await;
+    assert_eq!(del.status, 404, "Bob must not delete Alice's document by id");
+
+    // … and a PUT to that id writes into BOB's own namespace, never Alice's row.
+    let put = svc
+        .handle(
+            request("PUT", &path, &[], json!({ "type": "sgv", "date": NOW - 60_000, "sgv": 999, "device": "bob" })),
+            NOW,
+            bob(),
+        )
+        .await;
+    assert_eq!(put.status, 200);
+
+    // Alice's document is untouched (still 111); Bob sees only his own value (999).
+    let alice_view = svc.handle(request("GET", &path, &[], Value::Null), NOW, alice()).await;
+    assert_eq!(body_json(&alice_view)["result"]["sgv"], 111, "Alice's data is unchanged");
+    let bob_view = svc.handle(request("GET", &path, &[], Value::Null), NOW, bob()).await;
+    assert_eq!(body_json(&bob_view)["result"]["sgv"], 999, "Bob has his own separate row");
+
+    // Device tokens are isolated the same way: Bob cannot revoke Alice's token.
+    let mk = svc
+        .handle(request("POST", "/api/v4/tokens", &[], json!({ "name": "alice-phone" })), NOW, alice())
+        .await;
+    let alice_token_id = body_json(&mk)["id"].as_str().unwrap().to_string();
+    let bob_revoke = svc
+        .handle(request("DELETE", &format!("/api/v4/tokens/{alice_token_id}"), &[], Value::Null), NOW, bob())
+        .await;
+    assert_eq!(bob_revoke.status, 404, "Bob must not revoke Alice's token");
+    let alice_tokens = svc.handle(request("GET", "/api/v4/tokens", &[], Value::Null), NOW, alice()).await;
+    assert_eq!(
+        body_json(&alice_tokens)["tokens"].as_array().map(|a| a.len()),
+        Some(1),
+        "Alice's token survived Bob's revoke attempt"
+    );
+}
+
+/// SECURITY (namespace confusion): a service token whose `common_name` equals a human's
+/// email must NOT resolve to that human. Humans (`human:`) and machines (`service:`) are
+/// namespaced apart, so the service principal lands in its own, separate account and
+/// sees none of the human's data — even though service tokens bypass the group gate.
+#[tokio::test]
+async fn service_token_cannot_impersonate_human_by_subject() {
+    let svc = service_requiring_group("night_knight_users").await;
+    // A real human (in the required group) stores a reading.
+    svc.handle(
+        request("POST", "/api/v1/entries", &[], sgv(111)),
+        NOW,
+        Some(human_in("alice@cooney.be", &["night_knight_users"])),
+    )
+    .await;
+    // Attacker presents a service token named exactly like Alice's email.
+    let attacker = svc
+        .handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, Some(service_token("alice@cooney.be")))
+        .await;
+    assert_eq!(attacker.status, 200, "service token authenticates into its OWN namespace");
+    assert_eq!(
+        body_json(&attacker).as_array().unwrap().len(),
+        0,
+        "but it sees none of Alice's data"
+    );
+}
+
+/// A service token (machine principal) is least-privilege: it may read and upload CGM
+/// data, but cannot administer device tokens / connectors or change account settings.
+#[tokio::test]
+async fn service_token_is_least_privilege() {
+    let svc = service().await;
+    let st = || Some(service_token("uploader.svc"));
+    // Allowed: upload an entry (has `api:entries:create`).
+    let up = svc.handle(request("POST", "/api/v1/entries", &[], sgv(120)), NOW, st()).await;
+    assert_eq!(up.status, 200, "service token may upload CGM data");
+    // Denied: minting device tokens (needs tokens:admin) and changing settings.
+    let mint = svc.handle(request("POST", "/api/v4/tokens", &[], json!({ "name": "x" })), NOW, st()).await;
+    assert_eq!(mint.status, 403, "service token cannot mint device tokens");
+    let me = svc.handle(request("PUT", "/api/v4/me", &[], json!({ "preferredUnit": "mmol/l" })), NOW, st()).await;
+    assert_eq!(me.status, 403, "service token cannot change settings");
+}
+
 /// SECURITY (defence in depth): when a required group is configured, the app itself
 /// refuses a human who lacks it — not relying on the Cloudflare Access edge alone.
 /// A member is admitted; a machine service token is exempt (the "API key" path).

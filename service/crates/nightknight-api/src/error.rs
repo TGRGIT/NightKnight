@@ -18,6 +18,8 @@ pub enum ApiError {
     NotFound,
     #[error("bad request: {0}")]
     BadRequest(String),
+    #[error("payload too large")]
+    PayloadTooLarge,
     #[error("conflict: {0}")]
     Conflict(String),
     #[error("storage error: {0}")]
@@ -33,6 +35,7 @@ impl ApiError {
             ApiError::Forbidden(_) => 403,
             ApiError::NotFound => 404,
             ApiError::BadRequest(_) => 400,
+            ApiError::PayloadTooLarge => 413,
             ApiError::Conflict(_) => 409,
             ApiError::Storage(_) | ApiError::Internal(_) => 500,
         }

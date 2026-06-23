@@ -13,7 +13,11 @@
 //!
 //! * `trust-header` (default) — read the email from `NK_AUTH_HEADER`
 //!   (default `x-auth-request-email`, what oauth2-proxy sets). **Only safe if the
-//!   proxy strips this header from inbound client requests.**
+//!   proxy strips this header from inbound client requests.** For defence in depth,
+//!   set `NK_PROXY_SHARED_SECRET` (and have the proxy send it in `NK_PROXY_SECRET_HEADER`,
+//!   default `x-internal-auth`): identity headers are then trusted only when that
+//!   secret matches, so a forged `x-auth-request-email` alone cannot impersonate a
+//!   user. Without it the server still runs but logs a warning at startup.
 //! * `dev` — a fixed identity from `NK_DEV_USER` (local development only).
 //! * `none` — no human identity; only device-token (`api-secret`/Bearer) auth works.
 //!
@@ -38,9 +42,31 @@ use nightknight_store_sql::SqlStore;
 /// How human identity is resolved from the request (device tokens are separate).
 #[derive(Clone)]
 enum AuthMode {
-    TrustHeader { header: String, groups_header: String },
+    TrustHeader {
+        header: String,
+        groups_header: String,
+        /// Optional shared secret the upstream proxy must present (header name,
+        /// expected value). When set, identity headers are trusted ONLY if this
+        /// matches — so a forged `x-auth-request-email` on its own cannot impersonate
+        /// a user even if the proxy fails to strip inbound auth headers.
+        proxy_secret: Option<(String, String)>,
+    },
     Dev { subject: String, groups: Vec<String> },
     None,
+}
+
+/// Constant-time string comparison for the proxy shared secret (avoids leaking how
+/// many leading bytes matched). The length is allowed to leak.
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Split a groups string (comma- or whitespace-separated) into trimmed entries.
@@ -97,10 +123,29 @@ async fn main() {
             groups: dev_groups,
         },
         "none" => AuthMode::None,
-        _ => AuthMode::TrustHeader {
-            header: env_or("NK_AUTH_HEADER", "x-auth-request-email"),
-            groups_header: env_or("NK_AUTH_GROUPS_HEADER", "x-auth-request-groups"),
-        },
+        _ => {
+            // Optional defence: require the proxy to present a shared secret before we
+            // trust any identity header. Without it we still work (back-compat), but a
+            // misconfigured proxy that forwards client-supplied auth headers would be
+            // spoofable — so warn loudly.
+            let proxy_secret = std::env::var("NK_PROXY_SHARED_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|secret| (env_or("NK_PROXY_SECRET_HEADER", "x-internal-auth"), secret));
+            if proxy_secret.is_none() {
+                tracing::warn!(
+                    "NK_AUTH_MODE=trust-header without NK_PROXY_SHARED_SECRET: identity \
+                     headers are trusted unconditionally. Ensure the upstream proxy strips \
+                     inbound auth headers from client requests, or set NK_PROXY_SHARED_SECRET \
+                     (and have the proxy send it) so a forged header alone cannot impersonate."
+                );
+            }
+            AuthMode::TrustHeader {
+                header: env_or("NK_AUTH_HEADER", "x-auth-request-email"),
+                groups_header: env_or("NK_AUTH_GROUPS_HEADER", "x-auth-request-groups"),
+                proxy_secret,
+            }
+        }
     };
 
     tracing::info!(%database_url, %bind, %web_dir, ?required_group, "starting NightKnight server");
@@ -185,23 +230,38 @@ fn build_request(method: &HttpMethod, uri: &Uri, headers: &HeaderMap, body: Vec<
 /// human identity is present (device-token-only requests).
 fn resolve_edge(auth: &AuthMode, headers: &HeaderMap) -> Option<EdgeIdentity> {
     match auth {
-        AuthMode::TrustHeader { header, groups_header } => headers
+        AuthMode::TrustHeader { header, groups_header, proxy_secret } => {
+            // If a shared secret is configured, the proxy must present it; otherwise we
+            // do not trust the identity headers at all (fail closed → device-token-only).
+            if let Some((secret_header, expected)) = proxy_secret {
+                let presented = headers.get(secret_header.as_str()).and_then(|v| v.to_str().ok());
+                if !presented.map(|p| ct_eq(p, expected)).unwrap_or(false) {
+                    return None;
+                }
+            }
+            headers
             .get(header.as_str())
             .and_then(|v| v.to_str().ok())
+            .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|email| EdgeIdentity {
-                subject: email.to_string(),
+                // Normalize the tenancy key (the proxy has no immutable `sub` to offer,
+                // so email is the key here): trim + lowercase so casing can't fork a
+                // user into two tenants. The runtime namespaces it as `human:…`.
+                subject: email.to_ascii_lowercase(),
                 kind: PrincipalKind::Human,
                 display_name: headers
                     .get("x-auth-request-user")
                     .and_then(|v| v.to_str().ok())
-                    .map(str::to_string),
+                    .map(str::to_string)
+                    .or_else(|| Some(email.to_string())),
                 groups: headers
                     .get(groups_header.as_str())
                     .and_then(|v| v.to_str().ok())
                     .map(split_groups)
                     .unwrap_or_default(),
-            }),
+            })
+        }
         AuthMode::Dev { subject, groups } => Some(EdgeIdentity {
             subject: subject.clone(),
             kind: PrincipalKind::Human,

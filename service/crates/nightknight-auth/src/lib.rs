@@ -43,6 +43,8 @@ pub enum AuthError {
     InvalidSignature,
     #[error("token expired")]
     Expired,
+    #[error("token has no expiry claim")]
+    MissingExpiry,
     #[error("token not yet valid")]
     NotYetValid,
     #[error("audience mismatch")]

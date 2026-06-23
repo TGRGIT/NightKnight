@@ -44,6 +44,11 @@ use identifier::{derive_identifier, extract_doc_type, extract_mills};
 pub const SERVICE_NAME: &str = "nightknight";
 pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Maximum accepted request-body size. Generous enough for large bulk uploads /
+/// history backfills, but bounds the memory a single request can pin. Anything larger
+/// is rejected with 413 before parsing.
+pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
 /// device-token request, or an unauthenticated request that will be rejected).
@@ -55,6 +60,33 @@ pub struct EdgeIdentity {
     /// Group memberships the runtime resolved for a human (from the Access
     /// `get-identity` endpoint, or a trusted proxy header). Empty for service tokens.
     pub groups: Vec<String>,
+}
+
+impl EdgeIdentity {
+    /// The namespaced tenancy key used to key the app's user. Humans and machines live
+    /// in **separate** namespaces (`human:` vs `service:`), so a service-token
+    /// `common_name` (or an OIDC `sub`) can never collide with a human's email/sub and
+    /// resolve to that human's account. The kind comes from the verified token, not
+    /// from anything the client controls.
+    fn tenant_subject(&self) -> String {
+        let prefix = match self.kind {
+            PrincipalKind::Human => "human",
+            PrincipalKind::Service => "service",
+        };
+        format!("{prefix}:{}", self.subject.trim())
+    }
+}
+
+/// Default authority for a machine (service-token) principal: read everything and write
+/// CGM data, but NOT manage device tokens / connectors or change settings — those are
+/// owner-only. Deliberately narrower than a human owner's all-access (`*:*:*`).
+fn service_scopes() -> ScopeSet {
+    ScopeSet::parse_all([
+        "api:*:read",
+        "api:entries:create",
+        "api:treatments:create",
+        "api:devicestatus:create",
+    ])
 }
 
 /// The authenticated principal for a request: which user, and what they may do.
@@ -130,6 +162,10 @@ impl<S: Storage> ApiService<S> {
         now_ms: i64,
         edge: Option<EdgeIdentity>,
     ) -> ApiResponse {
+        // Bound memory use: reject oversized bodies before any parsing/routing.
+        if req.body.len() > MAX_BODY_BYTES {
+            return ApiError::PayloadTooLarge.into_response();
+        }
         match self.route(req, now_ms, edge).await {
             Ok(resp) => resp,
             Err(e) => e.into_response(),
@@ -207,30 +243,44 @@ impl<S: Storage> ApiService<S> {
                     }
                 }
             }
+            // A human (passkey/OTP) owns their data → all-access. A bare service token
+            // is the machine/API-key path → least-privilege (read + CGM-data writes),
+            // never token/connector/settings administration.
+            let scopes = match edge.kind {
+                PrincipalKind::Human => ScopeSet::all(),
+                PrincipalKind::Service => service_scopes(),
+            };
             let user = self.get_or_create_user(&edge, now_ms).await?;
             return Ok(Principal {
+                subject: user.subject.clone(),
                 user,
-                scopes: ScopeSet::all(),
-                subject: edge.subject,
+                scopes,
             });
         }
 
         Err(ApiError::Unauthorized)
     }
 
-    /// Find the user for an edge identity, creating one on first sight. The very
-    /// first user created becomes an admin (bootstrap).
+    /// Find the user for an edge identity, creating one on first sight. New users are
+    /// created non-admin; `is_admin` is reserved for future use and is never granted
+    /// automatically (there is no privileged bootstrap user).
     async fn get_or_create_user(
         &self,
         edge: &EdgeIdentity,
         now_ms: i64,
     ) -> Result<User, ApiError> {
-        if let Some(u) = self.storage.get_user_by_subject(&edge.subject).await? {
+        // Reject an empty/blank identity outright — never key a user on "" (which would
+        // otherwise become a shared bucket). Users are keyed by the namespaced subject.
+        if edge.subject.trim().is_empty() {
+            return Err(ApiError::Unauthorized);
+        }
+        let subject = edge.tenant_subject();
+        if let Some(u) = self.storage.get_user_by_subject(&subject).await? {
             return Ok(u);
         }
         let user = User {
             id: Uuid::new_v4().to_string(),
-            subject: edge.subject.clone(),
+            subject: subject.clone(),
             display_name: edge.display_name.clone(),
             is_admin: false,
             preferred_unit: "mg/dl".to_string(),
@@ -240,7 +290,7 @@ impl<S: Storage> ApiService<S> {
         // Re-read to get the canonical row (handles a race where another request
         // created the same subject concurrently).
         self.storage
-            .get_user_by_subject(&edge.subject)
+            .get_user_by_subject(&subject)
             .await?
             .ok_or_else(|| ApiError::Internal("user vanished after create".into()))
     }

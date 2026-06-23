@@ -112,6 +112,25 @@ impl Scope {
         perm.action == Action::Read
             && matches!(self.action.as_str(), "create" | "update" | "delete" | "admin")
     }
+
+    /// Whether this granted scope fully *covers* another scope (which may itself
+    /// contain wildcards). Unlike [`grants`](Self::grants) — which answers a concrete
+    /// permission — this delegates authority: a token may only be issued scopes its
+    /// issuer already holds. A concrete segment never covers a `*`; only `*` covers
+    /// `*`. Write actions still imply `read`.
+    pub fn covers(&self, other: &Scope) -> bool {
+        fn seg_covers(granted: &str, requested: &str) -> bool {
+            granted == "*" || granted == requested
+        }
+        if !seg_covers(&self.api, &other.api) || !seg_covers(&self.collection, &other.collection) {
+            return false;
+        }
+        if seg_covers(&self.action, &other.action) {
+            return true;
+        }
+        other.action == "read"
+            && matches!(self.action.as_str(), "create" | "update" | "delete" | "admin")
+    }
 }
 
 impl fmt::Display for Scope {
@@ -142,6 +161,13 @@ impl ScopeSet {
     /// Whether any scope in the set grants the permission.
     pub fn grants(&self, perm: &Permission) -> bool {
         self.0.iter().any(|s| s.grants(perm))
+    }
+
+    /// Whether the set fully covers `scope` — i.e. the holder is entitled to delegate
+    /// it to a new token. Used to stop a token being minted with more authority than
+    /// its issuer holds. (The owner holds `*:*:*`, so this is a no-op for them.)
+    pub fn covers(&self, scope: &Scope) -> bool {
+        self.0.iter().any(|s| s.covers(scope))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -200,5 +226,25 @@ mod tests {
     fn malformed_scopes_are_ignored() {
         let set = ScopeSet::parse_all(["", "api:entries", "a:b:c:d", "api::read"]);
         assert!(set.is_empty(), "no malformed scope should be retained");
+    }
+
+    /// Delegation: a token may only be issued scopes its holder already covers. A
+    /// narrow holder cannot mint a broader (wildcard) token; the owner can mint
+    /// anything. Write still implies read.
+    #[test]
+    fn covers_constrains_delegation() {
+        let admin = ScopeSet::all();
+        assert!(admin.covers(&Scope::parse("api:entries:create").unwrap()));
+        assert!(admin.covers(&Scope::parse("*:*:*").unwrap()));
+
+        let narrow = ScopeSet::parse_all(["api:entries:create"]);
+        // Exactly what it holds, and read (implied by create) — yes.
+        assert!(narrow.covers(&Scope::parse("api:entries:create").unwrap()));
+        assert!(narrow.covers(&Scope::parse("api:entries:read").unwrap()));
+        // Anything broader — no.
+        assert!(!narrow.covers(&Scope::parse("api:entries:*").unwrap()));
+        assert!(!narrow.covers(&Scope::parse("api:*:read").unwrap()));
+        assert!(!narrow.covers(&Scope::parse("api:treatments:create").unwrap()));
+        assert!(!narrow.covers(&Scope::parse("*:*:*").unwrap()));
     }
 }

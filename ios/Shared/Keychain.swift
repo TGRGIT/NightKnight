@@ -14,7 +14,11 @@ enum Keychain {
         SecItemDelete(query as CFDictionary)
         var attrs = query
         attrs[kSecValueData as String] = data
-        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        // `ThisDeviceOnly` keeps the token/secret out of encrypted backups and iCloud
+        // Keychain sync, so the credential can't leave this device. Still readable in
+        // the background (after first unlock) for the widget/watch. It won't migrate on
+        // device restore — acceptable, since a device token is simply re-issued.
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(attrs as CFDictionary, nil)
     }
 

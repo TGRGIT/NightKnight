@@ -140,10 +140,13 @@ impl Verifier {
         let claims: Claims =
             serde_json::from_slice(&payload_bytes).map_err(|e| AuthError::Decode(e.to_string()))?;
 
-        if let Some(exp) = claims.exp {
-            if now_secs > exp + self.leeway_secs {
-                return Err(AuthError::Expired);
-            }
+        // A token MUST carry an expiry. Without this, a token that simply omits `exp`
+        // would be treated as "never expires" — so we reject it rather than skip the
+        // check. (Cloudflare Access always sets `exp`; a misconfigured OIDC issuer
+        // might not.)
+        let exp = claims.exp.ok_or(AuthError::MissingExpiry)?;
+        if now_secs > exp + self.leeway_secs {
+            return Err(AuthError::Expired);
         }
         if let Some(nbf) = claims.nbf {
             if now_secs + self.leeway_secs < nbf {
@@ -161,16 +164,31 @@ impl Verifier {
             }
         }
 
-        // Build the identity. Prefer email (human), else common_name (service token),
-        // else the opaque subject.
-        let (subject, kind) = if let Some(email) = &claims.email {
-            (email.clone(), PrincipalKind::Human)
-        } else if let Some(cn) = &claims.common_name {
-            (cn.clone(), PrincipalKind::Service)
-        } else if let Some(sub) = &claims.sub {
-            (sub.clone(), PrincipalKind::Human)
+        // Build the identity. A token carrying an `email` (or neither email nor
+        // common_name) is a human; a `common_name` with no email is a machine
+        // (Cloudflare Access service token).
+        //
+        // For humans the tenancy key is the **immutable `sub`** when present — email is
+        // display only — so changing one's email at the IdP can't repoint their data;
+        // a normalized email is the fallback. Empty/blank identifiers are rejected. The
+        // value returned here is the *raw* subject; the runtime namespaces it by
+        // [`PrincipalKind`] before using it as a tenancy key (humans and machines never
+        // share a namespace).
+        let has_email = claims.email.as_deref().map(str::trim).is_some_and(|e| !e.is_empty());
+        let (subject, kind) = if has_email || claims.common_name.is_none() {
+            let subject = human_subject(claims.sub.as_deref(), claims.email.as_deref())
+                .ok_or(AuthError::NoSubject)?;
+            (subject, PrincipalKind::Human)
         } else {
-            return Err(AuthError::NoSubject);
+            let subject = claims
+                .common_name
+                .as_deref()
+                .or(claims.sub.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or(AuthError::NoSubject)?
+                .to_string();
+            (subject, PrincipalKind::Service)
         };
 
         Ok(Identity {
@@ -180,6 +198,17 @@ impl Verifier {
             common_name: claims.common_name,
         })
     }
+}
+
+/// The raw tenancy key for a human: the immutable `sub` if present, else a trimmed,
+/// lowercased email. `None` if neither yields a non-empty value.
+fn human_subject(sub: Option<&str>, email: Option<&str>) -> Option<String> {
+    if let Some(s) = sub.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(s.to_string());
+    }
+    email
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
 }
 
 /// Does the JWT `aud` claim (a string or an array of strings) contain `expected`?
@@ -247,6 +276,23 @@ mod tests {
             .verify(&token, &jwks, NOW)
             .unwrap();
         assert_eq!(id.kind, PrincipalKind::Human);
+        // The tenancy key is the immutable `sub`, not the (mutable) email; the email is
+        // retained as a display attribute.
+        assert_eq!(id.subject, "abc");
+        assert_eq!(id.email.as_deref(), Some("alice@cooney.be"));
+    }
+
+    /// A human token with NO `sub` falls back to a normalized (lowercased) email, and
+    /// case differences don't create two tenants.
+    #[test]
+    fn human_without_sub_keys_on_normalized_email() {
+        let (sk, pk) = keypair();
+        let jwks = jwks_for(&pk);
+        let claims = format!(r#"{{ "aud": "app-aud-tag", "email": "Alice@Cooney.BE", "exp": {} }}"#, NOW + 600);
+        let token = sign_jwt(&sk, "test", &claims);
+        let id = Verifier::cloudflare_access("app-aud-tag")
+            .verify(&token, &jwks, NOW)
+            .unwrap();
         assert_eq!(id.subject, "alice@cooney.be");
     }
 
@@ -311,6 +357,20 @@ mod tests {
             .verify(&token, &jwks, NOW)
             .unwrap_err();
         assert!(matches!(err, AuthError::InvalidSignature));
+    }
+
+    /// A validly-signed token with NO `exp` claim is rejected — otherwise it would
+    /// never expire and a leaked token would be usable forever.
+    #[test]
+    fn rejects_token_without_expiry() {
+        let (sk, pk) = keypair();
+        let jwks = jwks_for(&pk);
+        let claims = r#"{ "aud": "app-aud-tag", "email": "a@b.c" }"#;
+        let token = sign_jwt(&sk, "test", claims);
+        let err = Verifier::cloudflare_access("app-aud-tag")
+            .verify(&token, &jwks, NOW)
+            .unwrap_err();
+        assert!(matches!(err, AuthError::MissingExpiry));
     }
 
     /// `alg: none` (and other non-RS256) tokens are rejected outright — a classic JWT

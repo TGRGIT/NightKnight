@@ -11,7 +11,7 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use nightknight_auth::{Action, Permission};
+use nightknight_auth::{Action, Permission, Scope};
 use nightknight_core::analytics::{GlucoseReading, GlucoseSummary, TirThresholds};
 use nightknight_core::documents::Entry;
 use nightknight_core::timeutil;
@@ -191,6 +191,9 @@ impl<S: Storage> ApiService<S> {
         req: &ApiRequest,
         principal: &Principal,
     ) -> Result<ApiResponse, ApiError> {
+        // Mutating the profile is an owner/admin action — a read-only follower token
+        // must not be able to change the account's unit or display name.
+        principal.require(Permission::api("settings", Action::Admin))?;
         let body = req.body_json()?;
         let mut user = principal.user.clone();
         if let Some(unit) = body.get("preferredUnit").and_then(|v| v.as_str()) {
@@ -237,6 +240,19 @@ impl<S: Storage> ApiService<S> {
             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
             // Default: a read-only follower token. Callers grant create scopes explicitly.
             .unwrap_or_else(|| vec!["api:entries:read".into(), "api:treatments:read".into()]);
+
+        // No privilege escalation: a token may only be issued scopes the caller itself
+        // holds. The owner holds `*:*:*` so this is a no-op for them, but it stops a
+        // token that merely has `api:tokens:admin` from minting a broader one.
+        for s in &scopes {
+            let scope = Scope::parse(s)
+                .ok_or_else(|| ApiError::BadRequest(format!("malformed scope '{s}'")))?;
+            if !principal.scopes.covers(&scope) {
+                return Err(ApiError::Forbidden(format!(
+                    "cannot grant scope '{s}' beyond your own access"
+                )));
+            }
+        }
 
         let raw = format!("nk_{}", Uuid::new_v4().simple());
         let token = DeviceToken {
