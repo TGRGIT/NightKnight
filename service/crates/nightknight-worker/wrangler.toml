@@ -52,7 +52,3 @@ CF_TEAM_DOMAIN = "cooney"
 # addition to the Cloudflare Access edge policy). Service tokens / device tokens
 # (the API-key path) are exempt. Leave unset to disable the in-app group check.
 CF_REQUIRED_GROUP = "night_knight_users"
-# One-time migration: re-key pre-namespacing users (bare email) to the namespaced
-# `human:<sub>` key on their next login, preserving their data. Safe to REMOVE once every
-# existing user has logged in once after this deploy.
-MIGRATE_LEGACY_SUBJECTS = "true"
