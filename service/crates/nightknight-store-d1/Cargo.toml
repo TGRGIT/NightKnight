@@ -1,0 +1,23 @@
+[package]
+name = "nightknight-store-d1"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Cloudflare D1 (SQLite-on-Workers) Storage backend for NightKnight. wasm32 only; reuses the portable SQL shared with the sqlx backend."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+nightknight-core = { workspace = true }
+nightknight-storage = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+
+# The Workers runtime + D1 bindings exist only on wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { workspace = true }

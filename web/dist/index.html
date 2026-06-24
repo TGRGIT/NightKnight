@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>NightKnight</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="aurora" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <img src="/favicon.svg" alt="" class="brand-mark" width="30" height="30" />
+        <span class="brand-name">Night<span class="brand-accent">Knight</span></span>
+      </div>
+      <div class="topbar-right">
+        <div class="seg unit-toggle" role="group" aria-label="Glucose unit">
+          <button data-unit="mg/dl" class="seg-btn">mg/dL</button>
+          <button data-unit="mmol/l" class="seg-btn">mmol/L</button>
+        </div>
+        <span id="user-email" class="user-email"></span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- Current reading -->
+      <section class="card hero" id="hero" aria-live="polite">
+        <div class="hero-main">
+          <span id="bg-value" class="bg-value">--</span>
+          <div class="hero-side">
+            <span id="bg-unit" class="bg-unit">mg/dL</span>
+            <span id="bg-trend" class="bg-trend">·</span>
+          </div>
+        </div>
+        <div class="hero-meta">
+          <span id="bg-delta" class="pill"></span>
+          <span id="bg-age" class="bg-age">—</span>
+        </div>
+      </section>
+
+      <!-- Trailing analytics -->
+      <section class="card analytics-card">
+        <div class="card-head">
+          <h2>Trailing summary</h2>
+          <div class="seg period-toggle" role="group" aria-label="Trailing period">
+            <button data-days="1" class="seg-btn">24h</button>
+            <button data-days="7" class="seg-btn is-active">7d</button>
+            <button data-days="14" class="seg-btn">14d</button>
+            <button data-days="30" class="seg-btn">30d</button>
+            <button data-days="90" class="seg-btn">90d</button>
+          </div>
+        </div>
+        <div class="metric-grid">
+          <div class="metric metric-hero">
+            <span class="metric-label">Est. A1c</span>
+            <span id="m-a1c" class="metric-value">--<small>%</small></span>
+            <span id="m-gmi" class="metric-sub">GMI —</span>
+          </div>
+          <div class="metric metric-hero">
+            <span class="metric-label">Avg glucose</span>
+            <span id="m-avg" class="metric-value">--</span>
+            <span id="m-avg-unit" class="metric-sub">mg/dL</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">In range</span>
+            <span id="m-tir" class="metric-value">--<small>%</small></span>
+            <span id="m-n" class="metric-sub">— readings</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Variability (CV)</span>
+            <span id="m-cv" class="metric-value">--<small>%</small></span>
+            <span id="m-cv-note" class="metric-sub">—</span>
+          </div>
+        </div>
+        <div class="tir-bar" id="tir-bar" aria-label="Time in range distribution"></div>
+        <div class="tir-legend" id="tir-legend"></div>
+      </section>
+
+      <!-- Glucose chart -->
+      <section class="card chart-card">
+        <div class="card-head">
+          <h2>Glucose</h2>
+          <div class="seg range-toggle" role="group" aria-label="Chart range">
+            <button data-hours="3" class="seg-btn">3h</button>
+            <button data-hours="6" class="seg-btn">6h</button>
+            <button data-hours="12" class="seg-btn">12h</button>
+            <button data-hours="24" class="seg-btn is-active">24h</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart" role="img" aria-label="Glucose over time"></canvas>
+          <div id="chart-empty" class="chart-empty" hidden>No glucose data yet.</div>
+        </div>
+      </section>
+
+      <!-- CGM cloud connections -->
+      <section class="card connect-card">
+        <div class="card-head"><h2>CGM connections</h2></div>
+        <p class="muted">
+          Pull readings automatically from your CGM cloud. Credentials are encrypted at
+          rest and synced every minute. Choose a provider:
+        </p>
+        <div class="seg provider-toggle" role="group" aria-label="Provider">
+          <button data-provider="dexcom" class="seg-btn is-active">Dexcom Share</button>
+          <button data-provider="librelinkup" class="seg-btn">LibreLinkUp</button>
+        </div>
+        <form id="connector-form" class="stack-form">
+          <input id="c-user" type="text" autocomplete="username" placeholder="Username / email" required />
+          <input id="c-pass" type="password" autocomplete="off" placeholder="Password" required />
+          <select id="c-region" class="dexcom-only">
+            <option value="us">US</option>
+            <option value="ous">Outside US</option>
+            <option value="jp">Japan</option>
+          </select>
+          <button type="submit">Connect</button>
+        </form>
+        <ul id="connector-list" class="status-list"></ul>
+      </section>
+
+      <!-- Device tokens -->
+      <section class="card token-card">
+        <div class="card-head"><h2>Devices &amp; tokens</h2></div>
+        <p class="muted">
+          Create a token for an uploader (xDrip+, Loop, AndroidAPS, Trio) or a follower
+          app. Shown once — copy it now. Tokens travel in headers only.
+        </p>
+        <form id="token-form" class="stack-form">
+          <input id="token-name" type="text" placeholder="Device name (e.g. Phone)" required />
+          <select id="token-scope">
+            <option value="upload">Uploader (read + write)</option>
+            <option value="read">Follower (read only)</option>
+          </select>
+          <button type="submit">Create token</button>
+        </form>
+        <div id="token-reveal" class="reveal" hidden></div>
+        <ul id="token-list" class="status-list"></ul>
+      </section>
+    </main>
+
+    <div id="banner" class="banner" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

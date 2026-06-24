@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NightKnight app icon">
+  <rect x="2.5" y="2.5" width="507" height="507" rx="118" fill="#111519" stroke="#242B33" stroke-width="3"/>
+  <g fill="none" stroke="#F4F5F6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Guard's shield (the "knight" / night-guard) -->
+    <path d="M256 120 L360 152 V250 C360 322 312 372 256 398 C200 372 152 322 152 250 V152 Z" stroke-width="24"/>
+    <!-- Glucose trace inside the shield -->
+    <path d="M182 268 L212 250 L240 282 L270 244 L300 262" stroke-width="18"/>
+  </g>
+  <!-- Single red accent: the current glucose reading marker -->
+  <circle cx="324" cy="240" r="17" fill="#E5484D"/>
+</svg>

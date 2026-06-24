@@ -1,0 +1,77 @@
+# NightKnight — Rust workspace.
+#
+# One codebase compiles to two deployment targets:
+#   * `nightknight-worker`  — Cloudflare Worker (wasm32-unknown-unknown), D1 storage.
+#   * `nightknight-server`  — native container (axum), Postgres storage.
+#
+# All domain/API/auth logic lives in runtime-agnostic crates shared by both, so the
+# patient-facing behaviour is identical regardless of where it runs.
+[workspace]
+resolver = "2"
+members = [
+    "service/crates/nightknight-core",
+    "service/crates/nightknight-crypto",
+    "service/crates/nightknight-storage",
+    "service/crates/nightknight-store-sql",
+    "service/crates/nightknight-auth",
+    "service/crates/nightknight-api",
+    "service/crates/nightknight-connectors",
+    "service/crates/nightknight-server",
+    "service/crates/nightknight-store-d1",
+    "service/crates/nightknight-worker",
+]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+rust-version = "1.82"
+repository = "https://github.com/TGRGIT/NightKnight"
+
+# Shared dependency versions — member crates opt in with `workspace = true`.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+# JWT / crypto — all pure Rust so they cross-compile to wasm32.
+base64 = "0.22"
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+getrandom = "0.2"
+rsa = "0.9"
+# "oid" gives Sha256 the AssociatedOid needed for the RS256 DigestInfo prefix.
+sha2 = { version = "0.10", features = ["oid"] }
+sha1 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+# Internal crates
+nightknight-core = { path = "service/crates/nightknight-core" }
+nightknight-crypto = { path = "service/crates/nightknight-crypto" }
+nightknight-storage = { path = "service/crates/nightknight-storage" }
+nightknight-auth = { path = "service/crates/nightknight-auth" }
+nightknight-api = { path = "service/crates/nightknight-api" }
+nightknight-connectors = { path = "service/crates/nightknight-connectors" }
+# Native-only (container + tests) — never compiled into the wasm worker.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "postgres",
+    "any",
+] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "signal", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Cloudflare Workers (wasm only). `d1` = D1 database bindings. Version-locked to the
+# installed worker-build toolchain.
+worker = { version = "0.8", features = ["d1"] }
+# Test-only
+proptest = "1"
+
+# Release profile tuned for small WASM bundles (Workers has a size budget).
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

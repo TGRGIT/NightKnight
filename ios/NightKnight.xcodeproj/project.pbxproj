@@ -1,0 +1,847 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */; };
+		0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		07D33F2EB66518E84776E27E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */; };
+		1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		1933D1B64027067D9D9281CC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68D3159CB126C43F23D0CFEC /* Assets.xcassets */; };
+		225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		409E11FB0629408BCF619D1E /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		43AA6421CDCEC87CE5B040BA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71859D4D8C41B215995E1B4 /* DashboardView.swift */; };
+		5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33754D6296502ED0D7E612D5 /* WatchApp.swift */; };
+		5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
+		625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */; };
+		64DAC52478A33EC729460E6F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		6D6309217F4CBA4657C7E7EC /* NightKnightWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6F15853A027406BF86ACD46A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1518411F2A9EA45C38188E /* Theme.swift */; };
+		7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		771BE155C46C132F3CE44F2D /* NightKnightWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */; };
+		7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		8732F534716121B9683DC689 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		934D224D283724E0AEC08084 /* NightKnightWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		AC279425B88E5E0802C63E86 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */; };
+		B825D958F21A7318F3F90872 /* WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E3493FD8F4068269199124 /* WatchSyncManager.swift */; };
+		C5BE2847BC83EEC2038F1FBE /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */; };
+		C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		CA6B8AD5037083C8063D1A72 /* AlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */; };
+		E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */; };
+		E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		F2CA83DC8DAE4A31171C2155 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = F972CFC38D0C67561F36871E /* WatchComplication.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		07BE7513752FAC4793282D21 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D9B2D3012631FAEE62006ADE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4DF7C2A244952491E660730F;
+			remoteInfo = NightKnightWatch;
+		};
+		567A6DEEFF88DD030E08FCA4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D9B2D3012631FAEE62006ADE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 186DBD700FB6F2F8026F6032;
+			remoteInfo = NightKnight;
+		};
+		C92A3478322EC4E4FBCD9BB5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D9B2D3012631FAEE62006ADE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1B6F3ACF8336E002DDB1D7EC;
+			remoteInfo = NightKnightWidget;
+		};
+		F87944BB6B4F6DD98EECB508 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D9B2D3012631FAEE62006ADE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EF1B0D387B60DE79E0113424;
+			remoteInfo = NightKnightWatchWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		21BA017280FDFFF66E634C23 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				771BE155C46C132F3CE44F2D /* NightKnightWatchWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5C95C7980D64CC9CBF000184 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				6D6309217F4CBA4657C7E7EC /* NightKnightWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FF5DC8C816AC4F97F4444357 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				934D224D283724E0AEC08084 /* NightKnightWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NightKnight.entitlements; sourceTree = "<group>"; };
+		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		11B6797901ED826D49A441BB /* Watch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Watch.entitlements; sourceTree = "<group>"; };
+		14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		19D04B3978569C581FA1C977 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		1C2424346B65CFB750BBBFD2 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		1D9B583F5BB069D62B751C0A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		2F319E39305D873F3989FA87 /* GlucoseUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseUnit.swift; sourceTree = "<group>"; };
+		33754D6296502ED0D7E612D5 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
+		4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
+		68D3159CB126C43F23D0CFEC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		71E3493FD8F4068269199124 /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
+		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
+		8125DB02F421C50937D4CEC7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C9AA58DE37FB153D9974702 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnightWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9F22872B22E684CF349F7D72 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A71859D4D8C41B215995E1B4 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		AE94479F7120807D1A5D3DB4 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		AFF01144A12FD25F08FDD8C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C66E777FD6F466450B90A38B /* NightKnightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightWidget.swift; sourceTree = "<group>"; };
+		C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightApp.swift; sourceTree = "<group>"; };
+		CBC0D37B5BE05566AA5EF705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSyncManager.swift; sourceTree = "<group>"; };
+		DAB850FB71FA7DC14C069A3E /* WatchWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WatchWidget.entitlements; sourceTree = "<group>"; };
+		E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartView.swift; sourceTree = "<group>"; };
+		EF1518411F2A9EA45C38188E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDashboardView.swift; sourceTree = "<group>"; };
+		F972CFC38D0C67561F36871E /* WatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComplication.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		07B70AC8EEF15DCD47000C6D /* NightKnightWatch */ = {
+			isa = PBXGroup;
+			children = (
+				9F22872B22E684CF349F7D72 /* Info.plist */,
+				11B6797901ED826D49A441BB /* Watch.entitlements */,
+				33754D6296502ED0D7E612D5 /* WatchApp.swift */,
+				F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */,
+				71E3493FD8F4068269199124 /* WatchSyncManager.swift */,
+			);
+			path = NightKnightWatch;
+			sourceTree = "<group>";
+		};
+		2C00ECA9BB12215D46499701 /* NightKnightWidget */ = {
+			isa = PBXGroup;
+			children = (
+				8C9AA58DE37FB153D9974702 /* Info.plist */,
+				C66E777FD6F466450B90A38B /* NightKnightWidget.swift */,
+				8125DB02F421C50937D4CEC7 /* Widget.entitlements */,
+			);
+			path = NightKnightWidget;
+			sourceTree = "<group>";
+		};
+		322FB8BD36AC7B8B5419E906 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				AE94479F7120807D1A5D3DB4 /* APIClient.swift */,
+				2F319E39305D873F3989FA87 /* GlucoseUnit.swift */,
+				19D04B3978569C581FA1C977 /* Keychain.swift */,
+				1D9B583F5BB069D62B751C0A /* Models.swift */,
+				1C2424346B65CFB750BBBFD2 /* Settings.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		3308AD13747530D7D1C50DEE /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8A859FD94EE28AC5967C5C9D /* NightKnight.app */,
+				C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */,
+				9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */,
+				C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */,
+				0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		72551D2D8EBF88FDA2CE40D6 /* NightKnightUITests */ = {
+			isa = PBXGroup;
+			children = (
+				7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */,
+			);
+			path = NightKnightUITests;
+			sourceTree = "<group>";
+		};
+		7E276CACB49FDC226ABB2725 /* NightKnight */ = {
+			isa = PBXGroup;
+			children = (
+				5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */,
+				68D3159CB126C43F23D0CFEC /* Assets.xcassets */,
+				A71859D4D8C41B215995E1B4 /* DashboardView.swift */,
+				E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */,
+				14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */,
+				CBC0D37B5BE05566AA5EF705 /* Info.plist */,
+				08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */,
+				C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */,
+				D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */,
+				4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */,
+				EF1518411F2A9EA45C38188E /* Theme.swift */,
+			);
+			path = NightKnight;
+			sourceTree = "<group>";
+		};
+		91AA6D124F6EBA19242F8EE7 /* NightKnightWatchWidget */ = {
+			isa = PBXGroup;
+			children = (
+				AFF01144A12FD25F08FDD8C9 /* Info.plist */,
+				F972CFC38D0C67561F36871E /* WatchComplication.swift */,
+				DAB850FB71FA7DC14C069A3E /* WatchWidget.entitlements */,
+			);
+			path = NightKnightWatchWidget;
+			sourceTree = "<group>";
+		};
+		A2E02902C93C5377F7F6C08E = {
+			isa = PBXGroup;
+			children = (
+				7E276CACB49FDC226ABB2725 /* NightKnight */,
+				72551D2D8EBF88FDA2CE40D6 /* NightKnightUITests */,
+				07B70AC8EEF15DCD47000C6D /* NightKnightWatch */,
+				91AA6D124F6EBA19242F8EE7 /* NightKnightWatchWidget */,
+				2C00ECA9BB12215D46499701 /* NightKnightWidget */,
+				322FB8BD36AC7B8B5419E906 /* Shared */,
+				3308AD13747530D7D1C50DEE /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		186DBD700FB6F2F8026F6032 /* NightKnight */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D8730606083FE78420719BFF /* Build configuration list for PBXNativeTarget "NightKnight" */;
+			buildPhases = (
+				6BAAF4AFD27107A12BA00A72 /* Sources */,
+				C33411CE77E02661F2420A65 /* Resources */,
+				FF5DC8C816AC4F97F4444357 /* Embed Foundation Extensions */,
+				5C95C7980D64CC9CBF000184 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9DF0013C470EAA50041ADC1E /* PBXTargetDependency */,
+				CD2EE39F93D402A7050A052B /* PBXTargetDependency */,
+			);
+			name = NightKnight;
+			packageProductDependencies = (
+			);
+			productName = NightKnight;
+			productReference = 8A859FD94EE28AC5967C5C9D /* NightKnight.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1B6F3ACF8336E002DDB1D7EC /* NightKnightWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2FA885BA39677A22BC1A598B /* Build configuration list for PBXNativeTarget "NightKnightWidget" */;
+			buildPhases = (
+				755E2E71754525FA16AD8271 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NightKnightWidget;
+			packageProductDependencies = (
+			);
+			productName = NightKnightWidget;
+			productReference = 0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		4DF7C2A244952491E660730F /* NightKnightWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BD3C2CE27F654A5FA2627BAA /* Build configuration list for PBXNativeTarget "NightKnightWatch" */;
+			buildPhases = (
+				AB680D11AE4610CD5E6416C6 /* Sources */,
+				21BA017280FDFFF66E634C23 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				29145A1AF970E0CC3059BA84 /* PBXTargetDependency */,
+			);
+			name = NightKnightWatch;
+			packageProductDependencies = (
+			);
+			productName = NightKnightWatch;
+			productReference = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C70219A5C67BC93B51981C03 /* NightKnightUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C1FC69F3457DB08BB9E73EE1 /* Build configuration list for PBXNativeTarget "NightKnightUITests" */;
+			buildPhases = (
+				8D31E050D52C20D4D26A6055 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6741BF97B82C81F4CB2D9E90 /* PBXTargetDependency */,
+			);
+			name = NightKnightUITests;
+			packageProductDependencies = (
+			);
+			productName = NightKnightUITests;
+			productReference = C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3C2B6F7E2322CC479DECAE65 /* Build configuration list for PBXNativeTarget "NightKnightWatchWidget" */;
+			buildPhases = (
+				82EB958A4DEA4FD9C06E4852 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NightKnightWatchWidget;
+			packageProductDependencies = (
+			);
+			productName = NightKnightWatchWidget;
+			productReference = C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D9B2D3012631FAEE62006ADE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					186DBD700FB6F2F8026F6032 = {
+						DevelopmentTeam = "";
+					};
+					1B6F3ACF8336E002DDB1D7EC = {
+						DevelopmentTeam = "";
+					};
+					4DF7C2A244952491E660730F = {
+						DevelopmentTeam = "";
+					};
+					C70219A5C67BC93B51981C03 = {
+						DevelopmentTeam = "";
+						TestTargetID = 186DBD700FB6F2F8026F6032;
+					};
+					EF1B0D387B60DE79E0113424 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 5F42943849A094835F76CFE3 /* Build configuration list for PBXProject "NightKnight" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = A2E02902C93C5377F7F6C08E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3308AD13747530D7D1C50DEE /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				186DBD700FB6F2F8026F6032 /* NightKnight */,
+				C70219A5C67BC93B51981C03 /* NightKnightUITests */,
+				4DF7C2A244952491E660730F /* NightKnightWatch */,
+				EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */,
+				1B6F3ACF8336E002DDB1D7EC /* NightKnightWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C33411CE77E02661F2420A65 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6BAAF4AFD27107A12BA00A72 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1933D1B64027067D9D9281CC /* APIClient.swift in Sources */,
+				CA6B8AD5037083C8063D1A72 /* AlarmManager.swift in Sources */,
+				54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */,
+				003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */,
+				F2CA83DC8DAE4A31171C2155 /* GlucoseUnit.swift in Sources */,
+				C5BE2847BC83EEC2038F1FBE /* HealthKitManager.swift in Sources */,
+				38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */,
+				64DAC52478A33EC729460E6F /* Models.swift in Sources */,
+				625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */,
+				E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */,
+				E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */,
+				7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */,
+				6F15853A027406BF86ACD46A /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		755E2E71754525FA16AD8271 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43AA6421CDCEC87CE5B040BA /* APIClient.swift in Sources */,
+				409E11FB0629408BCF619D1E /* GlucoseUnit.swift in Sources */,
+				99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */,
+				AC279425B88E5E0802C63E86 /* Models.swift in Sources */,
+				5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */,
+				225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		82EB958A4DEA4FD9C06E4852 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */,
+				7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */,
+				7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */,
+				8732F534716121B9683DC689 /* Models.swift in Sources */,
+				1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */,
+				F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8D31E050D52C20D4D26A6055 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AB680D11AE4610CD5E6416C6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */,
+				410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */,
+				C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */,
+				07D33F2EB66518E84776E27E /* Models.swift in Sources */,
+				0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */,
+				5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */,
+				114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */,
+				B825D958F21A7318F3F90872 /* WatchSyncManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		29145A1AF970E0CC3059BA84 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */;
+			targetProxy = F87944BB6B4F6DD98EECB508 /* PBXContainerItemProxy */;
+		};
+		6741BF97B82C81F4CB2D9E90 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 186DBD700FB6F2F8026F6032 /* NightKnight */;
+			targetProxy = 567A6DEEFF88DD030E08FCA4 /* PBXContainerItemProxy */;
+		};
+		9DF0013C470EAA50041ADC1E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1B6F3ACF8336E002DDB1D7EC /* NightKnightWidget */;
+			targetProxy = C92A3478322EC4E4FBCD9BB5 /* PBXContainerItemProxy */;
+		};
+		CD2EE39F93D402A7050A052B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4DF7C2A244952491E660730F /* NightKnightWatch */;
+			targetProxy = 07BE7513752FAC4793282D21 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		15613671231E70D80552F679 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = NightKnight/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1F18745836240D85219B65CF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = NightKnight;
+			};
+			name = Release;
+		};
+		27FDD08815F1F8AE1F02A0F4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
+				INFOPLIST_FILE = NightKnightWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.Widget;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2C953FFA25C8472F4C8E8510 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
+				INFOPLIST_FILE = NightKnightWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		2D24EFDF32623180B8146933 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
+				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp.Widget;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		519CE2C1538AA10DB7B53CEB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = NightKnight;
+			};
+			name = Debug;
+		};
+		65F859BD84E182EECCD1E4AF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
+				INFOPLIST_FILE = NightKnightWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.Widget;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		660871D299CE78FF64696D9C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = NightKnight/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8F033EDC98DE5CEA24AB8B9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
+				INFOPLIST_FILE = NightKnightWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		A7F7394403091C9D4614A271 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		AEB1638FACC1FB6F11C4F753 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		DEF66B2317E0A9925BF9DDA3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
+				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp.Widget;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2FA885BA39677A22BC1A598B /* Build configuration list for PBXNativeTarget "NightKnightWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				65F859BD84E182EECCD1E4AF /* Debug */,
+				27FDD08815F1F8AE1F02A0F4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3C2B6F7E2322CC479DECAE65 /* Build configuration list for PBXNativeTarget "NightKnightWatchWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2D24EFDF32623180B8146933 /* Debug */,
+				DEF66B2317E0A9925BF9DDA3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5F42943849A094835F76CFE3 /* Build configuration list for PBXProject "NightKnight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AEB1638FACC1FB6F11C4F753 /* Debug */,
+				A7F7394403091C9D4614A271 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BD3C2CE27F654A5FA2627BAA /* Build configuration list for PBXNativeTarget "NightKnightWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2C953FFA25C8472F4C8E8510 /* Debug */,
+				8F033EDC98DE5CEA24AB8B9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C1FC69F3457DB08BB9E73EE1 /* Build configuration list for PBXNativeTarget "NightKnightUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				519CE2C1538AA10DB7B53CEB /* Debug */,
+				1F18745836240D85219B65CF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D8730606083FE78420719BFF /* Build configuration list for PBXNativeTarget "NightKnight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				15613671231E70D80552F679 /* Debug */,
+				660871D299CE78FF64696D9C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D9B2D3012631FAEE62006ADE /* Project object */;
+}

@@ -1,0 +1,43 @@
+# Self-hosted NightKnight: the axum server + Postgres, outside Cloudflare.
+#
+#   cd deploy && cp .env.example .env && docker compose up -d
+#
+# Front this with your reverse proxy / identity provider (Pocket ID via
+# oauth2-proxy, APISIX, …). The proxy must authenticate the user and forward their
+# email in NK_AUTH_HEADER (default x-auth-request-email), and MUST strip that header
+# from inbound client requests.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: nightknight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nightknight}
+      POSTGRES_DB: nightknight
+    volumes:
+      - nk-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nightknight"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      NK_DATABASE_URL: postgres://nightknight:${POSTGRES_PASSWORD:-nightknight}@db:5432/nightknight
+      NK_AUTH_MODE: ${NK_AUTH_MODE:-trust-header}
+      NK_AUTH_HEADER: ${NK_AUTH_HEADER:-x-auth-request-email}
+      NK_BIND: 0.0.0.0:8787
+      NK_LOG: ${NK_LOG:-info}
+    ports:
+      - "${NK_PORT:-8787}:8787"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Optional automatic image updates:
+    # labels: ["com.centurylinklabs.watchtower.enable=true"]
+
+volumes:
+  nk-db: {}
