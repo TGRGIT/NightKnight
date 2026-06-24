@@ -68,6 +68,12 @@ targets:
         CFBundleDisplayName: NightKnight
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        # MUST mirror the host app: without this, the widget's http requests to a
+        # localhost/LAN dev server are blocked by App Transport Security while the
+        # app's identical request succeeds — so the widget can never fetch and shows
+        # only "--". (HTTPS is allowed regardless; this is for local/dev servers.)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         # An app extension's bundle id MUST be a child of the host app's id.
@@ -113,6 +119,9 @@ targets:
         CFBundleDisplayName: NightKnight
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        # Same ATS parity as the iOS widget (the watch app already allows it).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: be.cooney.nightknight.NightKnight.watchkitapp.Widget
@@ -133,6 +142,20 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: NightKnight
 
+  # Off-screen render tests for the iOS widget. Compiles the widget's view sources
+  # (NOT WidgetBundle.swift / @main) + Shared directly, so it runs as a hostless
+  # logic test — fast, no app/watch embedding required.
+  NightKnightWidgetTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NightKnightWidgetTests
+      - path: NightKnightWidget/NightKnightWidget.swift
+      - path: Shared
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   NightKnight:
     build:
@@ -152,3 +175,12 @@ schemes:
         NightKnightWatch: [run, profile, analyze, archive]
     run:
       config: Debug
+  # Hostless render tests for the iOS widget view.
+  NightKnightWidgetTests:
+    build:
+      targets:
+        NightKnightWidgetTests: [test]
+    test:
+      config: Debug
+      targets:
+        - NightKnightWidgetTests

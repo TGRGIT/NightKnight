@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// Connection, units, Apple Health, and alarm configuration. Alarms are fully
 /// disableable via the master toggle.
@@ -100,5 +101,9 @@ struct SettingsView: View {
         settings.cfAccessClientSecret = cfSecret.trimmingCharacters(in: .whitespaces)
         // Mirror the new config to the Apple Watch.
         PhoneSyncManager.shared.pushConfig()
+        // The widget fetches independently; without an explicit reload it would keep
+        // showing "--" until its next scheduled refresh (minutes away, and budget-
+        // throttled). Reload now so it picks up the new URL/token immediately.
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }

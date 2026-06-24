@@ -25,10 +25,12 @@ final class Settings {
     var writeToHealthKit: Bool { didSet { defaults.set(writeToHealthKit, forKey: "hkWrite") } }
     var readFromHealthKit: Bool { didSet { defaults.set(readFromHealthKit, forKey: "hkRead") } }
 
-    // Credentials (Keychain).
-    var deviceToken: String { didSet { Keychain.set("deviceToken", deviceToken) } }
-    var cfAccessClientId: String { didSet { Keychain.set("cfId", cfAccessClientId) } }
-    var cfAccessClientSecret: String { didSet { Keychain.set("cfSecret", cfAccessClientSecret) } }
+    // Credentials. Stored in the shared App Group (NOT the per-target Keychain) so the
+    // widget + watch complication can read them — keychain access groups don't reliably
+    // share on-device without provisioning, which left the widget unauthenticated ("--").
+    var deviceToken: String { didSet { defaults.set(deviceToken, forKey: "deviceToken") } }
+    var cfAccessClientId: String { didSet { defaults.set(cfAccessClientId, forKey: "cfId") } }
+    var cfAccessClientSecret: String { didSet { defaults.set(cfAccessClientSecret, forKey: "cfSecret") } }
 
     private init() {
         baseURL = defaults.string(forKey: "baseURL") ?? "https://nightknight.cooney.be"
@@ -40,9 +42,9 @@ final class Settings {
         fastDropAlarm = defaults.object(forKey: "fastDrop") as? Bool ?? true
         writeToHealthKit = defaults.object(forKey: "hkWrite") as? Bool ?? false
         readFromHealthKit = defaults.object(forKey: "hkRead") as? Bool ?? false
-        deviceToken = Keychain.get("deviceToken")
-        cfAccessClientId = Keychain.get("cfId")
-        cfAccessClientSecret = Keychain.get("cfSecret")
+        deviceToken = Settings.sharedCredential(defaults, "deviceToken")
+        cfAccessClientId = Settings.sharedCredential(defaults, "cfId")
+        cfAccessClientSecret = Settings.sharedCredential(defaults, "cfSecret")
 
         #if DEBUG
         // Test hook: let a simulator launch inject a server + token (SIMCTL_CHILD_*).
@@ -53,4 +55,14 @@ final class Settings {
     }
 
     var isConfigured: Bool { !baseURL.isEmpty && !deviceToken.isEmpty }
+
+    /// Read a credential from the App Group, one-time-migrating any value an older build
+    /// left in the Keychain. Runs in the app process (which can read its own Keychain);
+    /// once migrated, the App Group copy is what the widget/watch read.
+    private static func sharedCredential(_ defaults: UserDefaults, _ key: String) -> String {
+        if let v = defaults.string(forKey: key), !v.isEmpty { return v }
+        let legacy = Keychain.get(key)
+        if !legacy.isEmpty { defaults.set(legacy, forKey: key) }
+        return legacy
+    }
 }
