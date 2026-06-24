@@ -50,8 +50,11 @@ private func bandColor(_ mgdl: Double) -> Color {
     }
 }
 
-struct NightKnightWidgetView: View {
-    @Environment(\.widgetFamily) private var family
+/// Family-parameterised widget content. Split out from the `@Environment`-reading
+/// wrapper below so it can be rendered for a specific `WidgetFamily` in tests — the
+/// `widgetFamily` environment value is read-only and can't be injected directly.
+struct NightKnightWidgetContent: View {
+    let family: WidgetFamily
     let entry: GlucoseEntry
 
     private var text: String { entry.value?.display(in: entry.unit) ?? "--" }
@@ -77,6 +80,13 @@ struct NightKnightWidgetView: View {
     }
 }
 
+struct NightKnightWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: GlucoseEntry
+
+    var body: some View { NightKnightWidgetContent(family: family, entry: entry) }
+}
+
 struct NightKnightWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "NightKnightWidget", intent: ConfigIntent.self, provider: Provider()) { entry in
@@ -88,16 +98,11 @@ struct NightKnightWidget: Widget {
     }
 
     // `.systemSmall` is iOS-only; this target may be compiled for watchOS too.
-    private static var families: [WidgetFamily] {
+    static var families: [WidgetFamily] {
         #if os(watchOS)
         [.accessoryCircular, .accessoryInline, .accessoryRectangular]
         #else
         [.systemSmall, .accessoryCircular, .accessoryInline, .accessoryRectangular]
         #endif
     }
-}
-
-@main
-struct NightKnightWidgetBundle: WidgetBundle {
-    var body: some Widget { NightKnightWidget() }
 }
