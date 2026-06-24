@@ -1,0 +1,1332 @@
+openapi: 3.1.0
+
+# ---------------------------------------------------------------------------
+# NightKnight OpenAPI specification
+#
+# A secure, modern reimplementation of the Nightscout CGM API. NightKnight speaks
+# three dialects over one store:
+#   * v1 — legacy Nightscout (for existing uploaders / followers: xDrip+, Loop,
+#          AndroidAPS, Trio). Bare JSON arrays/objects; the ".json" suffix is accepted.
+#   * v3 — Nightscout generic CRUD with the { status, result } envelope, dedup,
+#          soft-delete, incremental history and lastModified.
+#   * v4 — NightKnight's own modern API for first-party clients (web SPA, iOS app):
+#          current reading + trend, analytics, settings and device-token management.
+#
+# This document is hand-maintained to match the handlers in
+# service/crates/nightknight-api (v1.rs, v3.rs, v4.rs, lib.rs). When the API changes,
+# update this file in the same change. See docs/API-COMPAT.md for the prose summary.
+# ---------------------------------------------------------------------------
+
+info:
+  title: NightKnight API
+  version: 0.1.0
+  summary: Secure, modern, Nightscout-compatible continuous-glucose-monitoring API.
+  description: |
+    NightKnight reimplements the Nightscout CGM API in Rust, runnable on Cloudflare
+    Workers + D1 or as a self-hosted container + Postgres. It keeps the v1/v3 wire
+    formats for ecosystem compatibility and adds a clean `v4` API for first-party
+    clients.
+
+    > **Not a medical device.** NightKnight is a personal-health project. Do not use it
+    > as the sole basis for treatment decisions.
+
+    ## Authentication
+
+    Credentials are read from **headers only** — never the query string (query strings
+    leak into logs, history and referrers, so `?token=` / `?secret=` are rejected).
+    Three ways to authenticate:
+
+    * **Device token** (machine/first-party clients) — send the raw token as
+      `Authorization: Bearer <token>` *or* in the Nightscout `api-secret` header.
+      Legacy uploaders that SHA-1-hash the secret and send the hex in `api-secret`
+      also resolve to the same token.
+    * **Cloudflare Access** (humans) — when deployed behind Cloudflare Access, a
+      verified passkey/OTP session carries a `CF_Authorization` cookie / signed JWT
+      that the runtime validates at the edge. A human owns their data and has full
+      access to it. (The public `*.workers.dev` URL is **not** behind Access and will
+      return `401` without a device token — that is expected.)
+    * **Access service token** (machine uploaders behind Access) — a least-privilege
+      principal: read everything and write CGM data, but **no** token/connector/settings
+      administration.
+
+    ## Scopes
+
+    Device tokens carry Nightscout-style `{api}:{collection}:{action}` scopes, e.g.
+    `api:entries:create`. Write implies read on the same collection. A signed-in human
+    holds the all-access scope (`*:*:*`).
+
+    ## Units
+
+    mg/dL and mmol/L are both first-class. Each reading remembers the unit it was
+    entered in and carries a canonical mg/dL value; the two mix freely in one stream
+    and convert with a single constant `mg/dL = mmol/L × 18.0156`.
+
+  license:
+    name: MIT
+    identifier: MIT
+  contact:
+    name: NightKnight
+
+externalDocs:
+  description: Architecture, setup, API-compatibility and testing docs
+  url: https://github.com/TGRGIT/NightKnight/tree/main/docs
+
+servers:
+  - url: https://nightknight.cooney.be
+    description: Production (behind Cloudflare Access)
+  - url: https://nightknight.dcyphr.workers.dev
+    description: Cloudflare Worker (no Access gate; device token required)
+  - url: http://localhost:8790
+    description: Local dev preview (scripts/dev-preview.sh)
+
+tags:
+  - name: v1
+    description: Legacy Nightscout API (bare JSON; uploader/follower compatibility).
+  - name: v3
+    description: Nightscout generic CRUD with the `{ status, result }` envelope.
+  - name: v4
+    description: NightKnight modern API for first-party clients.
+
+# Applied to every operation unless overridden. The three schemes are alternatives
+# (any one suffices). `/api/v3/version` overrides this with `security: []`.
+security:
+  - bearerAuth: []
+  - apiSecret: []
+  - cloudflareAccess: []
+
+paths:
+
+  # ======================================================================
+  # v1 — legacy Nightscout
+  # ======================================================================
+
+  /api/v1/status:
+    get:
+      tags: [v1]
+      operationId: v1Status
+      summary: Service status (legacy)
+      description: |
+        The Nightscout `status` document. Clients read `settings.units` from here to
+        decide which unit to display. `.json` suffix accepted.
+      responses:
+        "200":
+          description: Status document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/V1Status" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/entries:
+    get:
+      tags: [v1]
+      operationId: v1ListEntries
+      summary: Recent entries (legacy)
+      description: |
+        Newest-first array of entries. `.json` suffix accepted (`/api/v1/entries.json`).
+      parameters:
+        - $ref: "#/components/parameters/V1Count"
+        - $ref: "#/components/parameters/FindDateGte"
+        - $ref: "#/components/parameters/FindDateLte"
+        - $ref: "#/components/parameters/FindDateStringGte"
+        - $ref: "#/components/parameters/FindDateStringLte"
+      responses:
+        "200": { $ref: "#/components/responses/V1EntryArray" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [v1]
+      operationId: v1CreateEntries
+      summary: Upload one entry or an array of entries
+      description: |
+        Accepts a single entry object or an array. Each entry is clinically validated
+        (plausible timestamp; `sgv`/`mbg` must carry a plausible glucose value) and
+        deduplicated. Returns the stored documents (enriched with `_id`/`mills`).
+      requestBody: { $ref: "#/components/requestBodies/EntryOrEntries" }
+      responses:
+        "200": { $ref: "#/components/responses/V1EntryArray" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+
+  /api/v1/entries/current:
+    get:
+      tags: [v1]
+      operationId: v1CurrentEntry
+      summary: Latest sensor-glucose entry (legacy)
+      description: Single most recent `sgv` entry as a one-element array. `.json` accepted.
+      responses:
+        "200": { $ref: "#/components/responses/V1EntryArray" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/entries/sgv:
+    get:
+      tags: [v1]
+      operationId: v1ListSgv
+      summary: Recent sensor-glucose entries only (legacy)
+      parameters:
+        - $ref: "#/components/parameters/V1Count"
+        - $ref: "#/components/parameters/FindDateGte"
+        - $ref: "#/components/parameters/FindDateLte"
+      responses:
+        "200": { $ref: "#/components/responses/V1EntryArray" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/treatments:
+    get:
+      tags: [v1]
+      operationId: v1ListTreatments
+      summary: Recent treatments (legacy)
+      parameters:
+        - $ref: "#/components/parameters/V1Count"
+        - $ref: "#/components/parameters/FindDateGte"
+        - $ref: "#/components/parameters/FindDateLte"
+      responses:
+        "200":
+          description: Newest-first array of treatments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TreatmentStored" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [v1]
+      operationId: v1CreateTreatments
+      summary: Upload one treatment or an array
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/Treatment"
+                - type: array
+                  items: { $ref: "#/components/schemas/Treatment" }
+      responses:
+        "200":
+          description: The stored treatments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TreatmentStored" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/devicestatus:
+    get:
+      tags: [v1]
+      operationId: v1ListDeviceStatus
+      summary: Recent device-status records (legacy)
+      parameters:
+        - $ref: "#/components/parameters/V1Count"
+      responses:
+        "200":
+          description: Newest-first array of device-status records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeviceStatusStored" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [v1]
+      operationId: v1CreateDeviceStatus
+      summary: Upload device status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/DeviceStatus"
+                - type: array
+                  items: { $ref: "#/components/schemas/DeviceStatus" }
+      responses:
+        "200":
+          description: The stored device-status records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeviceStatusStored" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/profile:
+    get:
+      tags: [v1]
+      operationId: v1ListProfile
+      summary: Treatment/insulin profiles (legacy)
+      parameters:
+        - $ref: "#/components/parameters/V1Count"
+      responses:
+        "200":
+          description: Newest-first array of profile records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProfileStored" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [v1]
+      operationId: v1CreateProfile
+      summary: Upload a profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/Profile"
+                - type: array
+                  items: { $ref: "#/components/schemas/Profile" }
+      responses:
+        "200":
+          description: The stored profile records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProfileStored" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ======================================================================
+  # v3 — generic CRUD
+  # ======================================================================
+
+  /api/v3/version:
+    get:
+      tags: [v3]
+      operationId: v3Version
+      summary: API version (unauthenticated)
+      description: The only v3 endpoint that requires no authentication.
+      security: []
+      responses:
+        "200":
+          description: Version envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3Version" }
+
+  /api/v3/status:
+    get:
+      tags: [v3]
+      operationId: v3Status
+      summary: Version + the caller's granted permissions
+      responses:
+        "200":
+          description: Status envelope including granted `apiPermissions`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3StatusResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v3/lastModified:
+    get:
+      tags: [v3]
+      operationId: v3LastModified
+      summary: Latest change time per collection
+      responses:
+        "200":
+          description: Per-collection last-modified epoch-ms map.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          collections:
+                            type: object
+                            additionalProperties: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v3/{collection}:
+    parameters:
+      - $ref: "#/components/parameters/Collection"
+    get:
+      tags: [v3]
+      operationId: v3Search
+      summary: Search a collection
+      parameters:
+        - $ref: "#/components/parameters/V3Limit"
+        - $ref: "#/components/parameters/V3DateGte"
+        - $ref: "#/components/parameters/V3DateLte"
+        - $ref: "#/components/parameters/V3Type"
+      responses:
+        "200":
+          description: Envelope whose `result` is a newest-first array of documents.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result:
+                        type: array
+                        items: { $ref: "#/components/schemas/V3StoredDoc" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [v3]
+      operationId: v3Create
+      summary: Create (or dedup-update) a document
+      description: |
+        Content-derived deduplication: if an existing document has the same derived
+        identifier the call updates it (HTTP `200`) instead of creating (HTTP `201`
+        with a `Location` header).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location:
+              description: URL of the created document.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3IdentifierResult" }
+        "200":
+          description: Existing document updated (dedup match).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3IdentifierResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v3/{collection}/history:
+    parameters:
+      - $ref: "#/components/parameters/Collection"
+    get:
+      tags: [v3]
+      operationId: v3HistoryAll
+      summary: Full change history for a collection
+      description: |
+        Incremental changes since the beginning of time, including soft-deletions
+        (records with `isValid: false`). The `Last-Modified` response header carries
+        the newest `srvModified` seen — pass it to the `/history/{lastModifiedMs}`
+        form to poll only newer changes.
+      responses:
+        "200": { $ref: "#/components/responses/V3HistoryArray" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v3/{collection}/history/{lastModifiedMs}:
+    parameters:
+      - $ref: "#/components/parameters/Collection"
+      - name: lastModifiedMs
+        in: path
+        required: true
+        description: Return only changes with `srvModified` greater than this epoch-ms value.
+        schema: { type: integer, format: int64 }
+    get:
+      tags: [v3]
+      operationId: v3HistorySince
+      summary: Incremental change history since a timestamp
+      responses:
+        "200": { $ref: "#/components/responses/V3HistoryArray" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v3/{collection}/{identifier}:
+    parameters:
+      - $ref: "#/components/parameters/Collection"
+      - $ref: "#/components/parameters/Identifier"
+    get:
+      tags: [v3]
+      operationId: v3Read
+      summary: Read one document
+      responses:
+        "200": { $ref: "#/components/responses/V3SingleDoc" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [v3]
+      operationId: v3Replace
+      summary: Replace (upsert) a document at this identifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Replaced.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3IdentifierResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [v3]
+      operationId: v3Merge
+      summary: Shallow-merge fields into an existing document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { $ref: "#/components/responses/V3SingleDoc" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [v3]
+      operationId: v3Delete
+      summary: Soft-delete a document
+      description: "Marks the document `isValid: false`; it still appears in history."
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V3Envelope"
+                  - type: object
+                    properties:
+                      result: { $ref: "#/components/schemas/V3IdentifierResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ======================================================================
+  # v4 — modern first-party API
+  # ======================================================================
+
+  /api/v4/status:
+    get:
+      tags: [v4]
+      operationId: v4Status
+      summary: Service info + the caller's user
+      responses:
+        "200":
+          description: Service name/version and the resolved user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string, examples: ["nightknight"] }
+                  version: { type: string, examples: ["0.1.0"] }
+                  user: { $ref: "#/components/schemas/V4User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v4/current:
+    get:
+      tags: [v4]
+      operationId: v4Current
+      summary: Latest reading + trend, in both units
+      description: |
+        The newest `sgv` reading with its trend arrow (computed from the previous
+        reading). `current` is `null` when there is no data yet.
+      responses:
+        "200":
+          description: Current reading (or null).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current:
+                    oneOf:
+                      - $ref: "#/components/schemas/V4Current"
+                      - type: "null"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/entries:
+    get:
+      tags: [v4]
+      operationId: v4Entries
+      summary: Recent readings (both units per point)
+      parameters:
+        - $ref: "#/components/parameters/Hours"
+        - name: count
+          in: query
+          description: Maximum number of points (1–20000). Defaults to the cap.
+          schema: { type: integer, minimum: 1, maximum: 20000 }
+      responses:
+        "200":
+          description: Newest-first readings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/V4EntryPoint" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/analytics:
+    get:
+      tags: [v4]
+      operationId: v4Analytics
+      summary: Time-in-Range, GMI, estimated A1c and CV over a window
+      description: |
+        Computes the standard CGM summary metrics over the last `hours` of `sgv`
+        readings (up to 20000 points). All metrics are computed on canonical mg/dL, so
+        a mixed mg/dL + mmol/L stream is analysed correctly. Scalar metrics are `null`
+        when there is insufficient data (e.g. CV needs ≥ 2 readings).
+      parameters:
+        - $ref: "#/components/parameters/Hours"
+      responses:
+        "200":
+          description: Summary metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/V4Analytics" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/me:
+    get:
+      tags: [v4]
+      operationId: v4Me
+      summary: The caller's profile
+      responses:
+        "200":
+          description: The caller's user record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/V4User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [v4]
+      operationId: v4UpdateMe
+      summary: Update preferred unit / display name
+      description: |
+        Owner/admin action (requires `api:settings:admin`). A read-only follower or a
+        bare service token cannot change the account's unit or name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preferredUnit:
+                  type: string
+                  enum: ["mg/dl", "mmol/l"]
+                displayName: { type: string }
+      responses:
+        "200":
+          description: The updated user record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/V4User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/tokens:
+    get:
+      tags: [v4]
+      operationId: v4ListTokens
+      summary: List device tokens (no secrets)
+      description: Requires `api:tokens:admin`.
+      responses:
+        "200":
+          description: The caller's device tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: "#/components/schemas/V4Token" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [v4]
+      operationId: v4CreateToken
+      summary: Mint a device token
+      description: |
+        Requires `api:tokens:admin`. The raw secret is returned **once** in the `token`
+        field and is never stored or shown again — the client must persist it now.
+        A token may only be granted scopes the caller itself holds (no privilege
+        escalation). With no `scopes`, a read-only follower token is issued
+        (`api:entries:read`, `api:treatments:read`).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  default: device
+                  examples: ["alice-phone"]
+                scopes:
+                  type: array
+                  items: { $ref: "#/components/schemas/Scope" }
+      responses:
+        "201":
+          description: The created token, including the one-time raw `token` secret.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/V4Token"
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                        description: The raw secret — shown only here, never again.
+                        examples: ["nk_3f9c8a1b2d4e4f6a8b0c1d2e3f405162"]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [v4]
+      operationId: v4RevokeToken
+      summary: Revoke a device token
+      description: Requires `api:tokens:admin`.
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v4/connectors:
+    get:
+      tags: [v4]
+      operationId: v4ListConnectors
+      summary: List cloud connectors (no secrets)
+      description: Requires `api:connectors:admin`. Returns `503` if connectors are disabled (no encryption key configured).
+      responses:
+        "200":
+          description: The caller's connector credentials (secret-free).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connectors:
+                    type: array
+                    items: { $ref: "#/components/schemas/V4Connector" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v4/connectors/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string, enum: [dexcom, librelinkup] }
+    put:
+      tags: [v4]
+      operationId: v4PutConnector
+      summary: Create or update a connector credential
+      description: |
+        Requires `api:connectors:admin`. The secret is encrypted at rest (AES-256-GCM)
+        and never returned. Required fields depend on the provider:
+        `dexcom` → `username`, `password`, optional `region` (default `us`);
+        `librelinkup` → `email`, `password`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/DexcomConnectorInput"
+                - $ref: "#/components/schemas/LibreLinkUpConnectorInput"
+      responses:
+        "200":
+          description: The stored connector (secret-free).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/V4Connector" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: |
+            Forbidden — missing `api:connectors:admin`, or connectors are not enabled
+            on this server (no encryption key configured).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [v4]
+      operationId: v4DeleteConnector
+      summary: Delete a connector credential
+      description: Requires `api:connectors:admin`.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+# ===========================================================================
+# Components
+# ===========================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "A device token sent as `Authorization: Bearer <token>`."
+    apiSecret:
+      type: apiKey
+      in: header
+      name: api-secret
+      description: |
+        The Nightscout `api-secret` header. Accepts the raw device token, or the
+        legacy SHA-1 hex of the secret (xDrip+ style) — both resolve to the same token.
+    cloudflareAccess:
+      type: apiKey
+      in: cookie
+      name: CF_Authorization
+      description: |
+        Cloudflare Access session (passkey/OTP for humans, or an Access service token
+        for machines). Established and verified at the edge; the API trusts the
+        runtime-injected identity. Not present on the public `*.workers.dev` URL.
+
+  parameters:
+    Collection:
+      name: collection
+      in: path
+      required: true
+      description: The document collection.
+      schema:
+        type: string
+        enum: [entries, treatments, devicestatus, profile, food, settings]
+    Identifier:
+      name: identifier
+      in: path
+      required: true
+      description: The document's content-derived identifier.
+      schema: { type: string }
+    V1Count:
+      name: count
+      in: query
+      description: Maximum records to return (default 10, max 131072).
+      schema: { type: integer, minimum: 1, maximum: 131072, default: 10 }
+    FindDateGte:
+      name: find[date][$gte]
+      in: query
+      description: Lower bound on `date` (epoch ms), inclusive.
+      schema: { type: integer, format: int64 }
+    FindDateLte:
+      name: find[date][$lte]
+      in: query
+      description: Upper bound on `date` (epoch ms), inclusive.
+      schema: { type: integer, format: int64 }
+    FindDateStringGte:
+      name: find[dateString][$gte]
+      in: query
+      description: Lower bound as ISO-8601 (used only if `find[date][$gte]` absent).
+      schema: { type: string, format: date-time }
+    FindDateStringLte:
+      name: find[dateString][$lte]
+      in: query
+      description: Upper bound as ISO-8601 (used only if `find[date][$lte]` absent).
+      schema: { type: string, format: date-time }
+    V3Limit:
+      name: limit
+      in: query
+      description: Maximum records (default 100, max 131072).
+      schema: { type: integer, minimum: 1, maximum: 131072, default: 100 }
+    V3DateGte:
+      name: date$gte
+      in: query
+      description: Lower bound on `date` (epoch ms), inclusive.
+      schema: { type: integer, format: int64 }
+    V3DateLte:
+      name: date$lte
+      in: query
+      description: Upper bound on `date` (epoch ms), inclusive.
+      schema: { type: integer, format: int64 }
+    V3Type:
+      name: type
+      in: query
+      description: Filter by document type (e.g. `sgv`).
+      schema: { type: string }
+    Hours:
+      name: hours
+      in: query
+      description: Look-back window in hours (1–2160 = 90 days). Default 24.
+      schema: { type: integer, minimum: 1, maximum: 2160, default: 24 }
+
+  requestBodies:
+    EntryOrEntries:
+      required: true
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/Entry"
+              - type: array
+                items: { $ref: "#/components/schemas/Entry" }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            unauthorized: { value: { status: 401, message: "unauthorized" } }
+    Forbidden:
+      description: Authenticated but lacking the required scope.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            forbidden: { value: { status: 403, message: "forbidden: missing scope api:entries:create" } }
+    NotFound:
+      description: No such resource (or not visible to this user).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            notFound: { value: { status: 404, message: "not found" } }
+    BadRequest:
+      description: Malformed body or a clinical/structural validation failure.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            implausible: { value: { status: 400, message: "bad request: glucose reading is implausible: 5 mg/dL outside plausible range" } }
+    PayloadTooLarge:
+      description: Request body exceeds the 8 MiB limit.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    V1EntryArray:
+      description: Newest-first array of entries (legacy shape, enriched with `_id`/`mills`).
+      content:
+        application/json:
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/EntryStored" }
+    V3SingleDoc:
+      description: Envelope whose `result` is a single document.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/V3Envelope"
+              - type: object
+                properties:
+                  result: { $ref: "#/components/schemas/V3StoredDoc" }
+    V3HistoryArray:
+      description: |
+        Envelope whose `result` is an array of changed documents (including
+        soft-deleted ones). The `Last-Modified` header carries the newest
+        `srvModified` for incremental polling.
+      headers:
+        Last-Modified:
+          description: Newest `srvModified` (epoch ms) in this batch.
+          schema: { type: string }
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/V3Envelope"
+              - type: object
+                properties:
+                  result:
+                    type: array
+                    items: { $ref: "#/components/schemas/V3StoredDoc" }
+
+  schemas:
+
+    # ---- shared ----------------------------------------------------------
+    GlucoseUnit:
+      type: string
+      enum: ["mg/dl", "mmol/l"]
+      description: A glucose unit. Conversion uses `mg/dL = mmol/L × 18.0156`.
+
+    Direction:
+      type: string
+      description: Nightscout trend arrow spelling.
+      enum:
+        - DoubleUp
+        - SingleUp
+        - FortyFiveUp
+        - Flat
+        - FortyFiveDown
+        - SingleDown
+        - DoubleDown
+        - NONE
+        - "NOT COMPUTABLE"
+        - "RATE OUT OF RANGE"
+
+    Scope:
+      type: string
+      description: A `{api}:{collection}:{action}` scope; segments may be `*`.
+      examples: ["api:entries:read", "api:*:read", "*:*:*"]
+
+    Error:
+      type: object
+      description: Uniform error body. Internal/storage detail is never leaked.
+      required: [status, message]
+      properties:
+        status: { type: integer, examples: [400] }
+        message: { type: string, examples: ["bad request: empty request body"] }
+
+    # ---- domain documents (write shapes) ---------------------------------
+    Entry:
+      type: object
+      description: |
+        A CGM/glucose entry. Unknown fields are preserved on round-trip. An `sgv`/`mbg`
+        entry must carry a plausible glucose value (10–1000 mg/dL) and a plausible
+        timestamp (after 2000, ≤ 24h in the future).
+      required: [type, date]
+      properties:
+        type:
+          type: string
+          description: Record kind.
+          examples: ["sgv", "mbg", "cal"]
+        date:
+          type: integer
+          format: int64
+          description: Reading time, epoch milliseconds (UTC).
+        dateString:
+          type: string
+          format: date-time
+          description: ISO-8601 form of `date` (optional).
+        sgv:
+          type: number
+          description: Sensor glucose value, in the unit named by `units` (default mg/dL).
+        direction: { $ref: "#/components/schemas/Direction" }
+        device: { type: string, examples: ["xDrip-DexcomG6"] }
+        noise: { type: integer }
+        filtered: { type: number }
+        unfiltered: { type: number }
+        rssi: { type: integer }
+        units: { $ref: "#/components/schemas/GlucoseUnit" }
+      additionalProperties: true
+
+    Treatment:
+      type: object
+      description: A treatment/event (bolus, carbs, BG check, temp basal, note, …). Dose/nutrition amounts must be finite and non-negative.
+      required: [eventType]
+      properties:
+        eventType:
+          type: string
+          examples: ["Meal Bolus", "Correction Bolus", "BG Check", "Temp Basal"]
+        created_at:
+          type: string
+          format: date-time
+          description: Canonical treatment time (ISO-8601).
+        date:
+          type: integer
+          format: int64
+          description: Epoch-ms timestamp (some clients send this instead of `created_at`).
+        glucose: { type: number }
+        glucoseType: { type: string, examples: ["Finger", "Sensor"] }
+        units: { $ref: "#/components/schemas/GlucoseUnit" }
+        carbs: { type: number, minimum: 0 }
+        protein: { type: number, minimum: 0 }
+        fat: { type: number, minimum: 0 }
+        insulin: { type: number, minimum: 0 }
+        duration: { type: number, minimum: 0, description: "Minutes (temp basal/target, exercise, …)." }
+        enteredBy: { type: string }
+        notes: { type: string }
+      additionalProperties: true
+
+    DeviceStatus:
+      type: object
+      description: Pump/uploader status (battery, loop status, IOB, …). Mostly free-form.
+      properties:
+        device: { type: string }
+        created_at: { type: string, format: date-time }
+      additionalProperties: true
+
+    Profile:
+      type: object
+      description: A treatment/insulin profile (basal schedule, ISF, carb ratio, targets). The nested named-profile `store` is free-form.
+      properties:
+        units: { $ref: "#/components/schemas/GlucoseUnit" }
+        defaultProfile: { type: string }
+        created_at: { type: string, format: date-time }
+      additionalProperties: true
+
+    # ---- read-side metadata enrichment -----------------------------------
+    V1Meta:
+      type: object
+      description: Metadata added to legacy (v1) read responses.
+      properties:
+        _id:
+          type: string
+          description: Mongo-style id (equal to the content-derived identifier).
+        mills:
+          type: integer
+          format: int64
+          description: Reading time, epoch ms.
+    V3Meta:
+      type: object
+      description: Common fields added to v3 read responses.
+      properties:
+        identifier: { type: string }
+        srvCreated: { type: integer, format: int64 }
+        srvModified: { type: integer, format: int64 }
+        isValid:
+          type: boolean
+          description: "`false` once soft-deleted."
+        subject:
+          type: [string, "null"]
+          description: The owning principal's subject.
+
+    EntryStored:
+      allOf:
+        - $ref: "#/components/schemas/Entry"
+        - $ref: "#/components/schemas/V1Meta"
+    TreatmentStored:
+      allOf:
+        - $ref: "#/components/schemas/Treatment"
+        - $ref: "#/components/schemas/V1Meta"
+    DeviceStatusStored:
+      allOf:
+        - $ref: "#/components/schemas/DeviceStatus"
+        - $ref: "#/components/schemas/V1Meta"
+    ProfileStored:
+      allOf:
+        - $ref: "#/components/schemas/Profile"
+        - $ref: "#/components/schemas/V1Meta"
+
+    V3StoredDoc:
+      description: A stored document as returned by v3 (original body + v1 + v3 metadata).
+      allOf:
+        - type: object
+          additionalProperties: true
+        - $ref: "#/components/schemas/V1Meta"
+        - $ref: "#/components/schemas/V3Meta"
+
+    # ---- v3 envelopes ----------------------------------------------------
+    V3Envelope:
+      type: object
+      description: The Nightscout v3 `{ status, result }` envelope.
+      required: [status, result]
+      properties:
+        status: { type: integer, examples: [200] }
+        result: {}
+    V3Version:
+      type: object
+      properties:
+        version: { type: string, examples: ["0.1.0"] }
+        apiVersion: { type: string, examples: ["3.0"] }
+        name: { type: string, examples: ["nightknight"] }
+    V3StatusResult:
+      type: object
+      properties:
+        version: { type: string }
+        apiVersion: { type: string, examples: ["3.0"] }
+        name: { type: string }
+        srvDate: { type: integer, format: int64 }
+        apiPermissions:
+          type: array
+          items: { $ref: "#/components/schemas/Scope" }
+    V3IdentifierResult:
+      type: object
+      properties:
+        identifier: { type: string }
+
+    # ---- v4 ------------------------------------------------------------
+    V4User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        subject:
+          type: string
+          description: Namespaced tenancy key (`human:…` / `service:…`).
+          examples: ["human:alice@cooney.be"]
+        displayName: { type: [string, "null"] }
+        preferredUnit: { $ref: "#/components/schemas/GlucoseUnit" }
+        isAdmin: { type: boolean }
+
+    V4Current:
+      type: object
+      properties:
+        date: { type: integer, format: int64, description: "Epoch ms." }
+        dateString: { type: string, format: date-time }
+        mgdl: { type: integer, description: "Value in mg/dL (rounded)." }
+        mmol: { type: number, description: "Value in mmol/L." }
+        direction:
+          allOf: [{ $ref: "#/components/schemas/Direction" }]
+          description: "Nightscout/Dexcom wire spelling (for compatibility); show `trendLabel` to users."
+        trend: { type: string, description: "Unicode arrow for compact display.", examples: ["→", "↗"] }
+        trendLabel:
+          type: string
+          description: "Plain-language trend (CGM-ecosystem wording); empty for no-trend states."
+          examples: ["Steady", "Rising rapidly", "Falling slowly"]
+        level:
+          type: string
+          enum: [veryLow, low, inRange, high, veryHigh]
+          description: "Glucose level band (status) — a separate dimension from the trend."
+        levelLabel:
+          type: string
+          description: "Plain-language level status."
+          examples: ["In range", "Urgent low", "Urgent high"]
+        preferredUnit: { $ref: "#/components/schemas/GlucoseUnit" }
+
+    V4EntryPoint:
+      type: object
+      properties:
+        date: { type: integer, format: int64 }
+        mgdl: { type: integer }
+        mmol: { type: number }
+
+    V4Analytics:
+      type: object
+      description: |
+        Standard CGM summary metrics over the window. Bands (mg/dL): very-low `<54`,
+        low `54–69`, target `70–180`, high `181–250`, very-high `>250`.
+      properties:
+        hours: { type: integer, description: "The window actually used (after clamping)." }
+        n: { type: integer, description: "Reading count in the window." }
+        meanMgdl: { type: [number, "null"], description: "Mean glucose, mg/dL." }
+        gmiPercent:
+          type: [number, "null"]
+          description: "Glucose Management Indicator: 3.31 + 0.02392 × mean(mg/dL)."
+        estimatedA1cPercent:
+          type: [number, "null"]
+          description: "ADAG estimate: (mean(mg/dL) + 46.7) / 28.7."
+        cvPercent:
+          type: [number, "null"]
+          description: "Coefficient of variation (SD/mean × 100); ≤ 36% is considered stable."
+        timeInRange: { $ref: "#/components/schemas/TimeInRange" }
+
+    TimeInRange:
+      type: object
+      description: Percentage of readings in each band; sums to 100 when n > 0.
+      properties:
+        veryLowPct: { type: number }
+        lowPct: { type: number }
+        inRangePct: { type: number }
+        highPct: { type: number }
+        veryHighPct: { type: number }
+
+    V4Token:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        scopes:
+          type: array
+          items: { $ref: "#/components/schemas/Scope" }
+        createdAt: { type: integer, format: int64 }
+        lastUsedAt: { type: [integer, "null"], format: int64 }
+        revoked: { type: boolean }
+
+    V4Connector:
+      type: object
+      description: A cloud-connector credential (secret-free view).
+      properties:
+        provider: { type: string, enum: [dexcom, librelinkup] }
+        enabled: { type: boolean }
+        region: { type: [string, "null"], description: "Dexcom region (e.g. `us`, `ous`)." }
+        updatedAt: { type: integer, format: int64 }
+        lastSyncAt: { type: [integer, "null"], format: int64 }
+        lastStatus:
+          type: [string, "null"]
+          description: "Last sync outcome (e.g. `ok: 12 readings` or an error string)."
+
+    DexcomConnectorInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        region: { type: string, default: us, examples: ["us", "ous"] }
+        enabled: { type: boolean, default: true }
+
+    LibreLinkUpConnectorInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+        enabled: { type: boolean, default: true }
+
+    # ---- v1 status -------------------------------------------------------
+    V1Status:
+      type: object
+      properties:
+        status: { type: string, examples: ["ok"] }
+        name: { type: string, examples: ["nightknight"] }
+        version: { type: string }
+        apiEnabled: { type: boolean }
+        careportalEnabled: { type: boolean }
+        settings:
+          type: object
+          properties:
+            units: { $ref: "#/components/schemas/GlucoseUnit" }
+            thresholds:
+              type: object
+              properties:
+                bgHigh: { type: integer, examples: [260] }
+                bgTargetTop: { type: integer, examples: [180] }
+                bgTargetBottom: { type: integer, examples: [70] }
+                bgLow: { type: integer, examples: [55] }
+        authorized:
+          type: object
+          properties:
+            read: { type: boolean }
+            write: { type: boolean }
