@@ -45,7 +45,8 @@ service/crates/
 web/dist/                the web SPA (no build step — static files)
 deploy/                  Dockerfile, docker-compose.yml
 branding/                NightKnight app icon (hubsystem style)
-docs/                    SETUP, ARCHITECTURE, API-COMPAT, TESTING
+docs/                    SETUP, ARCHITECTURE, API-COMPAT, TESTING,
+                         openapi.yaml, STATISTICAL-ANALYSIS
 ```
 
 ## Quick start
@@ -76,6 +77,9 @@ Planned work, not yet implemented:
   glanceable recent-history view, safe for in-vehicle use.
 - **Statistical analysis.** Deeper analytics beyond TIR/GMI/eA1c — e.g. AGP-style
   percentile bands, day-of-week and time-of-day patterns, hypo/hyper event detection,
-  and exportable reports.
-- **OpenAPI specification.** A published OpenAPI (Swagger) document for the v1/v3/v4
-  API, enabling generated clients, contract tests, and interactive docs.
+  and exportable reports. Research and a prioritised, codebase-grounded plan are in
+  [docs/STATISTICAL-ANALYSIS.md](docs/STATISTICAL-ANALYSIS.md); implementation pending.
+- **OpenAPI specification.** An OpenAPI 3.1 document for the v1/v3/v4 API is published at
+  [docs/openapi.yaml](docs/openapi.yaml) (validates clean under Redocly), enabling
+  generated clients, contract tests, and interactive docs. Auto-generating it from the
+  Rust handlers (rather than hand-maintaining) is a possible follow-up.

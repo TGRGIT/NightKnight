@@ -102,14 +102,24 @@ struct DashboardView: View {
                 Text(model.current?.value.display(in: unit) ?? "--")
                     .font(.system(size: 68, weight: .bold, design: .rounded))
                     .foregroundStyle(band?.color ?? .primary)
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(unit.label).foregroundStyle(.secondary)
-                    Text(model.current?.trend.glyph ?? "·").font(.title)
+                    HStack(spacing: 6) {
+                        Text(model.current?.trend.glyph ?? "·").font(.title)
+                        if let t = model.current?.trend.label, !t.isEmpty {
+                            Text(t).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Spacer()
             }
-            if let c = model.current {
-                Text(c.date, style: .relative).font(.caption).foregroundStyle(.secondary)
+            if let c = model.current, let band {
+                // Level (Urgent low … Urgent high) and trend are shown together — the
+                // two distinct things a person checks at a glance.
+                HStack(spacing: 8) {
+                    Text(band.label).font(.caption.weight(.semibold)).foregroundStyle(band.color)
+                    Text(c.date, style: .relative).font(.caption).foregroundStyle(.secondary)
+                }
             } else if let err = model.errorText {
                 Text(err).font(.caption).foregroundStyle(Color.nkAccent)
             }

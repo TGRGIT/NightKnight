@@ -92,6 +92,28 @@ impl Direction {
         }
     }
 
+    /// A plain-language label for the trend, matching the vocabulary used by the
+    /// major CGM UIs (Dexcom: "Rising rapidly / Rising / Rising slowly / Steady /
+    /// Falling slowly / Falling / Falling rapidly"; FreeStyle Libre uses the same
+    /// "rising / falling" verbs). This is what humans should see — the [`name`]
+    /// values (`DoubleUp`, …) are the Nightscout/Dexcom wire spellings and stay on
+    /// the wire for ecosystem compatibility.
+    ///
+    /// [`name`]: Direction::name
+    pub fn label(self) -> &'static str {
+        match self {
+            Direction::DoubleUp => "Rising rapidly",
+            Direction::SingleUp => "Rising",
+            Direction::FortyFiveUp => "Rising slowly",
+            Direction::Flat => "Steady",
+            Direction::FortyFiveDown => "Falling slowly",
+            Direction::SingleDown => "Falling",
+            Direction::DoubleDown => "Falling rapidly",
+            Direction::None | Direction::NotComputable => "",
+            Direction::RateOutOfRange => "Rate out of range",
+        }
+    }
+
     /// A Unicode arrow suitable for compact display.
     pub fn arrow(self) -> &'static str {
         match self {
@@ -142,6 +164,24 @@ mod tests {
     #[test]
     fn non_finite_rate_is_not_computable() {
         assert_eq!(Direction::from_rate_per_min(f64::NAN), Direction::NotComputable);
+    }
+
+    /// Human labels follow the CGM-ecosystem vocabulary (Dexcom/Libre) so NightKnight
+    /// reads the way people already expect; the wire `name()` spellings are unchanged.
+    #[test]
+    fn labels_match_cgm_vocabulary() {
+        assert_eq!(Direction::DoubleUp.label(), "Rising rapidly");
+        assert_eq!(Direction::SingleUp.label(), "Rising");
+        assert_eq!(Direction::FortyFiveUp.label(), "Rising slowly");
+        assert_eq!(Direction::Flat.label(), "Steady");
+        assert_eq!(Direction::FortyFiveDown.label(), "Falling slowly");
+        assert_eq!(Direction::SingleDown.label(), "Falling");
+        assert_eq!(Direction::DoubleDown.label(), "Falling rapidly");
+        // No-trend states render as empty (the UI shows nothing rather than jargon).
+        assert_eq!(Direction::None.label(), "");
+        assert_eq!(Direction::NotComputable.label(), "");
+        // The wire spellings are untouched.
+        assert_eq!(Direction::DoubleUp.name(), "DoubleUp");
     }
 
     /// Trend between two readings five minutes apart (the usual CGM cadence): a

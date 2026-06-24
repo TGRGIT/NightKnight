@@ -100,6 +100,12 @@ small { font-size: 0.5em; font-weight: 600; color: var(--muted); margin-left: 2p
 .hero-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .bg-age { color: var(--muted); font-size: 0.84rem; }
 .pill { font-variant-numeric: tabular-nums; font-size: 0.82rem; font-weight: 650; padding: 4px 11px; border-radius: 999px; background: var(--tile); border: 1px solid var(--rim); color: var(--muted); }
+.pill[hidden] { display: none; }
+/* Tint the level pill to match the reading's band, so status reads at a glance and
+   does not rely on colour alone (the text says "Urgent low" etc.). */
+.pill[data-band="inrange"] { color: var(--g-inrange); border-color: color-mix(in srgb, var(--g-inrange) 40%, var(--rim)); }
+.pill[data-band="warn"] { color: var(--g-warn); border-color: color-mix(in srgb, var(--g-warn) 45%, var(--rim)); }
+.pill[data-band="danger"] { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 50%, var(--rim)); }
 .hero[data-band="inrange"] { --band-glow: rgba(54,196,107,.5); }
 .hero[data-band="inrange"] .bg-value { color: var(--g-inrange); }
 .hero[data-band="warn"] { --band-glow: rgba(224,162,60,.5); }

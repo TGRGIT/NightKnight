@@ -42,4 +42,17 @@ enum GlucoseBand: Sendable {
         if mgdl <= 250 { return .high }
         return .veryHigh
     }
+
+    /// Plain-language level status, matching the CGM ecosystem ("Urgent low" at the
+    /// level-2 threshold) and the server's `GlucoseBand::label`. This is the glucose
+    /// **level** dimension — distinct from the **trend** (see `TrendDirection.label`).
+    var label: String {
+        switch self {
+        case .veryLow: return "Urgent low"
+        case .low: return "Low"
+        case .inRange: return "In range"
+        case .high: return "High"
+        case .veryHigh: return "Urgent high"
+        }
+    }
 }

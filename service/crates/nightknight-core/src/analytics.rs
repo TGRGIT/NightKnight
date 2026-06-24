@@ -65,6 +65,35 @@ pub enum GlucoseBand {
     VeryHigh,
 }
 
+impl GlucoseBand {
+    /// A plain-language status label for the level, matching the alert vocabulary the
+    /// CGM ecosystem uses (Dexcom's "Urgent Low" at the level-2 threshold, plus Low /
+    /// In range / High / Urgent high). This is the glucose **level** dimension, which
+    /// is distinct from the **trend** (see [`crate::trend::Direction::label`]): a
+    /// reading can be "Low" and "Rising" at the same time.
+    pub fn label(self) -> &'static str {
+        match self {
+            GlucoseBand::VeryLow => "Urgent low",
+            GlucoseBand::Low => "Low",
+            GlucoseBand::InRange => "In range",
+            GlucoseBand::High => "High",
+            GlucoseBand::VeryHigh => "Urgent high",
+        }
+    }
+
+    /// A short machine token for the level (`veryLow` … `veryHigh`), for clients that
+    /// want to drive styling/colour off the band rather than re-deriving thresholds.
+    pub fn key(self) -> &'static str {
+        match self {
+            GlucoseBand::VeryLow => "veryLow",
+            GlucoseBand::Low => "low",
+            GlucoseBand::InRange => "inRange",
+            GlucoseBand::High => "high",
+            GlucoseBand::VeryHigh => "veryHigh",
+        }
+    }
+}
+
 impl TirThresholds {
     /// Categorise one reading. Boundaries: target range is inclusive `[low, high]`;
     /// `low` band is `[very_low, low)`; `high` band is `(high, very_high]`.
@@ -233,6 +262,18 @@ mod tests {
         assert_eq!(t.band(180.1), GlucoseBand::High);
         assert_eq!(t.band(250.0), GlucoseBand::High);
         assert_eq!(t.band(250.1), GlucoseBand::VeryHigh);
+    }
+
+    /// Level labels match the CGM-ecosystem status vocabulary the user expects.
+    #[test]
+    fn band_labels_match_status_vocabulary() {
+        let t = TirThresholds::default();
+        assert_eq!(t.band(40.0).label(), "Urgent low");
+        assert_eq!(t.band(60.0).label(), "Low");
+        assert_eq!(t.band(120.0).label(), "In range");
+        assert_eq!(t.band(220.0).label(), "High");
+        assert_eq!(t.band(300.0).label(), "Urgent high");
+        assert_eq!(t.band(300.0).key(), "veryHigh");
     }
 
     /// A worked TIR example. 10 readings spread across the bands; percentages must be
