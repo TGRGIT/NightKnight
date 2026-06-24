@@ -6,6 +6,25 @@ import { drawGlucoseChart } from "/chart.js";
 const MGDL_PER_MMOL = 18.0156;
 const LOW = 70, HIGH = 180;
 
+// Plain-language trend labels matching the CGM ecosystem (Dexcom/Libre wording). The
+// server now sends `trendLabel`; this map is a fallback for older servers and keeps
+// the wire `direction` (DoubleUp, …) out of the UI.
+const TREND_LABELS = {
+  DoubleUp: "Rising rapidly", SingleUp: "Rising", FortyFiveUp: "Rising slowly",
+  Flat: "Steady", FortyFiveDown: "Falling slowly", SingleDown: "Falling",
+  DoubleDown: "Falling rapidly", "RATE OUT OF RANGE": "Rate out of range",
+};
+
+// Glucose **level** status (separate dimension from trend). Fallback for older servers
+// that don't send `levelLabel`.
+function levelLabelFromMgdl(mgdl) {
+  if (mgdl < 54) return "Urgent low";
+  if (mgdl < LOW) return "Low";
+  if (mgdl <= HIGH) return "In range";
+  if (mgdl <= 250) return "High";
+  return "Urgent high";
+}
+
 const state = {
   unit: localStorage.getItem("nk-unit") || "mg/dl",
   periodDays: 7,
@@ -52,16 +71,25 @@ function renderCurrent(current) {
   if (!current) {
     $("#bg-value").textContent = "--"; $("#bg-trend").textContent = "·";
     $("#bg-age").textContent = "no data"; $("#bg-delta").textContent = "";
+    $("#bg-level").textContent = ""; $("#bg-level").removeAttribute("data-band");
     hero.removeAttribute("data-band"); return;
   }
   const mgdl = current.mgdl;
+  const band = bandClass(mgdl);
   $("#bg-value").textContent = fmt(mgdl, state.unit);
   $("#bg-unit").textContent = state.unit === "mmol/l" ? "mmol/L" : "mg/dL";
   $("#bg-trend").textContent = current.trend || "·";
-  hero.setAttribute("data-band", bandClass(mgdl));
+  hero.setAttribute("data-band", band);
   const ageMin = Math.round((Date.now() - current.date) / 60000);
   $("#bg-age").textContent = ageMin <= 0 ? "just now" : `${ageMin} min ago`;
-  $("#bg-delta").textContent = current.direction ? current.direction.replace(/([A-Z])/g, " $1").trim() : "";
+  // Level (Urgent low … Urgent high) and trend (Rising/Steady/Falling) are two
+  // distinct things; show both, server-provided when available.
+  const level = $("#bg-level");
+  level.textContent = current.levelLabel || levelLabelFromMgdl(mgdl);
+  level.setAttribute("data-band", band);
+  const trendLabel = current.trendLabel ?? TREND_LABELS[current.direction] ?? "";
+  $("#bg-delta").textContent = trendLabel;
+  $("#bg-delta").hidden = !trendLabel;
 }
 
 function renderChart() {

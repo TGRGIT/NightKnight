@@ -29,6 +29,22 @@ enum TrendDirection: String, Sendable {
         case .none: return "–"
         }
     }
+
+    /// Plain-language trend label matching the CGM ecosystem (Dexcom/Libre wording)
+    /// and the server's `Direction::label`. The raw-value spellings (`DoubleUp`, …)
+    /// stay on the wire; this is what the user sees.
+    var label: String {
+        switch self {
+        case .doubleUp: return "Rising rapidly"
+        case .singleUp: return "Rising"
+        case .fortyFiveUp: return "Rising slowly"
+        case .flat: return "Steady"
+        case .fortyFiveDown: return "Falling slowly"
+        case .singleDown: return "Falling"
+        case .doubleDown: return "Falling rapidly"
+        case .none: return ""
+        }
+    }
 }
 
 /// The latest reading + trend (decoded from `/api/v4/current`).

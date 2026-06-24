@@ -92,6 +92,10 @@ impl<S: Storage> ApiService<S> {
             None => Direction::None,
         };
         let g = latest.value;
+        // The glucose **level** band (Urgent low … Urgent high) is a separate dimension
+        // from the **trend** arrow; clients show both. Computed here so web/iOS/watch
+        // share one source of truth and one vocabulary.
+        let band = TirThresholds::default().band(g.mgdl());
         Ok(ApiResponse::json(
             200,
             &json!({
@@ -102,6 +106,9 @@ impl<S: Storage> ApiService<S> {
                     "mmol": g.display(GlucoseUnit::Mmol),
                     "direction": direction.name(),
                     "trend": direction.arrow(),
+                    "trendLabel": direction.label(),
+                    "level": band.key(),
+                    "levelLabel": band.label(),
                     "preferredUnit": principal.user.preferred_unit,
                 }
             }),
