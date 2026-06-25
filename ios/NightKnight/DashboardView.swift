@@ -27,7 +27,10 @@ final class DashboardModel {
             readings = try await e
             analytics = try await a
             errorText = nil
-            if let current { AlarmManager.shared.evaluate(current, settings: settings) }
+            if let current {
+                ReadingCache.save(current)   // keep the widget's fallback warm
+                AlarmManager.shared.evaluate(current, settings: settings)
+            }
             if settings.writeToHealthKit { await HealthKitManager.shared.write(readings) }
         } catch {
             errorText = (error as? APIError)?.errorDescription ?? error.localizedDescription

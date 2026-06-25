@@ -13,6 +13,8 @@
 		08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
 		114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */; };
 		1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		145E7EDD810EBB1CCDACBFF8 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		1933D1B64027067D9D9281CC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68D3159CB126C43F23D0CFEC /* Assets.xcassets */; };
 		225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
@@ -27,7 +29,9 @@
 		5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33754D6296502ED0D7E612D5 /* WatchApp.swift */; };
 		5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
 		625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */; };
+		62DE72656D1AD41501B0E1C0 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		64DAC52478A33EC729460E6F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		689EA5609D67081BE90C03EF /* ReadingCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */; };
 		6D6309217F4CBA4657C7E7EC /* NightKnightWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6F15853A027406BF86ACD46A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1518411F2A9EA45C38188E /* Theme.swift */; };
 		7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
@@ -41,10 +45,12 @@
 		AC279425B88E5E0802C63E86 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */; };
 		B825D958F21A7318F3F90872 /* WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E3493FD8F4068269199124 /* WatchSyncManager.swift */; };
+		C53D2258A484B97DCF3B01E5 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		C5BE2847BC83EEC2038F1FBE /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */; };
 		C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		C8300FB8A88165E3368861D4 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		CA6B8AD5037083C8063D1A72 /* AlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */; };
+		D47376AED3AEBB17C560A177 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */; };
 		E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		E884930D5BB2207174EF2C4E /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
@@ -125,7 +131,7 @@
 
 /* Begin PBXFileReference section */
 		08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NightKnight.entitlements; sourceTree = "<group>"; };
-		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		11B6797901ED826D49A441BB /* Watch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Watch.entitlements; sourceTree = "<group>"; };
 		14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
 		19D04B3978569C581FA1C977 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
@@ -141,17 +147,19 @@
 		68D3159CB126C43F23D0CFEC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71E3493FD8F4068269199124 /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
 		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
+		7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCacheTests.swift; sourceTree = "<group>"; };
 		8125DB02F421C50937D4CEC7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
-		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C9AA58DE37FB153D9974702 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnightWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F22872B22E684CF349F7D72 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A71859D4D8C41B215995E1B4 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		AE94479F7120807D1A5D3DB4 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		AFF01144A12FD25F08FDD8C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		B8AABE6A1E18EE42241455E9 /* NightKnightWidgetTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NightKnightWidgetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8AABE6A1E18EE42241455E9 /* NightKnightWidgetTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightWidgetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCache.swift; sourceTree = "<group>"; };
 		C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C66E777FD6F466450B90A38B /* NightKnightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightWidget.swift; sourceTree = "<group>"; };
 		C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightApp.swift; sourceTree = "<group>"; };
 		CBC0D37B5BE05566AA5EF705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -194,6 +202,7 @@
 				2F319E39305D873F3989FA87 /* GlucoseUnit.swift */,
 				19D04B3978569C581FA1C977 /* Keychain.swift */,
 				1D9B583F5BB069D62B751C0A /* Models.swift */,
+				BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */,
 				1C2424346B65CFB750BBBFD2 /* Settings.swift */,
 			);
 			path = Shared;
@@ -266,6 +275,7 @@
 			isa = PBXGroup;
 			children = (
 				274ECD1BD103AB3750442D6C /* CredentialSharingTests.swift */,
+				7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */,
 				4B5E9883D155D27E3DA6C9BA /* WidgetRenderTests.swift */,
 			);
 			path = NightKnightWidgetTests;
@@ -393,8 +403,24 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					186DBD700FB6F2F8026F6032 = {
+						DevelopmentTeam = "";
+					};
+					1B6F3ACF8336E002DDB1D7EC = {
+						DevelopmentTeam = "";
+					};
+					2C1A27F65B2710B61D298658 = {
+						DevelopmentTeam = "";
+					};
+					4DF7C2A244952491E660730F = {
+						DevelopmentTeam = "";
+					};
 					C70219A5C67BC93B51981C03 = {
+						DevelopmentTeam = "";
 						TestTargetID = 186DBD700FB6F2F8026F6032;
+					};
+					EF1B0D387B60DE79E0113424 = {
+						DevelopmentTeam = "";
 					};
 				};
 			};
@@ -448,6 +474,7 @@
 				64DAC52478A33EC729460E6F /* Models.swift in Sources */,
 				625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */,
 				E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */,
+				C53D2258A484B97DCF3B01E5 /* ReadingCache.swift in Sources */,
 				E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */,
 				7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */,
 				6F15853A027406BF86ACD46A /* Theme.swift in Sources */,
@@ -463,6 +490,7 @@
 				99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */,
 				AC279425B88E5E0802C63E86 /* Models.swift in Sources */,
 				5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */,
+				17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */,
 				225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */,
 				3F67726A33F34B5BF887D760 /* WidgetBundle.swift in Sources */,
 			);
@@ -476,6 +504,7 @@
 				7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */,
 				7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */,
 				8732F534716121B9683DC689 /* Models.swift in Sources */,
+				D47376AED3AEBB17C560A177 /* ReadingCache.swift in Sources */,
 				1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */,
 				F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */,
 			);
@@ -499,6 +528,8 @@
 				F6E360056FCA6E9BECC38346 /* Keychain.swift in Sources */,
 				F88F8B470A272C80771AB1AE /* Models.swift in Sources */,
 				08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */,
+				62DE72656D1AD41501B0E1C0 /* ReadingCache.swift in Sources */,
+				689EA5609D67081BE90C03EF /* ReadingCacheTests.swift in Sources */,
 				E884930D5BB2207174EF2C4E /* Settings.swift in Sources */,
 				3B097F60833B42B6DFC36B38 /* WidgetRenderTests.swift in Sources */,
 			);
@@ -512,6 +543,7 @@
 				410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */,
 				C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */,
 				07D33F2EB66518E84776E27E /* Models.swift in Sources */,
+				145E7EDD810EBB1CCDACBFF8 /* ReadingCache.swift in Sources */,
 				0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */,
 				5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */,
 				114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */,
@@ -551,7 +583,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -567,7 +598,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -585,7 +615,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -603,7 +632,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
 				SDKROOT = watchos;
@@ -616,7 +644,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -634,7 +661,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -651,7 +677,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -669,7 +694,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -688,7 +712,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -705,7 +728,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
 				SDKROOT = watchos;
@@ -843,7 +865,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -860,7 +881,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
-				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
