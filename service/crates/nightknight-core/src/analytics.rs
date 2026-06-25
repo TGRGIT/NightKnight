@@ -311,7 +311,9 @@ pub struct Coverage {
     pub distinct_days: usize,
     /// Expected readings for the window at the assumed cadence (`window / cadence`).
     pub expected: f64,
-    /// `100 × n / expected`, clamped to `[0, 100]` — the consensus "% time active".
+    /// `100 × (distinct cadence-sized slots with data) / expected`, clamped to `[0, 100]`
+    /// — the "% time active". Slot-based (not raw `n`) so denser-than-cadence sampling
+    /// can't push it past 100% and genuine gaps lower it.
     pub percent_active: f64,
     /// Whether the data clears the consensus bar (≥ 14 distinct days **and**
     /// ≥ 70% active). When false, the UI should caveat the headline metrics.

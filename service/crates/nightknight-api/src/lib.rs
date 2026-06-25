@@ -50,10 +50,12 @@ pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// is rejected with 413 before parsing.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// Lookback window (minutes) for the first sync of a Nightscout source: large enough that
-/// the connector's per-fetch count cap (131_072 readings) binds, so the initial import
-/// pulls the whole available history in one bulk fetch rather than dripping it.
-const NS_BACKFILL_MINUTES: i64 = 131_072 * 5;
+/// Lookback window (minutes) for the first sync of a Nightscout source — ~30 days. Big
+/// enough to feel like a bulk CSV import (a month of history in one pass, not 12 readings
+/// at a time), but bounded so the single cron invocation that runs it stays within the
+/// Worker's CPU/time budget and D1's per-invocation query limits. Deeper history continues
+/// to fill in on later syncs. (A future batched/cursored ingest could lift this cap.)
+const NS_BACKFILL_MINUTES: i64 = 30 * 24 * 60;
 
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
@@ -477,12 +479,17 @@ impl<S: Storage> ApiService<S> {
                     base_url: cred_field(&creds, "url")?,
                     secret: cred_field(&creds, "secret")?,
                 };
-                // A Nightscout source is migrated history, not a live vendor feed: the
-                // FIRST sync pulls in BULK — one large fetch of the whole history (up to
-                // the API's count cap, ~131k readings ≈ 15 months at 5-min cadence), like
-                // a CSV import — instead of dripping the recent window 12 readings at a
-                // time. Later syncs only pull the recent window; re-imports dedup harmlessly.
-                let window = if cred.last_sync_at.is_none() { NS_BACKFILL_MINUTES } else { minutes };
+                // A Nightscout source is migrated history, not a live vendor feed: until
+                // a sync has SUCCEEDED, pull in BULK (a ~month-deep fetch in one pass, like
+                // a CSV import) instead of dripping the recent window 12 readings at a time.
+                // "Not yet succeeded" = never synced OR the last attempt errored — so a
+                // transient failure on the first run retries the bulk rather than getting
+                // stuck on the recent window forever (`last_sync_at` is stamped even on
+                // error). Once a sync succeeds, later syncs only pull the recent window;
+                // re-imports dedup harmlessly.
+                let needs_backfill = cred.last_sync_at.is_none()
+                    || cred.last_status.as_deref().is_some_and(|s| s.starts_with("error"));
+                let window = if needs_backfill { NS_BACKFILL_MINUTES } else { minutes };
                 c.fetch_recent(http, window).await
             }
             other => return Err(ApiError::BadRequest(format!("unknown provider {other}"))),
