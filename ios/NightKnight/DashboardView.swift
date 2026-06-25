@@ -15,6 +15,10 @@ final class DashboardModel {
     let settings = Settings.shared
     private var client: APIClient { APIClient(settings: settings) }
 
+    /// Epoch-seconds of the reading we last reloaded widgets for, so foreground polling
+    /// doesn't request a reload every 60s when nothing changed.
+    private var lastWidgetReloadAt: TimeInterval = 0
+
     init() {
         period = TrailingPeriod(rawValue: Settings.shared.trailingDays) ?? .week
     }
@@ -30,8 +34,13 @@ final class DashboardModel {
             errorText = nil
             if let current { AlarmManager.shared.evaluate(current, settings: settings) }
             if settings.writeToHealthKit { await HealthKitManager.shared.write(readings) }
-            // Keep the home-screen / lock-screen widgets in step with the app.
-            WidgetCenter.shared.reloadAllTimelines()
+            // Keep the widgets in step, but only when the reading actually advanced —
+            // reloading every 60s of foreground polling (when the widget isn't even
+            // visible) would burn through WidgetKit's reload budget for nothing.
+            if let current, current.date.timeIntervalSince1970 > lastWidgetReloadAt {
+                lastWidgetReloadAt = current.date.timeIntervalSince1970
+                WidgetCenter.shared.reloadAllTimelines()
+            }
         } catch {
             errorText = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
