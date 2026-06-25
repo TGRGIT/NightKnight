@@ -28,8 +28,13 @@ struct WatchProvider: AppIntentTimelineProvider {
     }
     private func load() async -> WatchEntry {
         let settings = Settings.shared
-        let current = try? await APIClient(settings: settings).current()
-        return WatchEntry(date: .now, value: current?.value, trend: current?.trend ?? .none, unit: settings.preferredUnit)
+        let fetched = try? await APIClient(settings: settings).current()
+        if let fetched { ReadingCache.save(fetched) }
+        // Fall back to the last cached reading so a transient failure or CGM gap doesn't
+        // blank the complication to "--".
+        let reading = fetched ?? ReadingCache.load()
+        return WatchEntry(date: reading?.date ?? .now, value: reading?.value,
+                          trend: reading?.trend ?? .none, unit: settings.preferredUnit)
     }
 
     // Required on watchOS; no gallery recommendations.

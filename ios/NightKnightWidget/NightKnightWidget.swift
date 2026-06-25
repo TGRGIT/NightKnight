@@ -34,8 +34,17 @@ struct Provider: AppIntentTimelineProvider {
 
     private func load() async -> GlucoseEntry {
         let settings = Settings.shared
-        let current = try? await APIClient(settings: settings).current()
-        return GlucoseEntry(date: .now, value: current?.value, trend: current?.trend ?? .none, unit: settings.preferredUnit)
+        let fetched = try? await APIClient(settings: settings).current()
+        if let fetched { ReadingCache.save(fetched) }
+        // Fall back to the last cached reading so a transient failure or CGM gap doesn't
+        // blank the widget to "--" until the next (budget-throttled) refresh.
+        return Self.entry(for: fetched ?? ReadingCache.load(), unit: settings.preferredUnit)
+    }
+
+    /// Build a timeline entry from the reading to display (a fresh fetch, else the cache).
+    static func entry(for reading: CurrentReading?, unit: GlucoseUnit) -> GlucoseEntry {
+        GlucoseEntry(date: reading?.date ?? .now, value: reading?.value,
+                     trend: reading?.trend ?? .none, unit: unit)
     }
 
     // Required on watchOS (has a default only on iOS); no gallery recommendations.

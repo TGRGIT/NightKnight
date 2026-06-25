@@ -15,6 +15,7 @@ final class WatchModel {
             current = try await c
             analytics = try await a
             errorText = nil
+            if let current { ReadingCache.save(current) }   // keep the complication's fallback warm
         } catch {
             errorText = (error as? APIError)?.errorDescription ?? "—"
         }
