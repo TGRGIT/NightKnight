@@ -50,6 +50,11 @@ pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// is rejected with 413 before parsing.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
+/// Lookback window (minutes) for the first sync of a Nightscout source: large enough that
+/// the connector's per-fetch count cap (131_072 readings) binds, so the initial import
+/// pulls the whole available history in one bulk fetch rather than dripping it.
+const NS_BACKFILL_MINUTES: i64 = 131_072 * 5;
+
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
 /// device-token request, or an unauthenticated request that will be rejected).
@@ -472,7 +477,13 @@ impl<S: Storage> ApiService<S> {
                     base_url: cred_field(&creds, "url")?,
                     secret: cred_field(&creds, "secret")?,
                 };
-                c.fetch_recent(http, minutes).await
+                // A Nightscout source is migrated history, not a live vendor feed: the
+                // FIRST sync pulls in BULK — one large fetch of the whole history (up to
+                // the API's count cap, ~131k readings ≈ 15 months at 5-min cadence), like
+                // a CSV import — instead of dripping the recent window 12 readings at a
+                // time. Later syncs only pull the recent window; re-imports dedup harmlessly.
+                let window = if cred.last_sync_at.is_none() { NS_BACKFILL_MINUTES } else { minutes };
+                c.fetch_recent(http, window).await
             }
             other => return Err(ApiError::BadRequest(format!("unknown provider {other}"))),
         }

@@ -42,6 +42,8 @@
             <span id="bg-trend" class="bg-trend">·</span>
           </div>
         </div>
+        <!-- Last-hour sparkline behind the spotlight reading. Hidden until there's data. -->
+        <svg id="hero-spark" class="hero-spark" viewBox="0 0 240 60" preserveAspectRatio="none" aria-hidden="true" hidden></svg>
         <div class="hero-meta">
           <span id="bg-delta" class="pill"></span>
           <span id="bg-age" class="bg-age">—</span>
@@ -169,7 +171,7 @@
             </select>
             <button type="submit">Connect</button>
           </form>
-          <p class="muted nightscout-only" id="nightscout-hint" hidden>Mirror another Nightscout/NightKnight instance — paste its URL and api-secret. NightKnight pulls its readings (newest first) and keeps them in sync.</p>
+          <p class="muted nightscout-only" id="nightscout-hint" hidden>Mirror another Nightscout/NightKnight instance — paste its URL and api-secret. The <strong>first sync bulk-imports your whole history</strong> in one pass (up to ~15 months), like a CSV import; after that NightKnight keeps recent readings in step. De-duplicated, so re-adding is safe.</p>
           <ul id="connector-list" class="status-list"></ul>
         </section>
 

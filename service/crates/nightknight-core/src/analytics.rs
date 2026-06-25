@@ -346,8 +346,22 @@ impl Coverage {
         } else {
             0.0
         };
+        // "% time active" counts distinct cadence-sized epochs (5-min slots) that hold at
+        // least one reading — NOT raw readings. Counting readings against an assumed
+        // cadence pins the metric at 100% for any denser-than-cadence stream (e.g. 1-min
+        // Nightscout data), hiding real gaps; binning into slots is density-insensitive,
+        // caps naturally at 100%, and lets genuine drop-outs show through.
+        let active_slots = if cadence_ms > 0 {
+            let mut slots: Vec<i64> =
+                readings.iter().map(|r| r.date_ms.div_euclid(cadence_ms)).collect();
+            slots.sort_unstable();
+            slots.dedup();
+            slots.len()
+        } else {
+            0
+        };
         let percent_active = if expected > 0.0 {
-            (100.0 * n as f64 / expected).clamp(0.0, 100.0)
+            (100.0 * active_slots as f64 / expected).clamp(0.0, 100.0)
         } else {
             0.0
         };
@@ -964,10 +978,17 @@ mod tests {
         assert!(close(cov.percent_active, 50.0));
         assert_eq!(cov.distinct_days, 1);
         assert!(!cov.sufficient, "one day, 50% active is not sufficient");
-        // More readings than expected clamps to 100%, never overflows.
+        // Denser-than-cadence data (1-min) no longer pins at 100%: these 50 readings span
+        // minutes 0–49, i.e. 10 of the 12 five-minute slots in the hour, so coverage is
+        // ~83% — the real gap at the end of the window shows through instead of being
+        // masked by the raw count.
         let dense: Vec<_> = (0..50).map(|i| at(i, 100.0)).collect();
         let cov2 = Coverage::compute(&dense, 60 * 60_000, DEFAULT_CADENCE_MS, 0);
-        assert_eq!(cov2.percent_active, 100.0);
+        assert!(close(cov2.percent_active, 100.0 / 12.0 * 10.0), "got {}", cov2.percent_active);
+        // A truly full hour of 1-min data fills every slot → exactly 100%, never over.
+        let full: Vec<_> = (0..60).map(|i| at(i, 100.0)).collect();
+        let cov3 = Coverage::compute(&full, 60 * 60_000, DEFAULT_CADENCE_MS, 0);
+        assert_eq!(cov3.percent_active, 100.0);
         // Empty data never panics.
         let empty = Coverage::compute(&[], 60 * 60_000, DEFAULT_CADENCE_MS, 0);
         assert_eq!(empty.percent_active, 0.0);

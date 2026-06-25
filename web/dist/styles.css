@@ -99,6 +99,10 @@ small { font-size: 0.5em; font-weight: 600; color: var(--muted); margin-left: 2p
 .hero-side { display: flex; flex-direction: column; gap: 4px; }
 .bg-unit { color: var(--muted); font-size: 1rem; font-weight: 600; }
 .bg-trend { font-size: 2rem; line-height: 1; }
+/* Last-hour sparkline that sits between the spotlight number and the meta column. */
+.hero-spark { flex: 1 1 110px; min-width: 84px; max-width: 300px; height: 50px; align-self: center; }
+.hero-spark[hidden] { display: none; }
+@media (max-width: 460px) { .hero-spark { flex-basis: 100%; order: 3; height: 44px; } }
 .hero-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .bg-age { color: var(--muted); font-size: 0.84rem; }
 .pill { font-variant-numeric: tabular-nums; font-size: 0.82rem; font-weight: 650; padding: 4px 11px; border-radius: 999px; background: var(--tile); border: 1px solid var(--rim); color: var(--muted); }

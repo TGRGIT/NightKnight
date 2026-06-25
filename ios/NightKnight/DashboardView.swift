@@ -108,6 +108,8 @@ struct DashboardView: View {
 
     private var currentCard: some View {
         let band = model.current.map { GlucoseBand.of(mgdl: $0.value.mgdl) }
+        // The spotlight sparkline shows ONLY the last hour of readings, if there are any.
+        let lastHour = model.readings.filter { $0.date.timeIntervalSinceNow > -3600 }
         return HStack(alignment: .center, spacing: 14) {
             Text(model.current?.value.display(in: unit) ?? "--")
                 .font(.system(size: 58, weight: .bold, design: .rounded))
@@ -129,7 +131,11 @@ struct DashboardView: View {
                     Text(err).font(.caption2).foregroundStyle(Color.nkAccent).lineLimit(2)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if lastHour.count >= 2 {
+                MiniSparkline(readings: lastHour, color: band?.color ?? .secondary)
+                    .frame(width: 112, height: 46)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,6 +196,68 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(Color.nkInk, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// A compact last-hour sparkline for the spotlight reading: a soft filled line with an
+/// endpoint dot, auto-scaled to the window's range. Deliberately minimal so the big
+/// number stays the focus. Mirrors the widget's `TrendSparkline` (which lives in the
+/// widget target and can't be shared without project surgery).
+struct MiniSparkline: View {
+    let readings: [GlucoseReading]
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let pts = Self.points(readings, size: geo.size)
+            if pts.count >= 2 {
+                ZStack {
+                    fillPath(pts, height: geo.size.height)
+                        .fill(LinearGradient(colors: [color.opacity(0.30), color.opacity(0.02)],
+                                             startPoint: .top, endPoint: .bottom))
+                    linePath(pts)
+                        .stroke(color, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    if let last = pts.last {
+                        Circle().fill(color).frame(width: 5, height: 5).position(last)
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func linePath(_ pts: [CGPoint]) -> Path {
+        var p = Path()
+        p.move(to: pts[0])
+        for q in pts.dropFirst() { p.addLine(to: q) }
+        return p
+    }
+
+    private func fillPath(_ pts: [CGPoint], height: CGFloat) -> Path {
+        var p = linePath(pts)
+        if let first = pts.first, let last = pts.last {
+            p.addLine(to: CGPoint(x: last.x, y: height))
+            p.addLine(to: CGPoint(x: first.x, y: height))
+            p.closeSubpath()
+        }
+        return p
+    }
+
+    static func points(_ readings: [GlucoseReading], size: CGSize) -> [CGPoint] {
+        let recent = readings.sorted { $0.date < $1.date }
+        guard recent.count >= 2 else { return [] }
+        let vals = recent.map(\.mgdl)
+        let lo = (vals.min() ?? 80) - 6
+        let hi = (vals.max() ?? 180) + 6
+        let span = max(1, hi - lo)
+        let t0 = recent.first!.date.timeIntervalSince1970
+        let dt = max(1, recent.last!.date.timeIntervalSince1970 - t0)
+        let pad: CGFloat = 4
+        let h = max(1, size.height - pad * 2)
+        return recent.map { r in
+            CGPoint(x: CGFloat((r.date.timeIntervalSince1970 - t0) / dt) * size.width,
+                    y: pad + CGFloat(1 - (r.mgdl - lo) / span) * h)
+        }
     }
 }
 

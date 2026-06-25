@@ -120,6 +120,44 @@ function renderCurrent(current) {
   $("#bg-delta").textContent = current.trendLabel && current.trendLabel !== "No trend" ? current.trendLabel : "";
 }
 
+// Colour a value by its glucose band (matches the chart + hero glow).
+function bandColorVar(mgdl) {
+  return mgdl < 54 || mgdl > 250 ? "var(--g-danger)"
+    : mgdl < state.targetLow || mgdl > state.targetHigh ? "var(--g-warn)" : "var(--g-inrange)";
+}
+
+// The spotlight sparkline: ONLY the last hour of readings, drawn behind the current
+// number as a calm line + soft fill + an endpoint dot, coloured by the latest band.
+// Hidden when there aren't at least two points in the last hour.
+function renderHeroSpark(entries) {
+  const svg = $("#hero-spark");
+  const cutoff = Date.now() - 3600000; // last 60 minutes only
+  const pts = (entries || []).filter((e) => e.date >= cutoff).sort((a, b) => a.date - b.date);
+  if (pts.length < 2) { svg.setAttribute("hidden", ""); svg.replaceChildren(); return; }
+  svg.removeAttribute("hidden");
+  // Draw in the element's own pixel space so the endpoint dot stays a circle (no stretch).
+  const W = svg.clientWidth || 240, H = svg.clientHeight || 50, pad = 7;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const t0 = pts[0].date, t1 = Math.max(pts[pts.length - 1].date, t0 + 1);
+  const vals = pts.map((p) => p.mgdl);
+  const lo = Math.min(...vals) - 6, hi = Math.max(...vals) + 6, span = Math.max(1, hi - lo);
+  const X = (t) => ((t - t0) / (t1 - t0)) * W;
+  const Y = (v) => pad + (1 - (v - lo) / span) * (H - pad * 2);
+  const coords = pts.map((p) => [X(p.date), Y(p.mgdl)]);
+  const line = coords.map((c, i) => `${i ? "L" : "M"}${c[0].toFixed(1)} ${c[1].toFixed(1)}`).join(" ");
+  const last = coords[coords.length - 1];
+  const color = bandColorVar(pts[pts.length - 1].mgdl);
+  const gid = "heroSparkGrad";
+  // Inline `style` (not presentation attrs) so the CSS var() colours resolve.
+  svg.innerHTML =
+    `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" style="stop-color:${color};stop-opacity:.30"/>` +
+    `<stop offset="1" style="stop-color:${color};stop-opacity:.02"/></linearGradient></defs>` +
+    `<path d="${line} L${W} ${H} L0 ${H} Z" style="fill:url(#${gid})"/>` +
+    `<path d="${line}" style="fill:none;stroke:${color};stroke-width:2.4px" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.2" style="fill:${color}"/>`;
+}
+
 function renderSummary(a) {
   const grid = $("#summary-grid");
   grid.innerHTML = "";
@@ -299,6 +337,7 @@ async function refreshLive() {
     clearBanner();
     state.entries = (entries.entries || []).map((e) => ({ date: e.date, mgdl: e.mgdl }));
     renderCurrent(current.current);
+    renderHeroSpark(state.entries);
     renderChart();
   } catch (e) { if (!/unauthorized|forbidden/.test(String(e))) console.error(e); }
 }
