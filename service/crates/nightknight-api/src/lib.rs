@@ -33,6 +33,7 @@ use uuid::Uuid;
 use nightknight_auth::{extract_bearer, Action, Permission, ScopeSet};
 use nightknight_connectors::dexcom::{DexcomConnector, Region};
 use nightknight_connectors::librelinkup::LibreLinkUpConnector;
+use nightknight_connectors::nightscout::NightscoutConnector;
 use nightknight_connectors::{Connector, Http};
 use nightknight_core::documents::{Entry, Treatment};
 use nightknight_crypto as crypto;
@@ -463,6 +464,13 @@ impl<S: Storage> ApiService<S> {
                 let c = LibreLinkUpConnector {
                     email: cred_field(&creds, "email")?,
                     password: cred_field(&creds, "password")?,
+                };
+                c.fetch_recent(http, minutes).await
+            }
+            "nightscout" => {
+                let c = NightscoutConnector {
+                    base_url: cred_field(&creds, "url")?,
+                    secret: cred_field(&creds, "secret")?,
                 };
                 c.fetch_recent(http, minutes).await
             }

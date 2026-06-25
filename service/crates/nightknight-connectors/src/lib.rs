@@ -15,6 +15,7 @@
 
 pub mod dexcom;
 pub mod librelinkup;
+pub mod nightscout;
 
 use serde_json::{json, Value};
 

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Connection, units, Apple Health, and alarm configuration. Alarms are fully
-/// disableable via the master toggle.
+/// Connection, units, target range, Apple Health, and alarm configuration. Presented as
+/// a tab — edits persist as you make them. Alarms are fully disableable via the master
+/// toggle.
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     private let settings = Settings.shared
     @State private var baseURL = Settings.shared.baseURL
     @State private var token = Settings.shared.deviceToken
@@ -13,12 +13,17 @@ struct SettingsView: View {
     @State private var connOK = false
     @State private var isTesting = false
 
+    private var unit: GlucoseUnit { settings.preferredUnit }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Connection") {
-                    TextField("Server URL", text: $baseURL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Server URL", text: $baseURL)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onChange(of: baseURL) { persist() }
                     SecureField("Device token (api-secret)", text: $token)
+                        .onChange(of: token) { persist() }
                     Button(isTesting ? "Testing…" : "Test connection") { testConnection() }
                         .disabled(isTesting || baseURL.isEmpty || token.isEmpty)
                     if let connStatus {
@@ -29,15 +34,21 @@ struct SettingsView: View {
                 Section(header: Text("Cloudflare Access (optional)"),
                         footer: Text("A service token to pass the Access gate when deployed behind Cloudflare Access.")) {
                     TextField("CF-Access-Client-Id", text: $cfId).autocorrectionDisabled()
+                        .onChange(of: cfId) { persist() }
                     SecureField("CF-Access-Client-Secret", text: $cfSecret)
+                        .onChange(of: cfSecret) { persist() }
                 }
-                Section("Display") {
-                    Picker("Unit", selection: Binding(
-                        get: { settings.preferredUnit },
-                        set: { settings.preferredUnit = $0 }
-                    )) {
+                Section(header: Text("Display & targets"),
+                        footer: Text("Your target range shades the in-range band on the glucose chart and drives the on-device alarms. Analytics time-in-range always uses the consensus 70–180 mg/dL range.")) {
+                    Picker("Unit", selection: Binding(get: { settings.preferredUnit }, set: { settings.preferredUnit = $0 })) {
                         ForEach(GlucoseUnit.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
+                    Stepper("Target low: \(targetText(settings.lowThresholdMgdl))",
+                            value: Binding(get: { settings.lowThresholdMgdl }, set: { settings.lowThresholdMgdl = $0 }),
+                            in: 50...110, step: 5)
+                    Stepper("Target high: \(targetText(settings.highThresholdMgdl))",
+                            value: Binding(get: { settings.highThresholdMgdl }, set: { settings.highThresholdMgdl = $0 }),
+                            in: 140...300, step: 5)
                 }
                 Section("Apple Health") {
                     Toggle("Read from Health", isOn: Binding(get: { settings.readFromHealthKit }, set: { settings.readFromHealthKit = $0 }))
@@ -45,34 +56,28 @@ struct SettingsView: View {
                     Button("Authorize Apple Health") { Task { _ = await HealthKitManager.shared.requestAuth() } }
                 }
                 Section(header: Text("Alarms"),
-                        footer: Text("On-device alarms for out-of-range and rapid drops. Simply on or off — there's no snooze. Nothing fires when disabled.")) {
+                        footer: Text("On-device alarms for out-of-range and rapid drops, using your target range above. Simply on or off — there's no snooze. Nothing fires when disabled.")) {
                     Toggle("Enable alarms", isOn: Binding(get: { settings.alarmsEnabled }, set: { on in
                         settings.alarmsEnabled = on
                         if on { Task { await AlarmManager.shared.requestAuth() } }
                     }))
                     if settings.alarmsEnabled {
-                        Stepper("Low: \(Int(settings.lowThresholdMgdl)) mg/dL",
-                                value: Binding(get: { settings.lowThresholdMgdl }, set: { settings.lowThresholdMgdl = $0 }),
-                                in: 50...110, step: 5)
-                        Stepper("High: \(Int(settings.highThresholdMgdl)) mg/dL",
-                                value: Binding(get: { settings.highThresholdMgdl }, set: { settings.highThresholdMgdl = $0 }),
-                                in: 140...300, step: 5)
                         Toggle("Alert on rapid drop", isOn: Binding(get: { settings.fastDropAlarm }, set: { settings.fastDropAlarm = $0 }))
                     }
                 }
             }
             .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { save(); dismiss() }
-                }
-            }
         }
+    }
+
+    /// The target value rendered in the user's display unit (e.g. "70 mg/dL" / "3.9 mmol/L").
+    private func targetText(_ mgdl: Double) -> String {
+        "\(GlucoseValue(mgdl: mgdl).display(in: unit)) \(unit.label)"
     }
 
     /// Save the typed values, then ping the API so the user knows it's reachable.
     private func testConnection() {
-        save()
+        persist()
         isTesting = true
         connStatus = nil
         Task {
@@ -93,12 +98,12 @@ struct SettingsView: View {
         }
     }
 
-    private func save() {
+    /// Persist the connection credentials as they change, and mirror config to the Watch.
+    private func persist() {
         settings.baseURL = baseURL.trimmingCharacters(in: .whitespaces)
         settings.deviceToken = token.trimmingCharacters(in: .whitespaces)
         settings.cfAccessClientId = cfId.trimmingCharacters(in: .whitespaces)
         settings.cfAccessClientSecret = cfSecret.trimmingCharacters(in: .whitespaces)
-        // Mirror the new config to the Apple Watch.
         PhoneSyncManager.shared.pushConfig()
     }
 }

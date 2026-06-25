@@ -279,6 +279,126 @@ async fn mixed_units_current_and_analytics() {
     assert_eq!(a["timeInRange"]["inRangePct"], 100.0);
 }
 
+/// SCENARIO: the dashboard's "current" reading prefers the **sensor's own** trend
+/// arrow when the latest entry carries one, and labels it in plain language. Here two
+/// flat readings would compute to "Flat", but the newest carries the sensor's "DoubleUp"
+/// — which must win — and the expanded analytics payload exposes the full metric set.
+#[tokio::test]
+async fn current_prefers_first_party_trend_and_analytics_is_complete() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let older = json!({ "type": "sgv", "date": NOW - 300_000, "sgv": 100, "device": "t" });
+    let newest =
+        json!({ "type": "sgv", "date": NOW - 60_000, "sgv": 100, "direction": "DoubleUp", "device": "t" });
+    svc.handle(request("POST", "/api/v1/entries", &[], json!([older, newest])), NOW, edge.clone())
+        .await;
+
+    let cur = body_json(&svc.handle(request("GET", "/api/v4/current", &[], Value::Null), NOW, edge.clone()).await);
+    assert_eq!(cur["current"]["direction"], "DoubleUp", "first-party sensor trend wins");
+    assert_eq!(cur["current"]["trendLabel"], "Rising fast");
+
+    let an = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge.clone()).await,
+    );
+    assert_eq!(an["n"], 2);
+    assert!(an["sdMgdl"].is_number(), "SD surfaced");
+    assert!(an["coverage"]["percentActive"].is_number(), "data sufficiency surfaced");
+    assert!(an["gri"]["value"].is_number() && an["gri"]["zone"].is_string(), "GRI surfaced");
+    assert!(an["variability"]["jIndex"].is_number(), "advanced variability surfaced");
+    assert!(an["episodes"]["low"]["count"].is_number(), "episodes surfaced");
+    assert_eq!(an["patterns"].as_array().unwrap().len(), 4, "four time-of-day periods");
+
+    let agp = body_json(&svc.handle(request("GET", "/api/v4/agp?days=14", &[], Value::Null), NOW, edge).await);
+    assert_eq!(agp["bins"].as_array().unwrap().len(), 96, "AGP has 96 fifteen-minute bins");
+}
+
+/// A window with no readings must not fabricate a "perfect" score — every metric,
+/// including the Glycemia Risk Index (where 0 = best), reports null rather than a
+/// best-possible value.
+#[tokio::test]
+async fn empty_window_analytics_are_null_not_fabricated() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let an = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(an["n"], 0);
+    assert!(an["meanMgdl"].is_null(), "mean is null on empty");
+    assert!(an["gri"]["value"].is_null(), "GRI must be null, not a fabricated 0 / zone A");
+    assert!(an["gri"]["zone"].is_null());
+}
+
+/// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would
+/// mislead, so `current` reports NONE even though the entry stored an arrow.
+#[tokio::test]
+async fn current_suppresses_trend_for_a_stale_reading() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let stale =
+        json!({ "type": "sgv", "date": NOW - 30 * 60_000, "sgv": 100, "direction": "DoubleUp", "device": "t" });
+    svc.handle(request("POST", "/api/v1/entries", &[], json!([stale])), NOW, edge.clone()).await;
+    let cur = body_json(&svc.handle(request("GET", "/api/v4/current", &[], Value::Null), NOW, edge).await);
+    assert_eq!(cur["current"]["direction"], "NONE", "a stale reading shows no arrow");
+    assert_eq!(cur["current"]["trendLabel"], "No trend");
+}
+
+/// SCENARIO: a user uploads a LibreView CSV export. The readings are parsed, ingested
+/// into their own account, and queryable; a re-upload of the same export deduplicates
+/// rather than doubling the points.
+#[tokio::test]
+async fn libreview_csv_import_round_trips_and_dedups() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let csv = "Device,Serial Number,Device Timestamp,Record Type,Historic Glucose mg/dL\n\
+               FreeStyle LibreLink,s1,11-14-2023 21:00,0,120\n\
+               FreeStyle LibreLink,s1,11-14-2023 21:15,0,118\n";
+    let import = |body: &str| ApiRequest {
+        method: Method::Post,
+        path: "/api/v4/import/libreview".to_string(),
+        query: vec![("tzOffset".to_string(), "0".to_string())],
+        headers: Headers::from_pairs(Vec::<(String, String)>::new()),
+        body: body.as_bytes().to_vec(),
+    };
+
+    let resp = svc.handle(import(csv), NOW, edge.clone()).await;
+    assert_eq!(resp.status, 200);
+    let b = body_json(&resp);
+    assert_eq!(b["unit"], "mg/dl");
+    assert_eq!(b["imported"], 2, "two readings imported");
+
+    // They read back through the normal entries API.
+    let list = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge.clone()).await;
+    assert_eq!(body_json(&list).as_array().unwrap().len(), 2);
+
+    // Re-uploading the same export deduplicates — no new points.
+    let resp2 = svc.handle(import(csv), NOW, edge.clone()).await;
+    let b2 = body_json(&resp2);
+    assert_eq!(b2["imported"], 0, "nothing new on re-import");
+    assert_eq!(b2["duplicates"], 2, "both deduped");
+    let list2 = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge).await;
+    assert_eq!(body_json(&list2).as_array().unwrap().len(), 2, "still only two points");
+}
+
+/// A read-only follower token cannot import data (needs entries:create).
+#[tokio::test]
+async fn libreview_import_requires_create_scope() {
+    let svc = service().await;
+    let edge = human("alice@cooney.be");
+    let mk = svc
+        .handle(request("POST", "/api/v4/tokens", &[], json!({ "scopes": ["api:entries:read"] })), NOW, Some(edge))
+        .await;
+    let raw = body_json(&mk)["token"].as_str().unwrap().to_string();
+    let req = ApiRequest {
+        method: Method::Post,
+        path: "/api/v4/import/libreview".to_string(),
+        query: vec![],
+        headers: Headers::from_pairs(vec![("api-secret".to_string(), raw)]),
+        body: b"Device,Device Timestamp,Record Type,Historic Glucose mg/dL\nx,11-14-2023 21:00,0,120".to_vec(),
+    };
+    let resp = svc.handle(req, NOW, None).await;
+    assert_eq!(resp.status, 403, "read-only token cannot import");
+}
+
 /// SECURITY: two users behind the gate cannot see each other's data.
 #[tokio::test]
 async fn users_are_isolated_end_to_end() {
@@ -588,6 +708,82 @@ async fn connector_credentials_encrypt_and_sync() {
     assert_eq!(arr.as_array().unwrap().len(), 1);
     assert_eq!(arr[0]["sgv"], 132);
     assert_eq!(arr[0]["device"], "dexcom-share");
+}
+
+/// A mock Nightscout instance that answers the entries read with one canned reading.
+struct MockNightscout {
+    reading_ms: i64,
+}
+
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockNightscout {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        let body: Vec<u8> = if req.url.contains("/api/v1/entries/sgv.json") {
+            format!(
+                r#"[{{"_id":"abc","type":"sgv","date":{},"sgv":132,"direction":"Flat","device":"ns-test"}}]"#,
+                self.reading_ms
+            )
+            .into_bytes()
+        } else {
+            b"[]".to_vec()
+        };
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// SCENARIO: a user mirrors another Nightscout instance. The URL+secret are stored
+/// encrypted (and the URL is normalised), an internal URL is refused (SSRF guard), the
+/// scheduler pulls and ingests the readings, and a re-sync deduplicates.
+#[tokio::test]
+async fn nightscout_connector_imports_and_dedups() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([42u8; 32]));
+    let edge = Some(human("member@cooney.be"));
+
+    // Add the Nightscout source via the UI endpoint (full endpoint URL is normalised).
+    let put = svc
+        .handle(
+            request(
+                "PUT",
+                "/api/v4/connectors/nightscout",
+                &[],
+                json!({ "url": "https://ns.example.com/api/v1/entries/sgv?count=100", "secret": "s3cr3t" }),
+            ),
+            NOW,
+            edge.clone(),
+        )
+        .await;
+    assert_eq!(put.status, 200);
+    // The secret is never echoed back.
+    assert!(!String::from_utf8(put.body.clone()).unwrap().contains("s3cr3t"));
+
+    // SSRF: an internal / non-https URL is refused before anything is stored.
+    let bad = svc
+        .handle(
+            request("PUT", "/api/v4/connectors/nightscout", &[], json!({ "url": "http://127.0.0.1:1337", "secret": "x" })),
+            NOW,
+            edge.clone(),
+        )
+        .await;
+    assert_eq!(bad.status, 400, "internal / non-https url refused");
+
+    // The scheduler pulls from the mock and ingests the reading.
+    let reading_ms = NOW - 120_000;
+    let n = svc.sync_connectors(&MockNightscout { reading_ms }, 60, NOW).await.unwrap();
+    assert_eq!(n, 1, "one reading ingested");
+
+    // A second sync re-fetches the same reading; storage dedups, so there is still
+    // exactly one point for the user.
+    let _ = svc.sync_connectors(&MockNightscout { reading_ms }, 60, NOW).await.unwrap();
+    let entries = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge).await;
+    let arr = body_json(&entries);
+    assert_eq!(arr.as_array().unwrap().len(), 1, "dedup: one point after re-sync");
+    assert_eq!(arr[0]["sgv"], 132);
+    assert_eq!(arr[0]["device"], "ns-test");
 }
 
 /// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).

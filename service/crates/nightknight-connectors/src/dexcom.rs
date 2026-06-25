@@ -84,6 +84,29 @@ pub fn parse_quoted_id(body: &[u8]) -> Result<String, ConnectorError> {
     }
 }
 
+/// Map a Dexcom Share `Trend` field to a [`Direction`]. Newer transmitters report a
+/// **string** (`"Flat"`, `"FortyFiveUp"`, …) that matches our Nightscout names 1:1;
+/// older ones report a legacy **integer** code (verified against `pydexcom`):
+/// `0=None, 1=DoubleUp, 2=SingleUp, 3=FortyFiveUp, 4=Flat, 5=FortyFiveDown,
+/// 6=SingleDown, 7=DoubleDown, 8=NotComputable, 9=RateOutOfRange`.
+pub fn trend_from_share(v: &Value) -> Option<Direction> {
+    if let Some(s) = v.as_str() {
+        return serde_json::from_value::<Direction>(Value::String(s.to_string())).ok();
+    }
+    match v.as_i64()? {
+        1 => Some(Direction::DoubleUp),
+        2 => Some(Direction::SingleUp),
+        3 => Some(Direction::FortyFiveUp),
+        4 => Some(Direction::Flat),
+        5 => Some(Direction::FortyFiveDown),
+        6 => Some(Direction::SingleDown),
+        7 => Some(Direction::DoubleDown),
+        8 => Some(Direction::NotComputable),
+        9 => Some(Direction::RateOutOfRange),
+        _ => None, // 0 = None (no arrow)
+    }
+}
+
 /// Extract the epoch-ms out of a Dexcom `WT`/`ST` timestamp like `"Date(1699999999000-0500)"`.
 pub fn parse_wt_ms(wt: &str) -> Option<i64> {
     let start = wt.find("Date(")? + 5;
@@ -111,16 +134,9 @@ pub fn parse_glucose(body: &[u8]) -> Result<Vec<CgmSample>, ConnectorError> {
             .ok_or_else(|| ConnectorError::Parse("reading missing WT".into()))?;
         let date_ms = parse_wt_ms(wt)
             .ok_or_else(|| ConnectorError::Parse(format!("bad WT timestamp: {wt}")))?;
-        // Dexcom trend strings ("Flat", "FortyFiveUp", …) match our Direction names.
-        let direction = it
-            .get("Trend")
-            .and_then(|v| {
-                if let Some(s) = v.as_str() {
-                    serde_json::from_value::<Direction>(Value::String(s.to_string())).ok()
-                } else {
-                    None
-                }
-            });
+        // Dexcom trend is a string ("Flat", …) on newer transmitters or a legacy
+        // integer code on older ones — both map to our Direction.
+        let direction = it.get("Trend").and_then(trend_from_share);
         out.push(CgmSample {
             date_ms,
             mgdl,
@@ -235,6 +251,19 @@ mod tests {
         assert_eq!(parse_wt_ms("Date(1699999999000-0500)"), Some(1_699_999_999_000));
         assert_eq!(parse_wt_ms("Date(1699999999000+0000)"), Some(1_699_999_999_000));
         assert_eq!(parse_wt_ms("garbage"), None);
+    }
+
+    /// The Dexcom Share `Trend` field maps to a Direction whether it arrives as a
+    /// string (newer transmitters) or a legacy integer code (older ones).
+    #[test]
+    fn maps_share_trend_string_and_integer() {
+        assert_eq!(trend_from_share(&json!("Flat")), Some(Direction::Flat));
+        assert_eq!(trend_from_share(&json!("FortyFiveDown")), Some(Direction::FortyFiveDown));
+        // Legacy integer codes (pydexcom): 4 = Flat, 5 = FortyFiveDown, 1 = DoubleUp.
+        assert_eq!(trend_from_share(&json!(4)), Some(Direction::Flat));
+        assert_eq!(trend_from_share(&json!(5)), Some(Direction::FortyFiveDown));
+        assert_eq!(trend_from_share(&json!(1)), Some(Direction::DoubleUp));
+        assert_eq!(trend_from_share(&json!(0)), None); // 0 = None → no arrow
     }
 
     /// A representative readings payload parses into samples with mg/dL, time, trend.

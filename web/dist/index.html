@@ -12,9 +12,16 @@
     <div class="aurora" aria-hidden="true"></div>
 
     <header class="topbar">
-      <div class="brand">
-        <img src="/favicon.svg" alt="" class="brand-mark" width="30" height="30" />
-        <span class="brand-name">Night<span class="brand-accent">Knight</span></span>
+      <div class="topbar-left">
+        <div class="brand">
+          <img src="/favicon.svg" alt="" class="brand-mark" width="30" height="30" />
+          <span class="brand-name">Night<span class="brand-accent">Knight</span></span>
+        </div>
+        <nav class="tabs" role="tablist" aria-label="Sections">
+          <button class="tab is-active" data-view="dashboard" role="tab">Dashboard</button>
+          <button class="tab" data-view="analysis" role="tab">Analysis</button>
+          <button class="tab" data-view="settings" role="tab">Settings</button>
+        </nav>
       </div>
       <div class="topbar-right">
         <div class="seg unit-toggle" role="group" aria-label="Glucose unit">
@@ -25,8 +32,8 @@
       </div>
     </header>
 
-    <main class="layout">
-      <!-- Current reading -->
+    <!-- ░░ DASHBOARD ░░ -->
+    <main class="layout" data-page="dashboard">
       <section class="card hero" id="hero" aria-live="polite">
         <div class="hero-main">
           <span id="bg-value" class="bg-value">--</span>
@@ -41,7 +48,6 @@
         </div>
       </section>
 
-      <!-- Trailing analytics -->
       <section class="card analytics-card">
         <div class="card-head">
           <h2>Trailing summary</h2>
@@ -53,33 +59,11 @@
             <button data-days="90" class="seg-btn">90d</button>
           </div>
         </div>
-        <div class="metric-grid">
-          <div class="metric metric-hero">
-            <span class="metric-label">Est. A1c</span>
-            <span id="m-a1c" class="metric-value">--<small>%</small></span>
-            <span id="m-gmi" class="metric-sub">GMI —</span>
-          </div>
-          <div class="metric metric-hero">
-            <span class="metric-label">Avg glucose</span>
-            <span id="m-avg" class="metric-value">--</span>
-            <span id="m-avg-unit" class="metric-sub">mg/dL</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">In range</span>
-            <span id="m-tir" class="metric-value">--<small>%</small></span>
-            <span id="m-n" class="metric-sub">— readings</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Variability (CV)</span>
-            <span id="m-cv" class="metric-value">--<small>%</small></span>
-            <span id="m-cv-note" class="metric-sub">—</span>
-          </div>
-        </div>
+        <div class="metric-grid" id="summary-grid"></div>
         <div class="tir-bar" id="tir-bar" aria-label="Time in range distribution"></div>
         <div class="tir-legend" id="tir-legend"></div>
       </section>
 
-      <!-- Glucose chart -->
       <section class="card chart-card">
         <div class="card-head">
           <h2>Glucose</h2>
@@ -90,53 +74,154 @@
             <button data-hours="24" class="seg-btn is-active">24h</button>
           </div>
         </div>
-        <div class="chart-wrap">
+        <div class="chart-wrap" id="chart-wrap">
           <canvas id="chart" role="img" aria-label="Glucose over time"></canvas>
+          <div id="chart-tip" class="chart-tip" hidden></div>
           <div id="chart-empty" class="chart-empty" hidden>No glucose data yet.</div>
         </div>
       </section>
+    </main>
 
-      <!-- CGM cloud connections -->
-      <section class="card connect-card">
-        <div class="card-head"><h2>CGM connections</h2></div>
-        <p class="muted">
-          Pull readings automatically from your CGM cloud. Credentials are encrypted at
-          rest and synced every minute. Choose a provider:
-        </p>
-        <div class="seg provider-toggle" role="group" aria-label="Provider">
-          <button data-provider="dexcom" class="seg-btn is-active">Dexcom Share</button>
-          <button data-provider="librelinkup" class="seg-btn">LibreLinkUp</button>
+    <!-- ░░ ANALYSIS ░░ -->
+    <main class="layout single" data-page="analysis" hidden>
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Statistical Analysis</h1>
+          <p class="page-sub">Deeper CGM analytics — GRI, AGP, episodes and variability.</p>
         </div>
-        <form id="connector-form" class="stack-form">
-          <input id="c-user" type="text" autocomplete="username" placeholder="Username / email" required />
-          <input id="c-pass" type="password" autocomplete="off" placeholder="Password" required />
-          <select id="c-region" class="dexcom-only">
-            <option value="us">US</option>
-            <option value="ous">Outside US</option>
-            <option value="jp">Japan</option>
-          </select>
-          <button type="submit">Connect</button>
-        </form>
-        <ul id="connector-list" class="status-list"></ul>
+        <div class="seg aperiod-toggle" role="group" aria-label="Analysis period">
+          <button data-days="7" class="seg-btn">7d</button>
+          <button data-days="14" class="seg-btn is-active">14d</button>
+          <button data-days="30" class="seg-btn">30d</button>
+        </div>
+      </div>
+      <p class="caption" id="a-caption">—</p>
+
+      <div class="grid-340">
+        <section class="card">
+          <div class="card-head"><h2>Glycemia Risk Index <span class="info" tabindex="0" role="button" aria-label="About the Glycemia Risk Index">?<span class="tip">A single 0–100 score (lower is better) that blends low- and high-glucose risk using weights from clinician rankings (Klonoff 2023). GRI = 3·(VeryLow + 0.8·Low) + 1.6·(VeryHigh + 0.5·High), capped at 100. Zones run A (best) to E.</span></span></h2></div>
+          <div id="gri-body"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Core Metrics</h2></div>
+          <div class="metric-grid three" id="core-grid"></div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Ambulatory Glucose Profile <span class="info" tabindex="0" role="button" aria-label="About the AGP">?<span class="tip">Every day in the period overlaid onto one 24-hour day. The white line is the median; the inner band is the middle 50% (25–75th percentile) and the outer band the middle 90% (5–95th). A tight band near the target range is the goal.</span></span></h2>
+          <span class="caption" id="agp-caption"></span>
+        </div>
+        <div id="agp-wrap" class="agp-wrap"></div>
+        <div class="agp-legend">
+          <span><span class="ln median"></span>Median</span>
+          <span><span class="sw iqr"></span>25–75%</span>
+          <span><span class="sw outer"></span>5–95%</span>
+          <span><span class="ln target"></span>Target range</span>
+        </div>
       </section>
 
-      <!-- Device tokens -->
-      <section class="card token-card">
-        <div class="card-head"><h2>Devices &amp; tokens</h2></div>
-        <p class="muted">
-          Create a token for an uploader (xDrip+, Loop, AndroidAPS, Trio) or a follower
-          app. Shown once — copy it now. Tokens travel in headers only.
-        </p>
-        <form id="token-form" class="stack-form">
-          <input id="token-name" type="text" placeholder="Device name (e.g. Phone)" required />
-          <select id="token-scope">
-            <option value="upload">Uploader (read + write)</option>
-            <option value="read">Follower (read only)</option>
-          </select>
-          <button type="submit">Create token</button>
-        </form>
-        <div id="token-reveal" class="reveal" hidden></div>
-        <ul id="token-list" class="status-list"></ul>
+      <section class="card">
+        <div class="card-head"><h2>Time-of-Day Patterns <span class="info" tabindex="0" role="button" aria-label="About time-of-day patterns">?<span class="tip">Average glucose and time-in-range for each quarter of the day, in your local time — surfaces overnight lows or a dawn rise and post-meal highs.</span></span></h2></div>
+        <div class="metric-grid four" id="tod-grid"></div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-head"><h2>Episodes <span class="info" tabindex="0" role="button" aria-label="About episodes">?<span class="tip">Hypo/hyper events lasting ≥15 minutes, ending once glucose is back in range for ≥15 minutes (2019 consensus). Counts, the nocturnal share (00:00–06:00), and your most recent events.</span></span></h2></div>
+          <div id="episodes-body"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Advanced Variability <span class="info" tabindex="0" role="button" aria-label="About advanced variability">?<span class="tip">Deeper variability indices for power users — see each tile's own (?) for what it measures.</span></span></h2></div>
+          <div class="metric-grid" id="adv-grid"></div>
+        </section>
+      </div>
+
+      <p class="disclaimer">Not a medical device. These metrics are estimates for personal insight, not a basis for treatment decisions.</p>
+    </main>
+
+    <!-- ░░ SETTINGS ░░ -->
+    <main class="layout single" data-page="settings" hidden>
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-sub">Manage data sources, devices and display preferences.</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <section class="card connect-card">
+          <div class="card-head"><h2>CGM connections</h2></div>
+          <p class="muted">Pull readings automatically from your CGM cloud. Credentials are encrypted at rest and synced every minute.</p>
+          <div class="seg provider-toggle" role="group" aria-label="Provider">
+            <button data-provider="dexcom" class="seg-btn is-active">Dexcom Share</button>
+            <button data-provider="librelinkup" class="seg-btn">LibreLinkUp</button>
+            <button data-provider="nightscout" class="seg-btn">Nightscout</button>
+          </div>
+          <form id="connector-form" class="stack-form">
+            <input id="c-user" type="text" autocomplete="username" placeholder="Username / email" required />
+            <input id="c-pass" type="password" autocomplete="off" placeholder="Password" required />
+            <select id="c-region" class="dexcom-only">
+              <option value="us">United States</option>
+              <option value="ous">Outside US</option>
+              <option value="jp">Japan</option>
+            </select>
+            <button type="submit">Connect</button>
+          </form>
+          <p class="muted nightscout-only" id="nightscout-hint" hidden>Mirror another Nightscout/NightKnight instance — paste its URL and api-secret. NightKnight pulls its readings (newest first) and keeps them in sync.</p>
+          <ul id="connector-list" class="status-list"></ul>
+        </section>
+
+        <section class="card token-card">
+          <div class="card-head"><h2>Devices &amp; tokens</h2></div>
+          <p class="muted">Create a token for an uploader (xDrip+, Loop, AndroidAPS, Trio) or a follower app. Shown once — copy it now. Tokens travel in headers only.</p>
+          <form id="token-form" class="stack-form">
+            <input id="token-name" type="text" placeholder="Device name (e.g. Phone)" required />
+            <select id="token-scope">
+              <option value="upload">Uploader (read + write)</option>
+              <option value="read">Follower (read only)</option>
+            </select>
+            <button type="submit">Create token</button>
+          </form>
+          <div id="token-reveal" class="reveal" hidden></div>
+          <ul id="token-list" class="status-list"></ul>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-head"><h2>Display &amp; targets</h2></div>
+        <p class="muted">Your target range shades the in-range band on the glucose chart and labels in-range time.</p>
+        <div class="targets-row">
+          <label class="field">
+            <span class="field-label">Target low (<span class="unit-name">mg/dL</span>)</span>
+            <input id="target-low" type="number" inputmode="decimal" />
+          </label>
+          <label class="field">
+            <span class="field-label">Target high (<span class="unit-name">mg/dL</span>)</span>
+            <input id="target-high" type="number" inputmode="decimal" />
+          </label>
+          <div class="field">
+            <span class="field-label">Display unit</span>
+            <div class="seg unit-toggle" role="group" aria-label="Glucose unit">
+              <button data-unit="mg/dl" class="seg-btn">mg/dL</button>
+              <button data-unit="mmol/l" class="seg-btn">mmol/L</button>
+            </div>
+          </div>
+        </div>
+        <p class="muted target-note" id="target-note"></p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>Import history</h2></div>
+        <p class="muted">Import a <strong>LibreView</strong> or <strong>Dexcom Clarity</strong> CSV export — the format is detected automatically. In LibreView: account menu → <em>Download glucose data</em>. In Dexcom Clarity: <em>Export</em> → <em>Export data (CSV)</em>. Readings are added to your history and de-duplicated, so re-importing the same file is safe. Timestamps are read in your device's current timezone.</p>
+        <div class="stack-form">
+          <label class="file-btn">
+            <input id="import-file" type="file" accept=".csv,text/csv" hidden />
+            Choose CSV file…
+          </label>
+        </div>
+        <p class="muted" id="import-status"></p>
       </section>
     </main>
 

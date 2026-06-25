@@ -81,8 +81,13 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     };
 
     let now_ms = Date::now().as_millis() as i64;
+    // Log only method + path + status (never the query string or headers) — credentials
+    // are header-only and never appear here. This surfaces every API call in the
+    // Cloudflare observability logs without leaking secrets.
+    let method = format!("{:?}", req.method());
     let api_req = build_api_request(&mut req, &url).await?;
     let resp = service.handle(api_req, now_ms, edge).await;
+    console_log!("{method} {path} -> {}", resp.status);
     to_worker_response(resp)
 }
 

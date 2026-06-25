@@ -39,11 +39,19 @@ Collections: `entries`, `treatments`, `devicestatus`, `profile`, `food`, `settin
 | Method & path | Purpose |
 |---|---|
 | `GET /api/v4/status` | service + the caller's user/unit |
-| `GET /api/v4/current` | latest reading + trend, **in both units** |
+| `GET /api/v4/current` | latest reading + trend (sensor-first, then computed; stale-guarded), **in both units** |
 | `GET /api/v4/entries?hours=&count=` | recent readings (mg/dL + mmol/L per point) |
-| `GET /api/v4/analytics?hours=` | Time-in-Range, GMI, est. A1c, CV |
+| `GET /api/v4/analytics?hours=&tzOffset=` | the Statistical-Analysis set: TIR (count + time-weighted), GMI/eA1c, SD/CV, data sufficiency, GRI, time-of-day patterns, episodes, advanced variability |
+| `GET /api/v4/agp?days=&bin=&tzOffset=` | Ambulatory Glucose Profile percentile bands by time of day |
 | `GET\|PUT /api/v4/me` | profile (preferred unit, display name) |
 | `GET\|POST /api/v4/tokens`, `DELETE /api/v4/tokens/{id}` | device tokens |
+| `GET\|PUT\|DELETE /api/v4/connectors[/{provider}]` | CGM cloud connector credentials |
+
+`?tzOffset=` is the caller's UTC offset in minutes (east of UTC); it localises the
+time-of-day analytics (AGP, dawn patterns, nocturnal episode flag). `/analytics` stays
+backward-compatible — every original field (`n`, `meanMgdl`, `gmiPercent`,
+`estimatedA1cPercent`, `cvPercent`, `timeInRange`) is still present, with the deeper
+metrics added alongside.
 
 ## Authentication — the deliberate differences
 

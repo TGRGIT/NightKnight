@@ -62,11 +62,20 @@ impl SqlStore {
     /// Connect with an explicit maximum pool size.
     pub async fn connect_with_pool_size(url: &str, max_connections: u32) -> Result<Self> {
         sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new()
-            .max_connections(max_connections)
-            .connect(url)
-            .await
-            .map_err(backend_err)?;
+        let is_memory = url.starts_with("sqlite::memory:") || url.contains("mode=memory");
+        let mut opts = AnyPoolOptions::new().max_connections(max_connections);
+        if is_memory {
+            // An in-memory SQLite database exists only for the life of its connection.
+            // If the pool ever reaps and reopens that connection (idle timeout / max
+            // lifetime), the replacement is a fresh, *unmigrated* database — every query
+            // then fails with "no such table". Pin the single connection open for the
+            // whole process so the migrated schema never vanishes.
+            opts = opts
+                .min_connections(max_connections)
+                .idle_timeout(None)
+                .max_lifetime(None);
+        }
+        let pool = opts.connect(url).await.map_err(backend_err)?;
         let is_postgres = url.starts_with("postgres://") || url.starts_with("postgresql://");
         Ok(Self { pool, is_postgres })
     }
