@@ -127,7 +127,10 @@ struct APIClient {
     // MARK: - DTOs
 
     private struct CurrentEnvelope: Decodable { let current: CurrentDTO? }
-    private struct CurrentDTO: Decodable { let date: Int64; let mgdl: Double; let mmol: Double; let direction: String?; let trend: String?; let trendLabel: String? }
+    // Only `date` + `mgdl` are required; everything else is optional so server version
+    // skew (or a server that omits the derived `mmol`) can't blank the live reading — the
+    // display unit is computed client-side from mgdl anyway.
+    private struct CurrentDTO: Decodable { let date: Int64; let mgdl: Double; let direction: String?; let trend: String?; let trendLabel: String? }
     private struct EntriesEnvelope: Decodable { let entries: [EntryDTO] }
     private struct EntryDTO: Decodable { let date: Int64; let mgdl: Double }
     private struct AnalyticsDTO: Decodable {

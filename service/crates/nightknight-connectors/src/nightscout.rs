@@ -40,23 +40,48 @@ pub fn is_safe_base(url: &str) -> bool {
     let Some(rest) = url.trim().strip_prefix("https://") else {
         return false;
     };
-    let host = rest.split(['/', ':', '?', '#']).next().unwrap_or("").to_ascii_lowercase();
-    if host.is_empty() {
+    // The authority is everything before the path/query/fragment.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // Strip any `user:pass@` userinfo — the real host is after the LAST '@'. Without this
+    // `https://x@169.254.169.254/` would parse the host as `x@169.254.169.254` and slip
+    // past the prefix blocks while the HTTP client still connects to the metadata IP.
+    let hostport = authority.rsplit('@').next().unwrap_or("");
+    // Strip the port (IPv6 literals are bracketed and rejected wholesale below).
+    let host = hostport.split(':').next().unwrap_or("").trim().to_ascii_lowercase();
+    if host.is_empty() || host.contains('@') || host.contains('[') || host.contains(']') {
         return false;
     }
-    const BLOCKED: &[&str] = &[
-        "localhost", "127.", "10.", "192.168.", "169.254.", "0.", "::1", "[::1]", "[",
-    ];
-    if BLOCKED.iter().any(|p| host.starts_with(p)) {
+    const BLOCKED_PREFIX: &[&str] = &["localhost", "127.", "10.", "192.168.", "169.254.", "0.", "::1"];
+    if BLOCKED_PREFIX.iter().any(|p| host.starts_with(p)) {
         return false;
     }
-    // 172.16.0.0 – 172.31.255.255 (RFC-1918).
-    if let Some(rest) = host.strip_prefix("172.") {
-        if let Some(o) = rest.split('.').next().and_then(|s| s.parse::<u8>().ok()) {
-            if (16..=31).contains(&o) {
-                return false;
+    // Known cloud metadata / internal service hostnames.
+    const BLOCKED_HOST: &[&str] = &["metadata.google.internal", "metadata", "instance-data"];
+    if BLOCKED_HOST.contains(&host.as_str()) {
+        return false;
+    }
+    // RFC-1918 172.16/12 and CGNAT 100.64/10 (parse the second octet).
+    for (prefix, lo, hi) in [("172.", 16u8, 31u8), ("100.", 64u8, 127u8)] {
+        if let Some(rest) = host.strip_prefix(prefix) {
+            if let Some(o) = rest.split('.').next().and_then(|s| s.parse::<u8>().ok()) {
+                if (lo..=hi).contains(&o) {
+                    return false;
+                }
             }
         }
+    }
+    // Reject non-dotted-decimal IP encodings that smuggle a blocked address past the
+    // prefix checks: a bare decimal integer (2130706433 = 127.0.0.1), a hex literal
+    // (0x7f000001), or octal octets with a leading zero (0177.0.0.1). A legitimate
+    // hostname is never an all-digit string or a 0x literal.
+    let labels: Vec<&str> = host.split('.').collect();
+    let numeric_smuggle = host.starts_with("0x")
+        || host.chars().all(|c| c.is_ascii_digit())
+        || (labels.len() == 4
+            && labels.iter().all(|l| l.parse::<u32>().is_ok())
+            && labels.iter().any(|l| l.len() > 1 && l.starts_with('0')));
+    if numeric_smuggle {
+        return false;
     }
     true
 }
@@ -184,6 +209,19 @@ mod tests {
         assert!(is_safe_base("https://172.15.0.1")); // just outside the private block
         assert!(!is_safe_base("https://[::1]"));
         assert!(!is_safe_base("ftp://x"));
+        // Bypass attempts that must NOT slip past the guard:
+        assert!(!is_safe_base("https://anything@169.254.169.254/")); // userinfo masks the host
+        assert!(!is_safe_base("https://user:pass@127.0.0.1/")); // userinfo + loopback
+        assert!(!is_safe_base("https://2130706433/")); // decimal-packed 127.0.0.1
+        assert!(!is_safe_base("https://0x7f000001/")); // hex-packed 127.0.0.1
+        assert!(!is_safe_base("https://0177.0.0.1/")); // octal-octet 127.0.0.1
+        assert!(!is_safe_base("https://100.64.0.1")); // CGNAT
+        assert!(!is_safe_base("https://100.127.255.255")); // CGNAT upper
+        assert!(is_safe_base("https://100.63.0.1")); // just below CGNAT — allowed
+        assert!(is_safe_base("https://100.128.0.1")); // just above CGNAT — allowed
+        assert!(!is_safe_base("https://metadata.google.internal/")); // metadata hostname
+        assert!(is_safe_base("https://8.8.8.8")); // ordinary public dotted IP — allowed
+        assert!(is_safe_base("https://user@nightscout.example.com")); // userinfo + legit host is fine
     }
 
     #[test]

@@ -214,13 +214,18 @@ pub fn parse_dexcom_csv(text: &str, utc_offset_min: i64) -> Result<CsvImport, Im
         out.rows += 1;
 
         let raw = r.get(glu_col).map(|s| s.trim()).unwrap_or("");
+        // Dexcom reports out-of-range readings as the words "Low" (<40 mg/dL) and "High"
+        // (>400 mg/dL); clamp to those limits IN THE COLUMN'S UNIT — an mmol/L export needs
+        // 2.2 / 22.2, not the mg/dL constants (which would store a hypo as a severe hyper).
+        let (low_limit, high_limit) =
+            if unit == "mmol/l" { (2.2, 22.2) } else { (40.0, 400.0) };
         let value = match raw.to_ascii_lowercase().as_str() {
             "" => {
                 out.skipped += 1;
                 continue;
             }
-            "low" => 40.0,
-            "high" => 400.0,
+            "low" => low_limit,
+            "high" => high_limit,
             _ => match raw.parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0) {
                 Some(v) => v,
                 None => {
@@ -359,7 +364,8 @@ fn parse_timestamp(ts: &str, order: DateOrder) -> Option<i64> {
     // Validate against the *actual* month length (leap-year aware) — otherwise an
     // impossible date like `02-31` would silently roll over into the next month instead
     // of being skipped, putting a reading at the wrong point on the chart.
-    if !(1..=12).contains(&month)
+    if !(1900..=2200).contains(&year) // reject 2-digit years (e.g. "26" → year 0026)
+        || !(1..=12).contains(&month)
         || !(1..=days_in_month(year, month)).contains(&day)
         || !(0..=23).contains(&hour)
         || !(0..=59).contains(&min)
@@ -374,6 +380,9 @@ fn parse_timestamp(ts: &str, order: DateOrder) -> Option<i64> {
 /// `""` escapes, fields (incl. embedded commas/newlines) preserved. Returns records of
 /// fields. Tolerant of `\r\n` and a missing trailing newline.
 fn parse_csv(text: &str) -> Vec<Vec<String>> {
+    // Strip a leading UTF-8 BOM — exporters (esp. on Windows) prepend one, and it would
+    // otherwise become part of the first header cell and break column detection.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut records = Vec::new();
     let mut record: Vec<String> = Vec::new();
     let mut field = String::new();
@@ -574,18 +583,24 @@ Index,Timestamp (YYYY-MM-DDThh:mm:ss),Event Type,Event Subtype,Patient Info,Devi
         assert_eq!(r.entries[3]["sgv"], 400, "High → 400");
     }
 
-    /// Dexcom mmol/L exports keep the unit and decimal value.
+    /// Dexcom mmol/L exports keep the unit and decimal value, and the out-of-range
+    /// `Low`/`High` words clamp to the mmol/L limits (2.2 / 22.2) — NOT the mg/dL
+    /// constants, which would store a hypo as a severe hyper.
     #[test]
     fn parses_dexcom_mmol() {
         let csv = "\
 Index,Timestamp (YYYY-MM-DDThh:mm:ss),Event Type,Event Subtype,Patient Info,Device Info,Source Device ID,Glucose Value (mmol/L)
 1,2024-06-01T00:03:00,EGV,,,Dexcom G7,Dexcom G7,6.2
+2,2024-06-01T00:08:00,EGV,,,Dexcom G7,Dexcom G7,Low
+3,2024-06-01T00:13:00,EGV,,,Dexcom G7,Dexcom G7,High
 ";
         let r = parse_dexcom_csv(csv, 120).unwrap(); // +120 min offset
         assert_eq!(r.unit, "mmol/l");
         assert_eq!(r.entries[0]["sgv"], 6.2);
         // 00:03 local at +120 → previous day 22:03 UTC.
         assert_eq!(r.entries[0]["date"], timeutil::parse_iso8601_ms("2024-05-31T22:03:00Z").unwrap());
+        assert_eq!(r.entries[1]["sgv"], 2.2, "Low → 2.2 mmol/L (not 40)");
+        assert_eq!(r.entries[2]["sgv"], 22.2, "High → 22.2 mmol/L (not 400)");
     }
 
     /// The auto-detecting dispatcher routes each format to the right parser and rejects
