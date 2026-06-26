@@ -1,5 +1,11 @@
 # NightKnight
 
+Status: Early development / Alpha
+Known issues: 
+- Alarms / background refresh don't work
+- Ambulatory glucose is broken
+- Import testing
+
 A modern continuous-glucose-monitoring service and native iOS app, written in Rust to
 run on **Cloudflare Workers + D1** *or* as a **self-hosted container + Postgres**. It
 speaks the [Nightscout](https://github.com/nightscout/cgm-remote-monitor) API so the
