@@ -697,11 +697,41 @@ pub struct AgpBin {
     pub p95: Option<f64>,
 }
 
+/// Circularly smooth a per-bin percentile series with a centred moving average of
+/// half-width `half` bins, wrapping across midnight (23:45 is adjacent to 00:00). Only
+/// bins that have data (a `Some` value) get a smoothed output, and only the `Some`
+/// neighbours in the window contribute — so empty bins stay `None` and an isolated bin
+/// keeps its own value. This is the AGP "smooth the curves" step that turns noisy
+/// per-bin percentiles into the readable envelopes a clinical AGP shows.
+fn smooth_circular(series: &[Option<f64>], half: usize) -> Vec<Option<f64>> {
+    let n = series.len();
+    (0..n)
+        .map(|i| {
+            series[i]?; // empty bin stays empty — never fabricate data
+            let (mut sum, mut cnt) = (0.0, 0u32);
+            for d in 0..=2 * half {
+                let j = (i + n + d - half) % n; // circular index, always in range
+                if let Some(v) = series[j] {
+                    sum += v;
+                    cnt += 1;
+                }
+            }
+            (cnt > 0).then(|| sum / cnt as f64)
+        })
+        .collect()
+}
+
 /// Build the **Ambulatory Glucose Profile**: overlay every day in the window onto a
 /// single 24-hour axis split into `bin_minutes`-wide bins (default 15 → 96 bins), and
 /// for each bin report the 5/25/50/75/95 glucose percentiles (Bergenstal AGP). Returns
 /// one entry per bin across the whole day, in order. `bin_minutes` is clamped to a
 /// divisor-friendly `1..=720`.
+///
+/// The five percentile **curves are smoothed** across bins (a circular ±~45-minute moving
+/// average) before being returned — raw per-bin percentiles are noisy when few days back a
+/// time-of-day slot, and a clinical AGP always presents smoothed envelopes (the 2019
+/// consensus / Bergenstal AGP "LOESS-smoothed" curves). Smoothing never invents data:
+/// empty bins stay empty and per-bin `n` is the true count.
 pub fn agp_bins(readings: &[GlucoseReading], bin_minutes: i64, utc_offset_min: i64) -> Vec<AgpBin> {
     let bin = bin_minutes.clamp(1, 720);
     let count = (1440 / bin).max(1) as usize;
@@ -711,17 +741,24 @@ pub fn agp_bins(readings: &[GlucoseReading], bin_minutes: i64, utc_offset_min: i
         let idx = ((m / bin) as usize).min(count - 1);
         buckets[idx].push(r.value.mgdl());
     }
-    buckets
-        .into_iter()
-        .enumerate()
-        .map(|(i, vals)| AgpBin {
+    let ns: Vec<usize> = buckets.iter().map(Vec::len).collect();
+    // Smooth each percentile curve over a ~45-minute half-window, wrapping at midnight.
+    let half = (45 / bin).max(1) as usize;
+    let raw = |p: f64| buckets.iter().map(|b| percentile(b, p)).collect::<Vec<_>>();
+    let p05 = smooth_circular(&raw(5.0), half);
+    let p25 = smooth_circular(&raw(25.0), half);
+    let p50 = smooth_circular(&raw(50.0), half);
+    let p75 = smooth_circular(&raw(75.0), half);
+    let p95 = smooth_circular(&raw(95.0), half);
+    (0..count)
+        .map(|i| AgpBin {
             minute_of_day: i as i64 * bin,
-            n: vals.len(),
-            p05: percentile(&vals, 5.0),
-            p25: percentile(&vals, 25.0),
-            p50: percentile(&vals, 50.0),
-            p75: percentile(&vals, 75.0),
-            p95: percentile(&vals, 95.0),
+            n: ns[i],
+            p05: p05[i],
+            p25: p25[i],
+            p50: p50[i],
+            p75: p75[i],
+            p95: p95[i],
         })
         .collect()
 }
@@ -1343,6 +1380,28 @@ mod tests {
         assert_eq!(bins[0].n, 0);
         assert_eq!(bins[0].p50, None);
         assert_eq!(bins.iter().map(|b| b.n).sum::<usize>(), 3);
+    }
+
+    /// REGRESSION: the AGP percentile curves are smoothed across bins (the readable
+    /// envelope a clinical AGP shows), so a lone noisy bin can't render as a spike — yet
+    /// smoothing never invents data (empty bins stay empty, `n` is the true count) and it
+    /// wraps across midnight.
+    #[test]
+    fn agp_curves_are_smoothed_across_bins() {
+        // One reading per 15-min bin: all 100 except a single 200 at noon (bin 48) and a
+        // single 200 in the last bin (95), the latter to exercise the midnight wrap.
+        let rs: Vec<GlucoseReading> = (0..96)
+            .map(|k| at_ms(k as i64 * 15 * 60_000, if k == 48 || k == 95 { 200.0 } else { 100.0 }))
+            .collect();
+        let bins = agp_bins(&rs, 15, 0);
+        // The noon spike is pulled toward its 100-neighbours, not left standing at 200.
+        let noon = bins[48].p50.unwrap();
+        assert!(noon > 100.0 && noon < 140.0, "noon p50 smoothed to {noon}, not the raw 200");
+        // Smoothing wraps midnight: bin 0 is influenced by the 200 in the last bin.
+        assert!(bins[0].p50.unwrap() > 100.0, "bin 0 reflects the wrapped neighbour");
+        // A bin far from any spike is unchanged, and the true counts are preserved.
+        assert!((bins[24].p50.unwrap() - 100.0).abs() < 1e-9, "quiet bin unchanged");
+        assert_eq!(bins.iter().map(|b| b.n).sum::<usize>(), 96); // one reading per bin, true counts
     }
 
     /// Time-of-day patterns bucket by local hour into the four standard periods.
