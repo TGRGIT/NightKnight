@@ -1,9 +1,12 @@
 import BackgroundTasks
 import SwiftUI
+import UIKit
+import UserNotifications
 import WidgetKit
 
 @main
 struct NightKnightApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -39,6 +42,29 @@ struct NightKnightApp: App {
             if phase == .background { BackgroundRefresh.schedule() }
             else if phase == .active { WidgetCenter.shared.reloadAllTimelines() }
         }
+    }
+}
+
+/// Minimal app delegate whose sole job is to set the notification-center delegate, so
+/// glucose alarms are shown while the app is in the foreground. Without a delegate that
+/// returns presentation options, iOS silently drops any notification posted while the app
+/// is frontmost — which is exactly when the dashboard's poll loop evaluates alarms, so
+/// out-of-range alerts never appeared while the user was looking at the app.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    /// Present alarms (banner + sound + Notification Center entry) even in the foreground.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound, .list]
     }
 }
 
