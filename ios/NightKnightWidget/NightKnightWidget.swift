@@ -41,6 +41,7 @@ struct Provider: AppIntentTimelineProvider {
     }
 
     private func load() async -> GlucoseEntry {
+        let settings = Settings.shared
         let client = APIClient(settings: settings)
         async let curTask = client.current()
         async let entTask = client.entries(hours: 4)
