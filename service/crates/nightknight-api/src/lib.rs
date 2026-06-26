@@ -50,14 +50,16 @@ pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// is rejected with 413 before parsing.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// Ceiling (minutes) on any single Nightscout pull, and the window the first sync uses to
-/// bulk-import on the spot — ~7 days (≈2k readings at 5-min cadence). Far better than the
-/// 12-reading drip, while staying within one Worker invocation's CPU/subrequest budget: it
-/// matches the window the hourly cron already runs in production, so the unbatched per-row
-/// ingest is known to fit. (Pulling 30–365 days here would risk a 10k–100k-row ingest that
-/// can't complete in one invocation and then re-loops; deeper migration needs a future
-/// chunked/cursored ingest — see docs.) Every Nightscout pull is clamped to this.
+/// Ceiling (minutes) on the Nightscout *recent* pull each tick — ~7 days. The whole
+/// history is pulled separately by the cursored backfill (`NS_PAGE`), so this only needs to
+/// cover newly-arriving readings between ticks; capping it keeps the recent pull tiny.
 const NS_BACKFILL_MINUTES: i64 = 7 * 24 * 60;
+
+/// History backfill page size (readings) — how much of a Nightscout source's past the
+/// cursored backfill pulls+ingests per cron tick. Bounded so one Worker invocation stays
+/// within its CPU/subrequest budget (≈ the load the hourly cron already handles); the
+/// per-minute cron then walks the full history backward at ~this many readings/minute.
+const NS_PAGE: i64 = 2_000;
 
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
@@ -422,12 +424,13 @@ impl<S: Storage> ApiService<S> {
     ) -> usize {
         let mut stored = 0usize;
         for entry in entries {
-            if self
-                .store_document(Collection::Entries, entry, principal, now_ms)
-                .await
-                .is_ok()
-            {
-                stored += 1;
+            // Count only NEWLY created readings (not dedup-updates), so re-fetched overlap —
+            // e.g. the recent window and the backfill page both seeing the same reading —
+            // isn't double-counted. A bad row errors and is simply skipped.
+            if let Ok(o) = self.store_document(Collection::Entries, entry, principal, now_ms).await {
+                if o.created() {
+                    stored += 1;
+                }
             }
         }
         stored
@@ -474,6 +477,12 @@ impl<S: Storage> ApiService<S> {
             .map_err(|e| ApiError::Internal(format!("decrypt: {e}")))?;
         let creds: Value =
             serde_json::from_str(&json).map_err(|e| ApiError::Internal(e.to_string()))?;
+        // A Nightscout source carries arbitrarily deep history, so it gets a cursored
+        // backfill (walk the whole history backward, one bounded page per tick) rather than
+        // a single bounded pull. See `sync_nightscout`.
+        if cred.provider == "nightscout" {
+            return self.sync_nightscout(cred, creds, key, http, minutes, now_ms).await;
+        }
         let samples = match cred.provider.as_str() {
             "dexcom" => {
                 let c = DexcomConnector {
@@ -492,36 +501,91 @@ impl<S: Storage> ApiService<S> {
                 };
                 c.fetch_recent(http, minutes).await
             }
-            "nightscout" => {
-                let c = NightscoutConnector {
-                    base_url: cred_field(&creds, "url")?,
-                    secret: cred_field(&creds, "secret")?,
-                };
-                // A Nightscout source is migrated history, not a live vendor feed: until a
-                // sync has SUCCEEDED, pull in BULK on the very first tick (within ~60s of
-                // being added) instead of dripping the recent window 12 readings at a time.
-                // "Not yet succeeded" = never synced OR the last attempt errored, so a
-                // transient first-run failure retries (`last_sync_at` is stamped even on
-                // error). EVERY Nightscout pull is capped to `NS_BACKFILL_MINUTES` — unlike
-                // the vendor connectors (which hit hard-coded hosts that clamp recent
-                // windows), Nightscout honours huge `count`s, so the daily "all" cron would
-                // otherwise ask for ~365 days = 100k+ readings and try to ingest them in one
-                // Worker invocation (blowing the CPU/subrequest budget; a kill mid-ingest
-                // then never records success and re-loops). Capping to a window the hourly
-                // cron already handles keeps every pull within one invocation. Ingest is
-                // resilient (`ingest_resilient`), so a dirty historical row can't abort or
-                // re-loop the sync. Deeper history needs a future chunked/cursored ingest.
-                let needs_backfill = cred.last_sync_at.is_none()
-                    || cred.last_status.as_deref().is_some_and(|s| s.starts_with("error"));
-                let window = if needs_backfill { NS_BACKFILL_MINUTES } else { minutes };
-                c.fetch_recent(http, window.min(NS_BACKFILL_MINUTES)).await
-            }
             other => return Err(ApiError::BadRequest(format!("unknown provider {other}"))),
         }
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
         let entries: Vec<Value> = samples.iter().map(|s| s.to_entry_json()).collect();
         self.ingest_for_user_id(&cred.user_id, entries, now_ms).await
+    }
+
+    /// Sync a Nightscout source with two bounded pulls per tick, so a single Worker
+    /// invocation never overruns its CPU/subrequest budget: a RECENT window (`minutes`,
+    /// capped) to keep the front of the data current, plus ONE history page walking BACKWARD
+    /// (`NS_PAGE` readings older than a cursor), repeated each cron tick until the source is
+    /// exhausted — so the WHOLE history imports over time instead of being capped to a single
+    /// window. The cursor (`bfCursor`) and a `bfDone` flag live inside the connector's
+    /// already-encrypted secret blob, so no schema change / extra table is needed; they're
+    /// written back only while backfilling (once `bfDone`, the cursor writes stop). Ingest is
+    /// resilient + content-deduped, so overlapping/dirty rows can't abort the sync or
+    /// double-count.
+    async fn sync_nightscout(
+        &self,
+        cred: &ConnectorCredential,
+        mut creds: Value,
+        key: &[u8; 32],
+        http: Http<'_>,
+        minutes: i64,
+        now_ms: i64,
+    ) -> Result<usize, ApiError> {
+        let c = NightscoutConnector {
+            base_url: cred_field(&creds, "url")?,
+            secret: cred_field(&creds, "secret")?,
+        };
+
+        // 1. Recent window — bounded; keeps newly-arriving readings flowing in.
+        let mut samples = c
+            .fetch_recent(http, minutes.min(NS_BACKFILL_MINUTES))
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+        // 2. One backward history page, unless we've already reached the beginning.
+        let mut cursor_changed = false;
+        let done = creds.get("bfDone").and_then(|v| v.as_bool()).unwrap_or(false);
+        if !done {
+            let before = creds.get("bfCursor").and_then(|v| v.as_i64()).unwrap_or(i64::MAX);
+            let page = c
+                .fetch_before(http, before, NS_PAGE)
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?;
+            match page.iter().map(|s| s.date_ms).min() {
+                // Advance the cursor to this page's oldest reading (next page fetches
+                // strictly older); a short/empty page means we've hit the start of history.
+                Some(oldest) => {
+                    creds["bfCursor"] = json!(oldest);
+                    if (page.len() as i64) < NS_PAGE {
+                        creds["bfDone"] = json!(true);
+                    }
+                    samples.extend(page);
+                    cursor_changed = true;
+                }
+                None => {
+                    creds["bfDone"] = json!(true);
+                    cursor_changed = true;
+                }
+            }
+        }
+
+        // 3. Ingest everything resiliently (skips dirty rows, dedups overlap).
+        let entries: Vec<Value> = samples.iter().map(|s| s.to_entry_json()).collect();
+        let stored = self.ingest_for_user_id(&cred.user_id, entries, now_ms).await?;
+
+        // 4. Persist the advanced cursor into the encrypted blob (only while backfilling).
+        //    The upsert touches only secret_enc/region/updated_at, so the sync status
+        //    recorded by `sync_connectors` afterwards is preserved.
+        if cursor_changed {
+            if let Ok(blob) = serde_json::to_string(&creds) {
+                if let Ok(enc) = crypto::encrypt_str(key, &blob) {
+                    let updated = ConnectorCredential {
+                        secret_enc: enc,
+                        updated_at: now_ms,
+                        ..cred.clone()
+                    };
+                    let _ = self.storage.upsert_connector_credential(&updated).await;
+                }
+            }
+        }
+        Ok(stored)
     }
 
     /// Validate, derive metadata for, and upsert one document. Returns the write

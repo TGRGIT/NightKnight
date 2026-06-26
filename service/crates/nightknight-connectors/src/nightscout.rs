@@ -32,6 +32,45 @@ pub fn read_url(base: &str, count: i64) -> String {
     )
 }
 
+/// Build a paginated read URL for the history backfill: the newest `count` readings with
+/// `date < before_ms`, so successive calls (each advancing `before_ms` to the oldest seen)
+/// walk the full history backward one bounded page at a time. The Nightscout `find` filter
+/// is percent-encoded (`find[date][$lt]`). `before_ms = i64::MAX` ⇒ "from the most recent".
+pub fn read_url_before(base: &str, count: i64, before_ms: i64) -> String {
+    format!(
+        "{}/api/v1/entries/sgv.json?count={}&find%5Bdate%5D%5B%24lt%5D={}",
+        normalize_base(base),
+        count.clamp(1, 131_072),
+        before_ms.max(0)
+    )
+}
+
+impl NightscoutConnector {
+    /// Fetch one history page: up to `count` readings older than `before_ms` (newest-first).
+    /// SSRF-guarded and redirect-refusing exactly like [`fetch_recent`](NightscoutConnector::fetch_recent).
+    pub async fn fetch_before(
+        &self,
+        http: Http<'_>,
+        before_ms: i64,
+        count: i64,
+    ) -> Result<Vec<CgmSample>, ConnectorError> {
+        if !is_safe_base(&self.base_url) {
+            return Err(ConnectorError::Protocol(
+                "nightscout url must be https to a public host".into(),
+            ));
+        }
+        let url = read_url_before(&self.base_url, count, before_ms);
+        let resp = http.send(HttpReq::get(url, headers(&self.secret)).no_redirects()).await?;
+        if !resp.is_success() {
+            return Err(ConnectorError::Protocol(format!(
+                "nightscout history read failed ({})",
+                resp.status
+            )));
+        }
+        parse_entries(&resp.body)
+    }
+}
+
 /// SSRF guard: only `https` origins to non-internal hosts may be fetched. The URL is
 /// user-supplied, so we refuse loopback / link-local / RFC-1918 private addresses and
 /// any non-https scheme. (Not a substitute for network egress controls, but it blocks
@@ -195,6 +234,20 @@ mod tests {
         );
         // Count is clamped to a sane ceiling.
         assert!(read_url("https://x.cooney.be", 9_999_999).ends_with("count=131072"));
+    }
+
+    #[test]
+    fn builds_paginated_history_url() {
+        // The `find[date][$lt]=ms` filter is percent-encoded so successive pages can walk
+        // the history backward.
+        assert_eq!(
+            read_url_before("https://x.cooney.be", 2000, 1_700_000_000_000),
+            "https://x.cooney.be/api/v1/entries/sgv.json?count=2000&find%5Bdate%5D%5B%24lt%5D=1700000000000"
+        );
+        // The first page (cursor = i64::MAX) is "from the most recent", and a negative
+        // cursor is floored to 0 (no panic / no negative in the URL).
+        assert!(read_url_before("https://x.cooney.be", 2000, i64::MAX).contains("%24lt%5D=9223372036854775807"));
+        assert!(read_url_before("https://x.cooney.be", 2000, -5).ends_with("%24lt%5D=0"));
     }
 
     #[test]

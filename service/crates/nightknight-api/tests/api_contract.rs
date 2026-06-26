@@ -786,6 +786,79 @@ async fn nightscout_connector_imports_and_dedups() {
     assert_eq!(arr[0]["device"], "ns-test");
 }
 
+/// Serves `total` readings (1 min apart, newest at `base_ms`), honouring `count` and the
+/// percent-encoded `find[date][$lt]` cursor — so the cursored backfill can be walked.
+struct MockNsHistory {
+    total: i64,
+    base_ms: i64,
+}
+fn url_int(url: &str, key: &str) -> Option<i64> {
+    url.split(&['?', '&'][..])
+        .find_map(|kv| kv.strip_prefix(key))
+        .and_then(|v| v.parse().ok())
+}
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockNsHistory {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        let count = url_int(&req.url, "count=").unwrap_or(10);
+        // The cursor arrives percent-encoded as `find%5Bdate%5D%5B%24lt%5D=<ms>`.
+        let before = url_int(&req.url, "find%5Bdate%5D%5B%24lt%5D=").unwrap_or(i64::MAX);
+        let mut dates = Vec::new();
+        let mut i = 0i64;
+        while i < self.total && (dates.len() as i64) < count {
+            let d = self.base_ms - i * 60_000; // newest-first
+            if d < before {
+                dates.push(d);
+            }
+            i += 1;
+        }
+        let items: Vec<String> = dates
+            .iter()
+            .map(|d| format!(r#"{{"type":"sgv","date":{d},"sgv":120,"device":"ns"}}"#))
+            .collect();
+        let body = format!("[{}]", items.join(",")).into_bytes();
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// The cursored backfill walks a source's WHOLE history backward across cron ticks: each
+/// tick pulls one bounded page (older than the persisted cursor) until the source is
+/// exhausted, importing everything without any single pull exceeding the page size.
+#[tokio::test]
+async fn nightscout_backfill_walks_full_history() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([7u8; 32]));
+    let edge = Some(human("histuser@cooney.be"));
+    svc.handle(
+        request("PUT", "/api/v4/connectors/nightscout", &[],
+            json!({ "url": "https://ns.example.com", "secret": "s" })),
+        NOW, edge.clone(),
+    ).await;
+
+    // 2500 readings — more than one 2000-page, so it takes two backfill ticks.
+    let src = MockNsHistory { total: 2500, base_ms: NOW - 60_000 };
+
+    // Tick 1: recent window + the newest 2000-reading page.
+    let n1 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n1, 2000, "first tick imports the newest full page");
+    // Tick 2: the remaining 500 older readings; the short page marks the backfill done.
+    let n2 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n2, 500, "second tick imports the rest");
+    // Tick 3: backfill is complete, so only the (already-present) recent window is pulled.
+    let n3 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n3, 0, "nothing new once the whole history is in");
+
+    // All 2500 distinct readings are stored.
+    let entries = svc
+        .handle(request("GET", "/api/v1/entries?count=5000", &[], Value::Null), NOW, edge)
+        .await;
+    assert_eq!(body_json(&entries).as_array().unwrap().len(), 2500, "whole history imported");
+}
+
 /// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).
 fn sha1_hex(s: &str) -> String {
     use sha1::{Digest, Sha1};
