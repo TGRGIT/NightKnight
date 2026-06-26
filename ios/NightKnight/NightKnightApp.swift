@@ -7,6 +7,10 @@ struct NightKnightApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        // Screenshot/preview mode: seed display preferences before any view loads.
+        Demo.applyToSettings()
+        #endif
         // Start WatchConnectivity so we can push config to the Apple Watch.
         PhoneSyncManager.shared.start()
     }
@@ -89,15 +93,37 @@ enum BackgroundRefresh {
 
 /// The three top-level sections, mirroring the web app's tabs.
 struct RootTabView: View {
+    @State private var selection: Int = {
+        #if DEBUG
+        return Demo.initialTab
+        #else
+        return 0
+        #endif
+    }()
+
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             DashboardView()
                 .tabItem { Label("Dashboard", systemImage: "waveform.path.ecg") }
+                .tag(0)
             AnalysisView()
                 .tabItem { Label("Analysis", systemImage: "chart.bar.xaxis") }
+                .tag(1)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(2)
         }
         .tint(Color.nkAccent)
+        #if DEBUG
+        // Preview recording: walk Dashboard → Analysis → Settings → Dashboard.
+        .task {
+            guard Demo.autoplay else { return }
+            let plan: [(Double, Int)] = [(10, 1), (9, 2), (6, 0)]
+            for (dwell, tab) in plan {
+                try? await Task.sleep(for: .seconds(dwell))
+                withAnimation { selection = tab }
+            }
+        }
+        #endif
     }
 }
