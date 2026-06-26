@@ -56,11 +56,13 @@ docs/                    SETUP, ARCHITECTURE, API-COMPAT, TESTING
 
 ## Quick start
 
-See **[docs/SETUP.md](docs/SETUP.md)** for the full guide. The short version:
+See **[docs/SETUP.md](docs/SETUP.md)** for the full guide, or
+**[docs/DEPLOY-WORKER.md](docs/DEPLOY-WORKER.md)** for the Cloudflare Worker
+build/deploy/redeploy runbook. The short version:
 
 - **Cloudflare:** `wrangler d1 create nightknight`, paste the id into
   `service/crates/nightknight-worker/wrangler.toml`, set the Access secrets, then
-  `wrangler deploy`.
+  from `service/crates/nightknight-worker` run `npx --yes wrangler@latest deploy`.
 - **Container:** `cd deploy && cp .env.example .env && docker compose up -d`.
 
 ## Status
