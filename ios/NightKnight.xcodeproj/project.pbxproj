@@ -17,6 +17,7 @@
 		17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		1933D1B64027067D9D9281CC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68D3159CB126C43F23D0CFEC /* Assets.xcassets */; };
+		A1B2C3D4E5F60718293A4B5C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* Assets.xcassets */; };
 		225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
@@ -145,6 +146,7 @@
 		4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
 		68D3159CB126C43F23D0CFEC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71E3493FD8F4068269199124 /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
 		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
 		7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCacheTests.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 		07B70AC8EEF15DCD47000C6D /* NightKnightWatch */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F60718293A4B5D /* Assets.xcassets */,
 				9F22872B22E684CF349F7D72 /* Info.plist */,
 				11B6797901ED826D49A441BB /* Watch.entitlements */,
 				33754D6296502ED0D7E612D5 /* WatchApp.swift */,
@@ -345,6 +348,7 @@
 			buildConfigurationList = BD3C2CE27F654A5FA2627BAA /* Build configuration list for PBXNativeTarget "NightKnightWatch" */;
 			buildPhases = (
 				AB680D11AE4610CD5E6416C6 /* Sources */,
+				A1B2C3D4E5F60718293A4B5E /* Resources */,
 				21BA017280FDFFF66E634C23 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -433,6 +437,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A1B2C3D4E5F60718293A4B5E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F60718293A4B5C /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C33411CE77E02661F2420A65 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
