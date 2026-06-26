@@ -20,10 +20,13 @@ enum ReadingCache {
     static func load() -> CurrentReading? {
         let d = defaults
         guard let epoch = d.object(forKey: Key.date) as? Double else { return nil }
+        let trend = TrendDirection(rawValue: d.string(forKey: Key.trend) ?? "") ?? .none
         return CurrentReading(
             date: Date(timeIntervalSince1970: epoch),
             value: GlucoseValue(mgdl: d.double(forKey: Key.mgdl)),
-            trend: TrendDirection(rawValue: d.string(forKey: Key.trend) ?? "") ?? .none)
+            trend: trend,
+            // The cache doesn't persist the server's label; fall back to the local one.
+            trendLabel: trend.label)
     }
 
     private enum Key {

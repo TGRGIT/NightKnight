@@ -9,7 +9,7 @@ final class ReadingCacheTests: XCTestCase {
 
     func testRoundTripThroughAppGroup() {
         let reading = CurrentReading(date: Date(timeIntervalSince1970: 1_700_000_000),
-                                     value: GlucoseValue(mgdl: 137), trend: .singleUp)
+                                     value: GlucoseValue(mgdl: 137), trend: .singleUp, trendLabel: "")
         ReadingCache.save(reading)
 
         let loaded = ReadingCache.load()
@@ -21,7 +21,7 @@ final class ReadingCacheTests: XCTestCase {
     /// When the fetch fails (nil) but a reading is cached, the widget shows the cached
     /// value — the core of the "don't blank on a transient failure" fix.
     func testEntryFallsBackToCachedReading() {
-        let cached = CurrentReading(date: .now, value: GlucoseValue(mgdl: 95), trend: .flat)
+        let cached = CurrentReading(date: .now, value: GlucoseValue(mgdl: 95), trend: .flat, trendLabel: "")
         let entry = Provider.entry(for: cached, unit: .mgdl)
         XCTAssertEqual(entry.value?.mgdl, 95, "should show the cached value, not --")
         XCTAssertEqual(entry.trend, .flat)

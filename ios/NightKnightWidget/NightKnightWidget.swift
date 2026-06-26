@@ -54,6 +54,13 @@ struct Provider: AppIntentTimelineProvider {
                             unit: settings.preferredUnit, readings: readings, readingDate: current?.date)
     }
 
+    /// Build a timeline entry from a single reading (a fresh fetch, else the cache),
+    /// without the recent-readings sparkline. Used to unit-test the cache fallback.
+    static func entry(for reading: CurrentReading?, unit: GlucoseUnit) -> GlucoseEntry {
+        GlucoseEntry(date: reading?.date ?? .now, value: reading?.value,
+                     trend: reading?.trend ?? .none, unit: unit, readingDate: reading?.date)
+    }
+
     /// A gentle synthetic curve for the gallery placeholder.
     static var sample: [GlucoseReading] {
         let base = Date.now.addingTimeInterval(-3 * 3600)
