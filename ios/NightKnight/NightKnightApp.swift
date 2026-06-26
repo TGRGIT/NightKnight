@@ -44,9 +44,9 @@ struct NightKnightApp: App {
 /// reading, mirrors it to Health, evaluates alarms, and — crucially — reloads the
 /// widget timelines, since a widget can't poll on its own. We always reschedule so the
 /// chain never breaks. For minute-fresh updates a server-side **silent push** (APNs) is
-/// the next step — the `aps-environment` entitlement and `remote-notification`
-/// background mode are already in place; it needs the Worker to send a background push
-/// when a new reading lands.
+/// the next step — the `aps-environment` entitlement and `remote-notification` background
+/// mode are already in place; it needs the Worker to send a background push when a new
+/// reading lands. Full implementation guide: `docs/SILENT-PUSH.md`.
 enum BackgroundRefresh {
     /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
     static let taskId = "be.cooney.nightknight.refresh"
