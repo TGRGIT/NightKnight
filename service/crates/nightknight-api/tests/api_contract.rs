@@ -350,6 +350,82 @@ async fn days_view_lists_coverage_and_recent_stats() {
     assert!(b["windowStats"]["uGmiPercent"].is_number());
 }
 
+/// REGRESSION (validation finding #3): "% time active" must use the device's actual
+/// cadence, not a hardcoded 5 minutes. A flawless 14-day FreeStyle Libre (15-min historic
+/// cadence) used to read ~33% active and "limited data"; it must now read ~100% / sufficient.
+#[tokio::test]
+async fn analytics_coverage_uses_inferred_cadence_not_a_fixed_5min() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    const Q: i64 = 15 * 60_000; // 15-minute cadence
+    let mut entries = Vec::new();
+    let mut tms = NOW - 14 * 24 * 3_600_000;
+    while tms <= NOW {
+        entries.push(json!({ "type": "sgv", "date": tms, "sgv": 120, "device": "libre" }));
+        tms += Q;
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=336", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(a["cadenceMs"], 15 * 60_000, "cadence inferred as 15 min");
+    let active = a["coverage"]["percentActive"].as_f64().unwrap();
+    assert!(active > 90.0, "perfect 15-min data should read ~100% active, got {active}");
+    assert_eq!(a["coverage"]["sufficient"], true, "14 days of full 15-min data is sufficient");
+}
+
+/// REGRESSION (validation finding #4): episode detection must work at a sparse cadence.
+/// A real 3-hour low sampled hourly used to be invisible (every 1-h gap exceeded the fixed
+/// 30-min break); with a cadence-derived break it is detected.
+#[tokio::test]
+async fn analytics_detects_episodes_at_sparse_hourly_cadence() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let h = 3_600_000i64;
+    let base = NOW - 6 * h;
+    let vals = [120, 120, 60, 60, 60, 120, 120]; // a 3-hour low in the middle
+    let entries: Vec<Value> = vals
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| json!({ "type": "sgv", "date": base + i as i64 * h, "sgv": v, "device": "t" }))
+        .collect();
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(a["cadenceMs"], h, "cadence inferred as hourly");
+    assert!(
+        a["episodes"]["low"]["count"].as_i64().unwrap() >= 1,
+        "a 3-hour low at hourly cadence must be detected, got {}",
+        a["episodes"]["low"]["count"]
+    );
+}
+
+/// REGRESSION (validation finding #2): the headline mean / A1c estimate is time-weighted,
+/// so a dense burst (duplicate cluster / backfill overlap) can't drag it. 60 minutes of
+/// 1-min readings at 100 plus a 20-second burst of 200: the count mean is ~177, but the
+/// reported (time-weighted) mean stays near 100.
+#[tokio::test]
+async fn analytics_headline_mean_is_time_weighted() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let mut entries: Vec<Value> = (0..60)
+        .map(|m| json!({ "type": "sgv", "date": NOW - 60 * 60_000 + m * 60_000, "sgv": 100, "device": "t" }))
+        .collect();
+    let burst = NOW - 30 * 60_000;
+    for s in 0..200i64 {
+        entries.push(json!({ "type": "sgv", "date": burst + s * 100, "sgv": 200, "device": "burst" }));
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=2", &[], Value::Null), NOW, edge).await,
+    );
+    let mean = a["meanMgdl"].as_f64().unwrap();
+    assert!(mean < 120.0, "time-weighted headline mean must resist the burst, got {mean}");
+    // uGMI follows the corrected mean (not the count-inflated one).
+    assert!(a["uGmiPercent"].as_f64().unwrap() < 6.5, "uGMI tracks the time-weighted mean");
+}
+
 /// A window with no readings must not fabricate a "perfect" score — every metric,
 /// including the Glycemia Risk Index (where 0 = best), reports null rather than a
 /// best-possible value.

@@ -22,7 +22,7 @@ use uuid::Uuid;
 use nightknight_auth::{Action, Permission, Scope};
 use nightknight_core::analytics::{
     self, Coverage, GlucoseEpisode, GlucoseReading, GlucoseSummary, GlycemiaRiskIndex, PeriodStats,
-    TimeInRange, TirThresholds, DEFAULT_CADENCE_MS, DEFAULT_EPISODE_GAP_MS, DEFAULT_MAX_GAP_MS,
+    TimeInRange, TirThresholds, DEFAULT_EPISODE_GAP_MS, DEFAULT_MAX_GAP_MS,
 };
 use nightknight_core::documents::Entry;
 use nightknight_core::import::{parse_glucose_csv, DateOrder};
@@ -220,13 +220,23 @@ impl<S: Storage> ApiService<S> {
         let t = TirThresholds::default();
         let summary = GlucoseSummary::compute(&readings, &t);
 
+        // Cadence-aware gap handling: infer the device's sampling rate and scale coverage,
+        // episode breaks and time-weighting to it rather than assuming 5-minute CGM (so a
+        // perfect 15-minute Libre isn't mislabelled "limited", and a sparse source can
+        // still form episodes). Floors keep normal 1–5-min data byte-for-byte unchanged.
+        let cadence_ms = infer_cadence_ms(&readings, tz);
+        let (tw_gap, episode_gap) = gap_caps(cadence_ms);
+
+        // Headline mean / SD / CV / A1c estimates are time-weighted so non-uniform
+        // sampling (bursts, mixed cadence) can't bias the average.
+        let h = headline(&summary, &readings, tw_gap);
+
         // Data sufficiency, GRI, time-weighted TIR, and advanced variability.
-        let coverage = Coverage::compute(&readings, window_ms, DEFAULT_CADENCE_MS, tz);
+        let coverage = Coverage::compute(&readings, window_ms, cadence_ms, tz);
         // GRI 0 means "perfect glycemia", so an empty window must report null — not a
         // fabricated best-possible score — like every other metric here.
         let gri = (summary.n > 0).then(|| GlycemiaRiskIndex::from_tir(&summary.tir));
-        let weighted = TimeInRange::compute_weighted(&readings, &t, DEFAULT_MAX_GAP_MS);
-        let j_index = analytics::j_index(summary.mean_mgdl, summary.sd_mgdl);
+        let weighted = TimeInRange::compute_weighted(&readings, &t, tw_gap);
         let mage = analytics::mage(&readings);
         let conga = analytics::conga(&readings, CONGA_HOURS, LAG_TOLERANCE_MS);
         let modd = analytics::modd(&readings, LAG_TOLERANCE_MS);
@@ -234,24 +244,24 @@ impl<S: Storage> ApiService<S> {
 
         // Episodes: events/day are normalised over the days that actually carry data.
         let days = coverage.distinct_days.max(1) as f64;
-        let gap = DEFAULT_EPISODE_GAP_MS;
-        let lows = analytics::detect_episodes(&readings, t.low, true, tz, gap);
-        let very_lows = analytics::detect_episodes(&readings, t.very_low, true, tz, gap);
-        let highs = analytics::detect_episodes(&readings, t.high, false, tz, gap);
-        let very_highs = analytics::detect_episodes(&readings, t.very_high, false, tz, gap);
+        let lows = analytics::detect_episodes(&readings, t.low, true, tz, episode_gap);
+        let very_lows = analytics::detect_episodes(&readings, t.very_low, true, tz, episode_gap);
+        let highs = analytics::detect_episodes(&readings, t.high, false, tz, episode_gap);
+        let very_highs = analytics::detect_episodes(&readings, t.very_high, false, tz, episode_gap);
 
         Ok(ApiResponse::json(
             200,
             &json!({
                 "hours": hours,
                 "tzOffset": tz,
+                "cadenceMs": cadence_ms,
                 "n": summary.n,
-                "meanMgdl": summary.mean_mgdl,
-                "sdMgdl": summary.sd_mgdl,
-                "uGmiPercent": summary.updated_gmi_percent,
-                "gmiPercent": summary.gmi_percent,
-                "estimatedA1cPercent": summary.estimated_a1c_percent,
-                "cvPercent": summary.cv_percent,
+                "meanMgdl": h.mean,
+                "sdMgdl": h.sd,
+                "uGmiPercent": h.ugmi,
+                "gmiPercent": h.gmi,
+                "estimatedA1cPercent": h.ea1c,
+                "cvPercent": h.cv,
                 "coverage": coverage_json(&coverage),
                 "timeInRange": tir_json(&summary.tir),
                 "timeInRangeWeighted": weighted.as_ref().map(tir_json),
@@ -262,7 +272,7 @@ impl<S: Storage> ApiService<S> {
                     "hyperComponent": gri.map(|g| g.hyper_component),
                 },
                 "variability": {
-                    "jIndex": j_index,
+                    "jIndex": h.j_index,
                     "mage": mage,
                     "congaHours": CONGA_HOURS,
                     "conga": conga,
@@ -333,6 +343,7 @@ impl<S: Storage> ApiService<S> {
         let t = TirThresholds::default();
         let total_readings: i64 = counts.iter().map(|d| d.n).sum();
         let cadence_ms = infer_cadence_ms(&readings, tz);
+        let (tw_gap, _) = gap_caps(cadence_ms);
         let expected_per_day = (timeutil::DAY_MS as f64 / cadence_ms as f64).round() as i64;
 
         let days: Vec<Value> = counts
@@ -354,6 +365,9 @@ impl<S: Storage> ApiService<S> {
                     if rs.len() as i64 == d.n {
                         if let Value::Object(m) = &mut obj {
                             let s = GlucoseSummary::compute(rs, &t);
+                            // Time-weighted mean / A1c (count fallback), consistent with
+                            // /analytics; min/max and TIR stay count-based.
+                            let hd = headline(&s, rs, tw_gap);
                             let (min, max) = rs.iter().fold(
                                 (f64::INFINITY, f64::NEG_INFINITY),
                                 |acc, r| {
@@ -361,12 +375,12 @@ impl<S: Storage> ApiService<S> {
                                     (acc.0.min(v), acc.1.max(v))
                                 },
                             );
-                            m.insert("meanMgdl".into(), json!(s.mean_mgdl));
+                            m.insert("meanMgdl".into(), json!(hd.mean));
                             m.insert("minMgdl".into(), json!(min));
                             m.insert("maxMgdl".into(), json!(max));
-                            m.insert("uGmiPercent".into(), json!(s.updated_gmi_percent));
-                            m.insert("gmiPercent".into(), json!(s.gmi_percent));
-                            m.insert("cvPercent".into(), json!(s.cv_percent));
+                            m.insert("uGmiPercent".into(), json!(hd.ugmi));
+                            m.insert("gmiPercent".into(), json!(hd.gmi));
+                            m.insert("cvPercent".into(), json!(hd.cv));
                             m.insert("timeInRange".into(), tir_json(&s.tir));
                         }
                     }
@@ -375,8 +389,10 @@ impl<S: Storage> ApiService<S> {
             })
             .collect();
 
-        // Headline stats over the loaded window (the UI labels these as "recent").
+        // Headline stats over the loaded window (the UI labels these as "recent"),
+        // time-weighted for the same non-uniform-sampling robustness as /analytics.
         let w = GlucoseSummary::compute(&readings, &t);
+        let wh = headline(&w, &readings, tw_gap);
 
         Ok(ApiResponse::json(
             200,
@@ -392,11 +408,11 @@ impl<S: Storage> ApiService<S> {
                 "statsCapped": stats_capped,
                 "windowStats": {
                     "n": w.n,
-                    "meanMgdl": w.mean_mgdl,
-                    "uGmiPercent": w.updated_gmi_percent,
-                    "gmiPercent": w.gmi_percent,
-                    "estimatedA1cPercent": w.estimated_a1c_percent,
-                    "cvPercent": w.cv_percent,
+                    "meanMgdl": wh.mean,
+                    "uGmiPercent": wh.ugmi,
+                    "gmiPercent": wh.gmi,
+                    "estimatedA1cPercent": wh.ea1c,
+                    "cvPercent": wh.cv,
                     "timeInRange": tir_json(&w.tir),
                 },
                 "days": days,
@@ -745,11 +761,14 @@ fn direction_from_doc(d: &StoredDoc) -> Option<Direction> {
     entry.direction_parsed()
 }
 
-/// Infer the CGM sampling cadence (ms) from a window of readings — the median gap
-/// between consecutive *same-day* readings, clamped to a sane [1 min, 15 min] range.
-/// Used to turn a day's raw reading count into a coverage percentage. Defaults to the
-/// 5-minute standard when there isn't enough data to tell. Counting only within-day,
-/// sub-hour gaps keeps overnight breaks and sensor changes from skewing the estimate.
+/// Infer the CGM sampling cadence (ms) from a window of readings — the **median** gap
+/// between consecutive *same-day* readings, clamped to a sane [1 min, 1 h] range. This is
+/// what scales coverage %, episode breaks and time-weighting to the actual device (5-min
+/// Dexcom, 1-min LibreLinkUp, 15-min Libre, hourly) instead of assuming 5-minute CGM.
+/// The median is robust to occasional gaps; collecting only within-day gaps up to ~2 h
+/// keeps overnight breaks and sensor changes from skewing it, while still admitting a
+/// genuinely hourly device. Defaults to the 5-minute standard when there isn't enough
+/// data to tell.
 fn infer_cadence_ms(readings: &[GlucoseReading], tz: i64) -> i64 {
     let mut times: Vec<i64> = readings.iter().map(|r| r.date_ms).collect();
     times.sort_unstable();
@@ -758,7 +777,7 @@ fn infer_cadence_ms(readings: &[GlucoseReading], tz: i64) -> i64 {
         .map(|w| (w[0], w[1] - w[0]))
         .filter(|&(t0, gap)| {
             gap > 0
-                && gap <= 60 * 60_000
+                && gap <= 2 * 3_600_000
                 && timeutil::day_number(t0, tz) == timeutil::day_number(t0 + gap, tz)
         })
         .map(|(_, gap)| gap)
@@ -767,7 +786,52 @@ fn infer_cadence_ms(readings: &[GlucoseReading], tz: i64) -> i64 {
         return 5 * 60_000;
     }
     gaps.sort_unstable();
-    gaps[gaps.len() / 2].clamp(60_000, 15 * 60_000)
+    gaps[gaps.len() / 2].clamp(60_000, 60 * 60_000)
+}
+
+/// The headline scalar metrics (mean, SD, CV and the A1c estimates), computed
+/// **time-weighted** so dense bursts / non-uniform sampling don't bias the average,
+/// falling back to the count-based `summary` when there aren't enough valid intervals to
+/// time-weight (e.g. a single reading). For clean uniform CGM the two agree to rounding,
+/// so ordinary users see no change; only skewed sampling is corrected.
+struct Headline {
+    mean: Option<f64>,
+    sd: Option<f64>,
+    cv: Option<f64>,
+    ugmi: Option<f64>,
+    gmi: Option<f64>,
+    ea1c: Option<f64>,
+    j_index: Option<f64>,
+}
+
+fn headline(summary: &GlucoseSummary, readings: &[GlucoseReading], max_gap_ms: i64) -> Headline {
+    let tw = analytics::time_weighted_stats(readings, max_gap_ms);
+    let mean = tw.map(|s| s.mean_mgdl).or(summary.mean_mgdl);
+    let sd = tw.map(|s| s.sd_mgdl).or(summary.sd_mgdl);
+    let cv = match (mean, sd) {
+        (Some(m), Some(s)) if m != 0.0 => Some(s / m * 100.0),
+        _ => None,
+    };
+    Headline {
+        mean,
+        sd,
+        cv,
+        ugmi: mean.map(analytics::updated_gmi_percent),
+        gmi: mean.map(analytics::gmi_percent),
+        ea1c: mean.map(analytics::estimated_a1c_percent),
+        j_index: analytics::j_index(mean, sd),
+    }
+}
+
+/// Gap caps derived from the inferred sampling cadence, so coverage, episode breaks and
+/// time-weighting all scale with the actual device rather than assuming 5-minute CGM.
+/// Each keeps its consensus floor (so normal 1–5-min data is unchanged) but widens for
+/// sparse sources (e.g. hourly readings) where the fixed floor would wrongly discard data
+/// or miss every episode. `2× cadence` is the consensus "discontinuity" guidance.
+fn gap_caps(cadence_ms: i64) -> (i64, i64) {
+    let tw_gap = (2 * cadence_ms).max(DEFAULT_MAX_GAP_MS);
+    let episode_gap = (2 * cadence_ms).max(DEFAULT_EPISODE_GAP_MS);
+    (tw_gap, episode_gap)
 }
 
 /// The caller's UTC offset in minutes (east of UTC), for localising time-of-day
