@@ -152,7 +152,12 @@ struct AGPChartView: View {
                             yEnd: .value("p95", conv(b.p95 ?? b.p50!))
                         )
                         .foregroundStyle(Color.nkInRange.opacity(0.13))
-                        .interpolationMethod(.catmullRom)
+                        // Monotone (shape-preserving), NOT catmullRom: the percentile
+                        // edges (esp. p95/p05) still vary bin-to-bin even after the
+                        // server's smoothing, and catmullRom overshoots those into
+                        // spikes. Monotone never exceeds the data points — clean clinical
+                        // envelopes, matching the web's straight-segment AGP bands.
+                        .interpolationMethod(.monotone)
                     }
                     ForEach(pts) { b in
                         AreaMark(
@@ -161,7 +166,7 @@ struct AGPChartView: View {
                             yEnd: .value("p75", conv(b.p75 ?? b.p50!))
                         )
                         .foregroundStyle(Color.nkInRange.opacity(0.28))
-                        .interpolationMethod(.catmullRom)
+                        .interpolationMethod(.monotone)
                     }
                     RuleMark(y: .value("low", conv(lowMgdl)))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
@@ -175,7 +180,7 @@ struct AGPChartView: View {
                         LineMark(x: .value("Time", b.minuteOfDay), y: .value("Median", conv(b.p50!)))
                             .foregroundStyle(Color(white: 0.95))
                             .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.monotone)
                     }
                 }
                 .chartXScale(domain: 0...1440)
