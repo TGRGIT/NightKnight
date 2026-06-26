@@ -58,8 +58,9 @@ const RECENT_EPISODES: usize = 8;
 /// (mean / TIR / uGMI / min-max). The day *list* — every local day that has data, with
 /// its reading count — always comes from the cheap `daily_counts` aggregation regardless
 /// of this cap, so coverage stays complete across thousands of days; only the richer
-/// per-day glucose summary is bounded, to keep memory/CPU sane on the Worker.
-const MAX_DAYS_STATS_POINTS: i64 = 30_000;
+/// per-day glucose summary is bounded, to keep memory/CPU sane on the Worker. Kept at the
+/// same ceiling as `MAX_ANALYTICS_POINTS` (20k), which is proven to load fine from D1.
+const MAX_DAYS_STATS_POINTS: i64 = 20_000;
 
 impl<S: Storage> ApiService<S> {
     pub(crate) async fn route_v4(

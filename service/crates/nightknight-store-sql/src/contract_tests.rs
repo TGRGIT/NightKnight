@@ -245,6 +245,40 @@ async fn daily_counts_respects_utc_offset() {
     assert_eq!(plus[0].day_index, 2, "+1h offset rolls the reading into day 2");
 }
 
+/// REGRESSION (D1 float-binding, found via a production HAR where `/api/v4/days` threw a
+/// Worker exception): the day-bucket arithmetic must use an INTEGER offset, not a bound
+/// param. D1 binds integer params as JS floats, which would make SQLite do REAL division
+/// and explode `GROUP BY` to one group per reading (hundreds of thousands of rows → the
+/// Worker OOMs). The shipped `daily_counts` inlines the offset as an integer literal; this
+/// reproduces the float regime against SQLite to prove the difference and guard it.
+#[tokio::test]
+async fn daily_counts_resists_float_offset_binding_explosion() {
+    const DAY_MS: i64 = 86_400_000;
+    let store = fresh_store().await;
+    // 3 readings on day 0, 2 on day 5 — distinct times within each day.
+    for (i, t) in [1_000i64, 2_000, 3_000, 5 * DAY_MS + 10, 5 * DAY_MS + 20].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("e{i}"), *t, 100, 1))
+            .await
+            .unwrap();
+    }
+    // The shipped query (offset inlined as an integer) buckets per day → 2 rows.
+    let days = store.daily_counts(Collection::Entries, "u1", "sgv", 0).await.unwrap();
+    assert_eq!(days.len(), 2, "inlined-offset day bucketing gives one row per day");
+    // Simulate what D1 does: bind the offset as a float into the same expression. SQLite
+    // then does REAL division and groups by fractional day → one group per reading.
+    let exploded = sqlx::query(
+        "SELECT (mills + ?) / 86400000 AS day FROM entries \
+         WHERE user_id=? AND is_valid=1 AND doc_type='sgv' GROUP BY 1",
+    )
+    .bind(0.0_f64)
+    .bind("u1")
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(exploded.len(), 5, "a float-bound offset explodes to one group per reading");
+}
+
 /// GUARANTEE: a soft-deleted document disappears from normal search but remains
 /// available through history (so a synced device learns it was removed), and the
 /// collection's `last_modified` advances.

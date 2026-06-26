@@ -56,6 +56,12 @@ fn to_js(params: &[Param]) -> Vec<JsValue> {
         .iter()
         .map(|p| match p {
             Param::Text(s) => JsValue::from(s.as_str()),
+            // D1 params are JS values, which are f64 — there is no integer JS-number type
+            // it accepts (BigInt isn't a supported D1 bind type). This is invisible for
+            // comparisons/LIMIT, but it makes SQLite do REAL arithmetic if a bound int is
+            // used in an arithmetic expression. So shared SQL must NOT do arithmetic on a
+            // bound int param — inline server-computed integer constants instead (see
+            // `sql::daily_counts`).
             Param::Int(i) => JsValue::from_f64(*i as f64),
             Param::Null | Param::IntNull => JsValue::NULL,
         })

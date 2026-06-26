@@ -170,8 +170,15 @@ pub fn search_documents(c: Collection, user_id: &str, q: &DocQuery) -> (String, 
 /// `GROUP BY`/`ORDER BY` use the output **ordinal** (`1`), not a repeat of the bucket
 /// expression: the `?`→`$n` rewrite would turn two textually-identical expressions into
 /// `$1` and `$4`, which Postgres treats as *different* expressions and then rejects
-/// ("mills must appear in the GROUP BY clause"). The ordinal sidesteps that and also
-/// means the offset is bound only once. (Verified against real Postgres.)
+/// ("mills must appear in the GROUP BY clause"). The ordinal sidesteps that.
+///
+/// The offset is **inlined as an integer literal**, NOT a bound parameter, on purpose:
+/// the D1 backend binds every integer param as a JS float, so `(mills + ?)` would make
+/// SQLite do REAL arithmetic and `/ 86400000` REAL division — the bucket becomes a
+/// fractional day and `GROUP BY` explodes to one group per reading (hundreds of thousands
+/// of rows → the Worker OOMs). Inlining keeps the arithmetic integer on every backend.
+/// `tz_offset_ms` is a server-computed, clamped `i64` (never user SQL), so interpolating
+/// the number is safe.
 pub fn daily_counts(
     c: Collection,
     user_id: &str,
@@ -180,19 +187,12 @@ pub fn daily_counts(
 ) -> (String, Vec<Param>) {
     let t = c.table();
     let sql = format!(
-        "SELECT (mills + ?) / 86400000 AS day, COUNT(*) AS n, \
+        "SELECT (mills + {tz_offset_ms}) / 86400000 AS day, COUNT(*) AS n, \
                 MIN(mills) AS first_ms, MAX(mills) AS last_ms \
          FROM {t} WHERE user_id=? AND is_valid=1 AND doc_type=? \
          GROUP BY 1 ORDER BY 1 DESC"
     );
-    (
-        sql,
-        vec![
-            Param::Int(tz_offset_ms),
-            Param::text(user_id),
-            Param::text(doc_type),
-        ],
-    )
+    (sql, vec![Param::text(user_id), Param::text(doc_type)])
 }
 
 /// Soft-delete: flag `is_valid=0` so the document drops out of normal results but
