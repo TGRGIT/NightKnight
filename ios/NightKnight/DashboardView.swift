@@ -239,11 +239,20 @@ struct MiniSparkline: View {
                                   y: geo.size.height / 2)
                 }
                 if pts.count >= 2 {
-                    fillPath(pts, height: geo.size.height)
-                        .fill(LinearGradient(colors: [color.opacity(0.30), color.opacity(0.02)],
-                                             startPoint: .top, endPoint: .bottom))
-                    linePath(pts)
-                        .stroke(color, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    // The smoothed line + fill, faded in from the left so it emerges rather
+                    // than starting at a hard vertical edge (the dot stays full-strength).
+                    ZStack {
+                        fillPath(pts, height: geo.size.height)
+                            .fill(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.0)],
+                                                 startPoint: .top, endPoint: .bottom))
+                        smoothLine(pts)
+                            .stroke(color, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    }
+                    .mask(LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.18),
+                        .init(color: .black, location: 1),
+                    ], startPoint: .leading, endPoint: .trailing))
                     if let last = pts.last {
                         Circle().fill(color).frame(width: 5, height: 5).position(last)
                     }
@@ -258,15 +267,30 @@ struct MiniSparkline: View {
         .accessibilityHidden(true)
     }
 
-    private func linePath(_ pts: [CGPoint]) -> Path {
+    /// Catmull-Rom → cubic-bézier smoothing (the same non-overshooting curve the web spark
+    /// and the main chart use), so the line reads as a calm sweep rather than a scribble.
+    private func smoothLine(_ pts: [CGPoint]) -> Path {
         var p = Path()
-        p.move(to: pts[0])
-        for q in pts.dropFirst() { p.addLine(to: q) }
+        guard let first = pts.first else { return p }
+        p.move(to: first)
+        guard pts.count >= 3 else {
+            for q in pts.dropFirst() { p.addLine(to: q) }
+            return p
+        }
+        for i in 0..<pts.count - 1 {
+            let p0 = i > 0 ? pts[i - 1] : pts[i]
+            let p1 = pts[i]
+            let p2 = pts[i + 1]
+            let p3 = i + 2 < pts.count ? pts[i + 2] : p2
+            let c1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
+            let c2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
+            p.addCurve(to: p2, control1: c1, control2: c2)
+        }
         return p
     }
 
     private func fillPath(_ pts: [CGPoint], height: CGFloat) -> Path {
-        var p = linePath(pts)
+        var p = smoothLine(pts)
         if let first = pts.first, let last = pts.last {
             p.addLine(to: CGPoint(x: last.x, y: height))
             p.addLine(to: CGPoint(x: first.x, y: height))
@@ -277,10 +301,15 @@ struct MiniSparkline: View {
 
     /// Map readings to points over a fixed [start, end] window, so x position encodes the
     /// real time-of-reading (the left edge is `start` = one hour ago, not the first point).
+    /// Values are smoothed first so a noisy 1-min stream reads as a calm trend.
     static func points(_ readings: [GlucoseReading], size: CGSize, start: Date, end: Date) -> [CGPoint] {
         let recent = readings.filter { $0.date >= start }.sorted { $0.date < $1.date }
         guard recent.count >= 2 else { return [] }
-        let vals = recent.map(\.mgdl)
+        // Window scales with sample density (~1 per 12 points), forced odd; it narrows at
+        // the ends so the final point stays faithful to the latest reading.
+        let raw = max(3, recent.count / 12)
+        let win = raw.isMultiple(of: 2) ? raw + 1 : raw
+        let vals = movingAverage(recent.map(\.mgdl), window: win)
         let lo = (vals.min() ?? 80) - 6
         let hi = (vals.max() ?? 180) + 6
         let span = max(1, hi - lo)
@@ -288,9 +317,18 @@ struct MiniSparkline: View {
         let dt = max(1, end.timeIntervalSince1970 - t0)
         let pad: CGFloat = 4
         let h = max(1, size.height - pad * 2)
-        return recent.map { r in
+        return zip(recent, vals).map { r, v in
             CGPoint(x: CGFloat((r.date.timeIntervalSince1970 - t0) / dt) * size.width,
-                    y: pad + CGFloat(1 - (r.mgdl - lo) / span) * h)
+                    y: pad + CGFloat(1 - (v - lo) / span) * h)
+        }
+    }
+
+    /// Centred moving average (window narrows at the edges).
+    static func movingAverage(_ vals: [Double], window: Int) -> [Double] {
+        let n = vals.count, half = window / 2
+        return vals.indices.map { i in
+            let lo = Swift.max(0, i - half), hi = Swift.min(n - 1, i + half)
+            return vals[lo...hi].reduce(0, +) / Double(hi - lo + 1)
         }
     }
 }
