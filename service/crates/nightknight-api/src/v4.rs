@@ -345,20 +345,31 @@ impl<S: Storage> ApiService<S> {
                     "firstMs": d.first_ms,
                     "lastMs": d.last_ms,
                 });
-                // Decorate with a glucose summary when this day is in the loaded window.
-                if let (Some(rs), Value::Object(m)) = (by_day.get(&d.day_index), &mut obj) {
-                    let s = GlucoseSummary::compute(rs, &t);
-                    let (min, max) = rs.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |acc, r| {
-                        let v = r.value.mgdl();
-                        (acc.0.min(v), acc.1.max(v))
-                    });
-                    m.insert("meanMgdl".into(), json!(s.mean_mgdl));
-                    m.insert("minMgdl".into(), json!(min));
-                    m.insert("maxMgdl".into(), json!(max));
-                    m.insert("uGmiPercent".into(), json!(s.updated_gmi_percent));
-                    m.insert("gmiPercent".into(), json!(s.gmi_percent));
-                    m.insert("cvPercent".into(), json!(s.cv_percent));
-                    m.insert("timeInRange".into(), tir_json(&s.tir));
+                // Decorate with a glucose summary, but ONLY when the whole day is in the
+                // loaded window — the day straddling the 30k cap is partially loaded, and
+                // computing its mean/TIR from that partial sample (while `n` shows the full
+                // count) would mislead. Completeness is "loaded readings == authoritative
+                // count"; an incomplete day falls back to count-only, like older days.
+                if let Some(rs) = by_day.get(&d.day_index) {
+                    if rs.len() as i64 == d.n {
+                        if let Value::Object(m) = &mut obj {
+                            let s = GlucoseSummary::compute(rs, &t);
+                            let (min, max) = rs.iter().fold(
+                                (f64::INFINITY, f64::NEG_INFINITY),
+                                |acc, r| {
+                                    let v = r.value.mgdl();
+                                    (acc.0.min(v), acc.1.max(v))
+                                },
+                            );
+                            m.insert("meanMgdl".into(), json!(s.mean_mgdl));
+                            m.insert("minMgdl".into(), json!(min));
+                            m.insert("maxMgdl".into(), json!(max));
+                            m.insert("uGmiPercent".into(), json!(s.updated_gmi_percent));
+                            m.insert("gmiPercent".into(), json!(s.gmi_percent));
+                            m.insert("cvPercent".into(), json!(s.cv_percent));
+                            m.insert("timeInRange".into(), tir_json(&s.tir));
+                        }
+                    }
                 }
                 obj
             })
