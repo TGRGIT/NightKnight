@@ -14,9 +14,9 @@ use worker::wasm_bindgen::JsValue;
 use worker::D1Database;
 
 use nightknight_storage::{
-    connector_credential_from_cols, device_token_from_cols, model::Param, sql, stored_doc_from_cols,
-    user_from_cols, Collection, ConnectorCredential, DeviceToken, DocQuery, Result, StoredDoc,
-    Storage, StorageError, User, WriteOutcome,
+    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param, sql,
+    stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential, DayCount, DeviceToken,
+    DocQuery, Result, StoredDoc, Storage, StorageError, User, WriteOutcome,
 };
 
 /// A [`Storage`] backed by a bound D1 database.
@@ -92,6 +92,15 @@ fn row_to_doc(v: &Value) -> Result<StoredDoc> {
         col_i64(v, "is_read_only"),
         col_opt_str(v, "subject"),
         col_str(v, "doc"),
+    )
+}
+
+fn row_to_day_count(v: &Value) -> DayCount {
+    day_count_from_cols(
+        col_i64(v, "day"),
+        col_i64(v, "n"),
+        col_i64(v, "first_ms"),
+        col_i64(v, "last_ms"),
     )
 }
 
@@ -202,6 +211,17 @@ impl Storage for D1Store {
     async fn last_modified(&self, c: Collection, user_id: &str) -> Result<Option<i64>> {
         let (q, params) = sql::last_modified(c, user_id);
         Ok(self.first(&q, params).await?.and_then(|v| col_opt_i64(&v, "lm")))
+    }
+
+    async fn daily_counts(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        tz_offset_ms: i64,
+    ) -> Result<Vec<DayCount>> {
+        let (q, params) = sql::daily_counts(c, user_id, doc_type, tz_offset_ms);
+        Ok(self.rows(&q, params).await?.iter().map(row_to_day_count).collect())
     }
 
     async fn history_since(

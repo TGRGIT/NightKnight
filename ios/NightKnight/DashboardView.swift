@@ -152,8 +152,10 @@ struct DashboardView: View {
             .onChange(of: model.period) { Task { await model.reloadAnalytics() } }
 
             LazyVGrid(columns: metricCols, spacing: 10) {
-                metric("Est. A1c", a?.gmiPercent.map { String(format: "%.1f%%", $0) } ?? "--",
-                       sub: a?.estimatedA1cPercent.map { String(format: "eA1c %.1f%%", $0) } ?? " ")
+                // Lead with uGMI (the preferred A1c estimate); the sub names GMI + eA1c so
+                // it's unambiguous which figure is which — never just a bare "A1c".
+                metric("uGMI", a?.uGmiPercent.map { String(format: "%.1f%%", $0) } ?? "--",
+                       sub: a1cSub(a), exact: true)
                 metric("Avg", a?.meanMgdl.map { GlucoseValue(mgdl: $0).display(in: unit) } ?? "--",
                        sub: unit.label)
                 metric("In range", a.map { String(format: "%.0f%%", $0.inRangePct) } ?? "--",
@@ -186,9 +188,21 @@ struct DashboardView: View {
         .background(Color.nkTile, in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private func metric(_ label: String, _ value: String, sub: String) -> some View {
+    /// The trailing-summary sub for the uGMI tile: names the other two A1c estimates so
+    /// the reader always knows which is which (e.g. "GMI 6.0 · eA1c 5.6").
+    private func a1cSub(_ a: GlucoseAnalytics?) -> String {
+        guard let a else { return " " }
+        var parts: [String] = []
+        if let g = a.gmiPercent { parts.append(String(format: "GMI %.1f", g)) }
+        if let e = a.estimatedA1cPercent { parts.append(String(format: "eA1c %.1f", e)) }
+        return parts.isEmpty ? " " : parts.joined(separator: " · ")
+    }
+
+    /// `exact` keeps the label's own casing — used for "uGMI", where the lowercase "u"
+    /// distinguishes it from GMI and is the whole point of the label.
+    private func metric(_ label: String, _ value: String, sub: String, exact: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label.uppercased()).font(.caption2).foregroundStyle(.secondary)
+            Text(exact ? label : label.uppercased()).font(.caption2).foregroundStyle(.secondary)
             Text(value).font(.system(.title2, design: .rounded)).bold()
                 .lineLimit(1).minimumScaleFactor(0.7)
             Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -200,8 +214,10 @@ struct DashboardView: View {
 }
 
 /// A compact last-hour sparkline for the spotlight reading: a soft filled line with an
-/// endpoint dot, auto-scaled to the window's range. Deliberately minimal so the big
-/// number stays the focus. Mirrors the widget's `TrendSparkline` (which lives in the
+/// endpoint dot. The time axis is pinned to a fixed **now−1h … now** window (so the right
+/// edge is the latest reading and the left edge is exactly one hour ago), and faint
+/// 15-minute guides with a tiny "−1h" anchor make that span legible without stealing
+/// focus from the big number. Mirrors the widget's `TrendSparkline` (which lives in the
 /// widget target and can't be shared without project surgery).
 struct MiniSparkline: View {
     let readings: [GlucoseReading]
@@ -209,9 +225,20 @@ struct MiniSparkline: View {
 
     var body: some View {
         GeometryReader { geo in
-            let pts = Self.points(readings, size: geo.size)
-            if pts.count >= 2 {
-                ZStack {
+            let now = Date()
+            let start = now.addingTimeInterval(-3600)
+            let pts = Self.points(readings, size: geo.size, start: start, end: now)
+            ZStack(alignment: .bottomLeading) {
+                // Subtle quarter-hour guides; the left edge (−1h) is a touch stronger so
+                // the eye reads "this is the last hour" at a glance.
+                ForEach([60, 45, 30, 15], id: \.self) { mins in
+                    Rectangle()
+                        .fill(Color.nkMuted.opacity(mins == 60 ? 0.22 : 0.09))
+                        .frame(width: 1, height: geo.size.height)
+                        .position(x: geo.size.width * CGFloat(1 - Double(mins) / 60.0),
+                                  y: geo.size.height / 2)
+                }
+                if pts.count >= 2 {
                     fillPath(pts, height: geo.size.height)
                         .fill(LinearGradient(colors: [color.opacity(0.30), color.opacity(0.02)],
                                              startPoint: .top, endPoint: .bottom))
@@ -221,6 +248,11 @@ struct MiniSparkline: View {
                         Circle().fill(color).frame(width: 5, height: 5).position(last)
                     }
                 }
+                // The quiet axis hint: this graph covers the trailing hour.
+                Text("−1h")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(Color.nkMuted.opacity(0.55))
+                    .padding(.leading, 1).padding(.bottom, -1)
             }
         }
         .accessibilityHidden(true)
@@ -243,15 +275,17 @@ struct MiniSparkline: View {
         return p
     }
 
-    static func points(_ readings: [GlucoseReading], size: CGSize) -> [CGPoint] {
-        let recent = readings.sorted { $0.date < $1.date }
+    /// Map readings to points over a fixed [start, end] window, so x position encodes the
+    /// real time-of-reading (the left edge is `start` = one hour ago, not the first point).
+    static func points(_ readings: [GlucoseReading], size: CGSize, start: Date, end: Date) -> [CGPoint] {
+        let recent = readings.filter { $0.date >= start }.sorted { $0.date < $1.date }
         guard recent.count >= 2 else { return [] }
         let vals = recent.map(\.mgdl)
         let lo = (vals.min() ?? 80) - 6
         let hi = (vals.max() ?? 180) + 6
         let span = max(1, hi - lo)
-        let t0 = recent.first!.date.timeIntervalSince1970
-        let dt = max(1, recent.last!.date.timeIntervalSince1970 - t0)
+        let t0 = start.timeIntervalSince1970
+        let dt = max(1, end.timeIntervalSince1970 - t0)
         let pad: CGFloat = 4
         let h = max(1, size.height - pad * 2)
         return recent.map { r in
@@ -333,16 +367,31 @@ private enum Tip {
     balanced against how much time you spend low. Read it alongside Time in Range and \
     variability rather than on its own.
     """)
+    static let ugmi = TipInfo(url: "https://doi.org/10.1007/s00125-026-06739-w", text: """
+    Updated GMI (uGMI) is the 2026 revision of the Glucose Management Indicator. It \
+    estimates a lab A1c from your average sensor glucose, but its model aligns more \
+    closely with measured HbA1c than the original 2018 GMI — most noticeably at lower \
+    averages, where the old formula tended to read high.
+
+    uGMI(%) = 1 / (15.36 / mean glucose (mg/dL) + 0.0425).
+
+    NightKnight leads with uGMI everywhere and shows the 2018 GMI and the older eA1c \
+    alongside it for comparison. Like any estimate it needs at least 14 days with more \
+    than 70% sensor-active data, and a real lab A1c can still differ by up to about 1% \
+    because A1c also depends on red-blood-cell lifespan and other personal factors. \
+    (Bergenstal et al., Diabetologia 2026.)
+    """)
     static let gmi = TipInfo(url: "https://pubmed.ncbi.nlm.nih.gov/30224348/", text: """
-    The Glucose Management Indicator estimates what a lab A1c would be from your average \
-    sensor glucose, and is the modern, consensus-preferred estimate.
+    The Glucose Management Indicator (2018) estimates what a lab A1c would be from your \
+    average sensor glucose.
 
     GMI(%) = 3.31 + 0.02392 × mean glucose (mg/dL) — a higher average gives a higher GMI.
 
-    It's only reliable over at least 14 days with more than 70% sensor-active data. GMI \
-    and an actual lab A1c can still differ by up to about 1% in either direction, because \
-    A1c also depends on red-blood-cell lifespan and other personal factors. \
-    (Bergenstal et al., 2018.)
+    It's shown here for comparison; NightKnight prefers the updated uGMI, which realigns \
+    the estimate to better match measured HbA1c. It's only reliable over at least 14 days \
+    with more than 70% sensor-active data, and GMI and an actual lab A1c can still differ \
+    by up to about 1% in either direction, because A1c also depends on red-blood-cell \
+    lifespan and other personal factors. (Bergenstal et al., 2018.)
     """)
     static let ea1c = TipInfo(url: "https://pubmed.ncbi.nlm.nih.gov/?term=translating+the+A1C+assay+into+estimated+average+glucose", text: """
     An older estimate of A1c from your average glucose, using the 2008 ADAG regression:
@@ -592,8 +641,9 @@ struct AnalysisView: View {
         card("Core Metrics") {
             LazyVGrid(columns: cols, spacing: 12) {
                 metricTile("Mean Glucose", fmtGlu(a.meanMgdl), suffix: unit.label, sub: "\(a.n) readings", tip: Tip.mean)
-                metricTile("GMI", num(a.gmiPercent, 1), suffix: "%", sub: "mgmt indicator", tip: Tip.gmi)
-                metricTile("eA1c (legacy)", num(a.estimatedA1cPercent, 1), suffix: "%", sub: "ADAG estimate", tip: Tip.ea1c)
+                metricTile("uGMI", num(a.uGmiPercent, 1), suffix: "%", sub: "updated · preferred", tip: Tip.ugmi, exact: true)
+                metricTile("GMI", num(a.gmiPercent, 1), suffix: "%", sub: "2018 estimate", tip: Tip.gmi, exact: true)
+                metricTile("eA1c", num(a.estimatedA1cPercent, 1), suffix: "%", sub: "ADAG (legacy)", tip: Tip.ea1c, exact: true)
                 metricTile("SD", fmtGlu(a.sdMgdl), suffix: unit.label, sub: "std deviation", tip: Tip.sd)
                 metricTile("CV", num(a.cvPercent, 0), suffix: "%", sub: cvNote(a.cvPercent), tip: Tip.cv)
                 metricTile("Time Active", num(a.coverage.percentActive, 0), suffix: "%", sub: a.coverage.sufficient ? "sufficient" : "limited", tip: Tip.active)
@@ -682,10 +732,10 @@ struct AnalysisView: View {
         .background(Color.nkTile, in: RoundedRectangle(cornerRadius: 20))
     }
 
-    private func metricTile(_ label: String, _ value: String, suffix: String = "", sub: String, tip: TipInfo? = nil) -> some View {
+    private func metricTile(_ label: String, _ value: String, suffix: String = "", sub: String, tip: TipInfo? = nil, exact: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                Text(label.uppercased()).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Text(exact ? label : label.uppercased()).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 if let tip { InfoTip(label, tip) }
             }
             HStack(alignment: .firstTextBaseline, spacing: 2) {

@@ -8,8 +8,12 @@
 //! * **Time in Range (TIR)** — the share of readings in each glucose band. The
 //!   single most actionable CGM metric. Bands (mg/dL): very-low `<54`, low `54–69`,
 //!   target `70–180`, high `181–250`, very-high `>250`.
-//! * **GMI** (Glucose Management Indicator) — an A1c-like % estimated from mean
-//!   glucose: `GMI% = 3.31 + 0.02392 × mean_mg/dL`.
+//! * **uGMI** (updated GMI) — the consensus-preferred 2026 revision of GMI, which
+//!   aligns better with lab A1c: `uGMI% = 1 / (15.36 / mean_mg/dL + 0.0425)`
+//!   (Bergenstal et al., *Diabetologia* 2026). This is the A1c estimate NightKnight
+//!   leads with everywhere.
+//! * **GMI** (Glucose Management Indicator) — the 2018 estimate, kept for comparison:
+//!   `GMI% = 3.31 + 0.02392 × mean_mg/dL`.
 //! * **eA1c** — the older ADAG estimate: `(mean_mg/dL + 46.7) / 28.7`.
 //! * **CV** (coefficient of variation) — variability; `≤ 36%` is considered stable.
 
@@ -179,7 +183,17 @@ pub fn coefficient_of_variation(readings: &[GlucoseReading]) -> Option<f64> {
     Some(std_dev_mgdl(readings)? / mean * 100.0)
 }
 
-/// Glucose Management Indicator (%), the modern A1c estimate, from mean mg/dL.
+/// Updated Glucose Management Indicator (%), the 2026 consensus-preferred A1c estimate,
+/// from mean mg/dL. The revised model aligns more closely with lab-measured HbA1c than
+/// the 2018 GMI, especially at the extremes. `uGMI% = 1 / (15.36 / mean + 0.0425)`
+/// (Bergenstal et al., *Diabetologia* 2026; https://doi.org/10.1007/s00125-026-06739-w).
+/// `mean` must be > 0 (an empty window never reaches here — callers guard with `Option`).
+pub fn updated_gmi_percent(mean_mgdl: f64) -> f64 {
+    1.0 / (15.36 / mean_mgdl + 0.0425)
+}
+
+/// Glucose Management Indicator (%), the 2018 A1c estimate, from mean mg/dL. Kept
+/// alongside [`updated_gmi_percent`] for comparison; uGMI is preferred.
 pub fn gmi_percent(mean_mgdl: f64) -> f64 {
     3.31 + 0.02392 * mean_mgdl
 }
@@ -198,6 +212,8 @@ pub struct GlucoseSummary {
     /// [`std_dev_mgdl`]. Surfaced per the consensus core set; pairs with
     /// [`cv_percent`](Self::cv_percent).
     pub sd_mgdl: Option<f64>,
+    /// Updated GMI (2026) — the preferred A1c estimate. See [`updated_gmi_percent`].
+    pub updated_gmi_percent: Option<f64>,
     pub gmi_percent: Option<f64>,
     pub estimated_a1c_percent: Option<f64>,
     pub cv_percent: Option<f64>,
@@ -213,6 +229,7 @@ impl GlucoseSummary {
             n: readings.len(),
             mean_mgdl: mean,
             sd_mgdl: sd,
+            updated_gmi_percent: mean.map(updated_gmi_percent),
             gmi_percent: mean.map(gmi_percent),
             estimated_a1c_percent: mean.map(estimated_a1c_percent),
             // CV = SD/mean·100; reuse the values we already have rather than re-summing.
@@ -903,6 +920,25 @@ mod tests {
         assert!((gmi_percent(100.0) - 5.702).abs() < 0.001);
         assert!((gmi_percent(200.0) - 8.094).abs() < 0.001);
         assert!((gmi_percent(300.0) - 10.486).abs() < 0.001);
+    }
+
+    /// uGMI matches the Bergenstal 2026 reference points: a mean of 86 mg/dL gives
+    /// 4.5% (the worked example on the Jaeb calculator) and 154 mg/dL stays at ~7.0%.
+    #[test]
+    fn updated_gmi_matches_reference_points() {
+        assert!(
+            (updated_gmi_percent(86.0) - 4.523).abs() < 0.005,
+            "uGMI(86) was {}",
+            updated_gmi_percent(86.0)
+        );
+        assert!(
+            (updated_gmi_percent(154.0) - 7.030).abs() < 0.005,
+            "uGMI(154) was {}",
+            updated_gmi_percent(154.0)
+        );
+        // It diverges from the 2018 GMI at the low end (where the realignment matters):
+        // GMI(100)=5.70 but uGMI(100)≈5.10.
+        assert!((updated_gmi_percent(100.0) - 5.099).abs() < 0.005);
     }
 
     /// Mean, SD and CV on a tiny known set.

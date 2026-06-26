@@ -302,6 +302,7 @@ async fn current_prefers_first_party_trend_and_analytics_is_complete() {
     );
     assert_eq!(an["n"], 2);
     assert!(an["sdMgdl"].is_number(), "SD surfaced");
+    assert!(an["uGmiPercent"].is_number(), "uGMI (the preferred A1c estimate) surfaced");
     assert!(an["coverage"]["percentActive"].is_number(), "data sufficiency surfaced");
     assert!(an["gri"]["value"].is_number() && an["gri"]["zone"].is_string(), "GRI surfaced");
     assert!(an["variability"]["jIndex"].is_number(), "advanced variability surfaced");
@@ -310,6 +311,43 @@ async fn current_prefers_first_party_trend_and_analytics_is_complete() {
 
     let agp = body_json(&svc.handle(request("GET", "/api/v4/agp?days=14", &[], Value::Null), NOW, edge).await);
     assert_eq!(agp["bins"].as_array().unwrap().len(), 96, "AGP has 96 fifteen-minute bins");
+}
+
+/// SCENARIO: the Data view asks "which days actually have readings, and what do they
+/// look like?". `/days` lists every local day with data and its reading count (the
+/// importer-verification spine), and decorates recent days with a per-day glucose
+/// summary led by uGMI. The headline window stats summarise the loaded window.
+#[tokio::test]
+async fn days_view_lists_coverage_and_recent_stats() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // Five readings across three local (UTC) days: 2 today, 2 yesterday, 1 two days ago.
+    let entries = json!([
+        { "type": "sgv", "date": NOW - 60_000, "sgv": 120, "device": "t" },
+        { "type": "sgv", "date": NOW - 120_000, "sgv": 140, "device": "t" },
+        { "type": "sgv", "date": NOW - DAY_MS - 60_000, "sgv": 90, "device": "t" },
+        { "type": "sgv", "date": NOW - DAY_MS - 120_000, "sgv": 200, "device": "t" },
+        { "type": "sgv", "date": NOW - 2 * DAY_MS - 60_000, "sgv": 110, "device": "t" },
+    ]);
+    svc.handle(request("POST", "/api/v1/entries", &[], entries), NOW, edge.clone()).await;
+
+    let resp = svc.handle(request("GET", "/api/v4/days?tzOffset=0", &[], Value::Null), NOW, edge).await;
+    assert_eq!(resp.status, 200);
+    let b = body_json(&resp);
+    assert_eq!(b["totalDays"], 3, "three distinct days have data");
+    assert_eq!(b["totalReadings"], 5, "five readings across the whole history");
+    let days = b["days"].as_array().unwrap();
+    assert_eq!(days.len(), 3);
+    assert_eq!(days[0]["n"], 2, "newest day first, with its reading count");
+    assert!(days[0]["date"].as_str().unwrap().starts_with("2023-11"), "ISO day label");
+    // Recent days carry a per-day glucose summary led by uGMI.
+    assert!(days[0]["uGmiPercent"].is_number(), "recent day has uGMI");
+    assert!(days[0]["meanMgdl"].is_number());
+    assert!(days[0]["timeInRange"]["inRangePct"].is_number());
+    // Headline window stats are present and uGMI-led.
+    assert_eq!(b["windowStats"]["n"], 5);
+    assert!(b["windowStats"]["uGmiPercent"].is_number());
 }
 
 /// A window with no readings must not fabricate a "perfect" score — every metric,

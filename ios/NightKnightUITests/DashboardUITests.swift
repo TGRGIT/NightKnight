@@ -53,7 +53,7 @@ final class DashboardUITests: XCTestCase {
         let app = launchApp()
         XCTAssertTrue(app.staticTexts["TRAILING SUMMARY"].waitForExistence(timeout: 15),
                       "trailing summary header visible")
-        XCTAssertTrue(app.staticTexts["EST. A1C"].exists, "A1c metric tile present")
+        XCTAssertTrue(app.staticTexts["uGMI"].exists, "uGMI (preferred A1c estimate) tile present")
         XCTAssertTrue(app.staticTexts["AVG"].exists, "average metric tile present")
 
         for label in ["90d", "24h", "30d", "7d"] {

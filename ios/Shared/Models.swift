@@ -61,6 +61,8 @@ struct GlucoseAnalytics: Sendable {
     let n: Int
     let meanMgdl: Double?
     let sdMgdl: Double?
+    /// Updated GMI (2026) — the preferred A1c estimate, led on across the app.
+    let uGmiPercent: Double?
     let gmiPercent: Double?
     let estimatedA1cPercent: Double?
     let cvPercent: Double?

@@ -17,6 +17,8 @@ const state = {
   targetHigh: Number(localStorage.getItem("nk-target-high")) || 180, // mg/dL
   tzOffset: -new Date().getTimezoneOffset(), // minutes east of UTC
   entries: [],
+  calMode: localStorage.getItem("nk-cal-mode") || "coverage", // data calendar colouring
+  daysData: null, // last /days payload, so the calendar toggle re-renders without a fetch
 };
 
 const $ = (s) => document.querySelector(s);
@@ -61,8 +63,9 @@ function fmtDur(min) { const m = Math.round(min); return m >= 60 ? `${Math.floor
 
 // Plain-language explanations surfaced through the (?) tooltips.
 const TIPS = {
-  gmi: "Glucose Management Indicator — a modern, consensus-preferred estimate of lab A1c from your average glucose (GMI% = 3.31 + 0.02392 × mean mg/dL).",
-  ea1c: "The older ADAG estimate of A1c from average glucose ((mean + 46.7) ÷ 28.7). Kept for compatibility; it can differ from GMI.",
+  ugmi: "Updated GMI (uGMI) — the 2026 consensus revision of GMI that aligns more closely with lab A1c, especially at lower averages. uGMI% = 1 / (15.36 / mean mg/dL + 0.0425) (Bergenstal et al., Diabetologia 2026). This is the A1c estimate NightKnight leads with.",
+  gmi: "Glucose Management Indicator (2018) — the original estimate of lab A1c from average glucose (GMI% = 3.31 + 0.02392 × mean mg/dL). Shown for comparison; prefer uGMI.",
+  ea1c: "The older ADAG estimate of A1c from average glucose ((mean + 46.7) ÷ 28.7). Kept for compatibility; it can differ from GMI/uGMI.",
   mean: "Your average sensor glucose over the period.",
   sd: "Standard deviation — the absolute spread of glucose around the mean. Lower is steadier.",
   cv: "Coefficient of variation (SD ÷ mean). The standard stability measure; ≤ 36% is considered stable.",
@@ -81,8 +84,10 @@ function infoIcon(text) {
   return s;
 }
 
-function metricTile({ label, value, suffix = "", sub = "", tip, hero }) {
-  const head = el("span", { class: "metric-label", text: label });
+function metricTile({ label, value, suffix = "", sub = "", tip, hero, exact }) {
+  // `exact` keeps the label's own casing (for uGMI / GMI / eA1c, where the precise
+  // spelling is what tells the reader which A1c estimate they're looking at).
+  const head = el("span", { class: "metric-label" + (exact ? " exact" : ""), text: label });
   if (tip) head.appendChild(infoIcon(tip));
   const val = el("span", { class: "metric-value" });
   val.appendChild(document.createTextNode(value));
@@ -92,13 +97,14 @@ function metricTile({ label, value, suffix = "", sub = "", tip, hero }) {
 
 // ── routing ────────────────────────────────────────────────────────────────
 function setView(view) {
-  if (!["dashboard", "analysis", "settings"].includes(view)) view = "dashboard";
+  if (!["dashboard", "analysis", "data", "settings"].includes(view)) view = "dashboard";
   state.view = view;
   if (location.hash !== `#${view}`) location.hash = view;
   $$("[data-page]").forEach((p) => (p.hidden = p.dataset.page !== view));
   $$(".tab").forEach((t) => t.classList.toggle("is-active", t.dataset.view === view));
   if (view === "dashboard") { refreshLive(); refreshSummary(); }
   else if (view === "analysis") refreshAnalysis();
+  else if (view === "data") refreshData();
   else if (view === "settings") { loadConnectors(); loadTokens(); syncTargetInputs(); }
 }
 
@@ -163,7 +169,7 @@ function renderSummary(a) {
   grid.innerHTML = "";
   const cv = a.cvPercent;
   grid.append(
-    metricTile({ label: "Est. A1c", value: a.gmiPercent == null ? "--" : a.gmiPercent.toFixed(1), suffix: "%", sub: a.estimatedA1cPercent == null ? "GMI —" : `eA1c ${a.estimatedA1cPercent.toFixed(1)}%`, tip: TIPS.gmi, hero: true }),
+    metricTile({ label: "uGMI", exact: true, value: a.uGmiPercent == null ? "--" : a.uGmiPercent.toFixed(1), suffix: "%", sub: a.gmiPercent == null ? "updated GMI" : `GMI ${a.gmiPercent.toFixed(1)} · eA1c ${a.estimatedA1cPercent.toFixed(1)}`, tip: TIPS.ugmi, hero: true }),
     metricTile({ label: "Avg glucose", value: fmtGlu(a.meanMgdl), suffix: unitName(), sub: `${a.n} readings`, tip: TIPS.avg, hero: true }),
     metricTile({ label: "In range", value: a.timeInRange.inRangePct == null ? "--" : a.timeInRange.inRangePct.toFixed(0), suffix: "%", sub: "70–180 target", tip: TIPS.tir }),
     metricTile({ label: "Variability (CV)", value: cv == null ? "--" : cv.toFixed(0), suffix: "%", sub: cv == null ? "—" : cv <= 36 ? "stable" : "variable", tip: TIPS.cv }),
@@ -257,8 +263,9 @@ function renderAnalysis(a) {
   const cv = a.cvPercent;
   core.append(
     metricTile({ label: "Mean Glucose", value: fmtGlu(a.meanMgdl), suffix: unitName(), sub: `${a.n.toLocaleString()} readings`, tip: TIPS.mean }),
-    metricTile({ label: "GMI", value: a.gmiPercent == null ? "--" : a.gmiPercent.toFixed(1), suffix: "%", sub: "mgmt indicator", tip: TIPS.gmi }),
-    metricTile({ label: "eA1c (legacy)", value: a.estimatedA1cPercent == null ? "--" : a.estimatedA1cPercent.toFixed(1), suffix: "%", sub: "ADAG estimate", tip: TIPS.ea1c }),
+    metricTile({ label: "uGMI", exact: true, value: a.uGmiPercent == null ? "--" : a.uGmiPercent.toFixed(1), suffix: "%", sub: "updated · preferred", tip: TIPS.ugmi }),
+    metricTile({ label: "GMI", exact: true, value: a.gmiPercent == null ? "--" : a.gmiPercent.toFixed(1), suffix: "%", sub: "2018 estimate", tip: TIPS.gmi }),
+    metricTile({ label: "eA1c", exact: true, value: a.estimatedA1cPercent == null ? "--" : a.estimatedA1cPercent.toFixed(1), suffix: "%", sub: "ADAG (legacy)", tip: TIPS.ea1c }),
     metricTile({ label: "SD", value: fmtGlu(a.sdMgdl), suffix: unitName(), sub: "std deviation", tip: TIPS.sd }),
     metricTile({ label: "CV", value: cv == null ? "--" : cv.toFixed(0), suffix: "%", sub: cv == null ? "—" : cv <= 36 ? "stable" : "unstable", tip: TIPS.cv }),
     metricTile({ label: "Time Active", value: cov.percentActive == null ? "--" : cov.percentActive.toFixed(0), suffix: "%", sub: cov.sufficient ? "sufficient" : "limited", tip: TIPS.active }),
@@ -356,6 +363,206 @@ async function refreshAnalysis() {
     $("#agp-caption").textContent = `${state.aPeriodDays} days overlaid on a 24-hour day`;
     renderAgp($("#agp-wrap"), { bins: agp.bins, low: state.targetLow, high: state.targetHigh, unit: state.unit });
   } catch (e) { if (!/unauthorized|forbidden/.test(String(e))) console.error(e); }
+}
+
+// ── data coverage page ─────────────────────────────────────────────────────────
+const DAY_MS = 86_400_000;
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+// Local weekday (0=Sun…6=Sat) of a day-number, matching the server's day_number basis
+// (day 0 = 1970-01-01 = Thursday). The +700 keeps the modulo positive for any input.
+const calWeekday = (idx) => (idx + 4 + 700) % 7;
+// A day-number's civil date (UTC midnight of that local day — fine for labelling).
+const dateOfIndex = (idx) => new Date(idx * DAY_MS);
+
+async function refreshData() {
+  if (state.view !== "data") return;
+  try {
+    const d = await api(`/api/v4/days?tzOffset=${state.tzOffset}`);
+    clearBanner();
+    state.daysData = d;
+    renderData(d);
+  } catch (e) { if (!/unauthorized|forbidden/.test(String(e))) console.error(e); }
+}
+
+function coverageFrac(day, expectedPerDay) {
+  return Math.min(1, day.n / Math.max(1, expectedPerDay));
+}
+
+function renderData(d) {
+  renderDataSummary(d);
+  renderCalendar(d);
+  renderDayList(d);
+  const cadMin = Math.max(1, Math.round((d.cadenceMs || 300000) / 60000));
+  $("#data-note").textContent = (d.statsCapped
+    ? `Per-day glucose stats cover the most recent ${(d.statsWindowReadings || 0).toLocaleString()} readings; older days list their reading count only. `
+    : "") + `Coverage assumes about ${d.expectedPerDay} readings/day (≈${cadMin}-minute cadence inferred from your data). Not a medical device.`;
+}
+
+function renderDataSummary(d) {
+  const grid = $("#data-summary");
+  grid.innerHTML = "";
+  if (!d.totalDays) {
+    grid.appendChild(el("p", { class: "muted", text: "No readings imported yet. Add a CGM connection or import a CSV in Settings." }));
+    return;
+  }
+  const days = d.days || [];
+  const first = Math.min(...days.map((x) => x.dayIndex));
+  const last = Math.max(...days.map((x) => x.dayIndex));
+  const spanDays = last - first + 1;
+  const gaps = spanDays - d.totalDays;
+  const avgCov = days.reduce((s, x) => s + coverageFrac(x, d.expectedPerDay), 0) / days.length * 100;
+  const w = d.windowStats || {};
+  grid.append(
+    metricTile({ label: "Days with data", value: d.totalDays.toLocaleString(), sub: `over ${spanDays} days · ${gaps} empty`, hero: true }),
+    metricTile({ label: "Total readings", value: d.totalReadings.toLocaleString(), sub: `${d.firstDay || "—"} → ${d.lastDay || "—"}`, hero: true }),
+    metricTile({ label: "Avg coverage", value: avgCov.toFixed(0), suffix: "%", sub: "of expected/day", tip: TIPS.active }),
+    metricTile({ label: "uGMI", exact: true, value: w.uGmiPercent == null ? "--" : w.uGmiPercent.toFixed(1), suffix: "%", sub: "recent window", tip: TIPS.ugmi }),
+    metricTile({ label: "Avg glucose", value: fmtGlu(w.meanMgdl), suffix: unitName(), sub: "recent window", tip: TIPS.avg }),
+    metricTile({ label: "In range", value: w.timeInRange && w.timeInRange.inRangePct != null ? w.timeInRange.inRangePct.toFixed(0) : "--", suffix: "%", sub: "70–180 · recent", tip: TIPS.tir }),
+  );
+}
+
+// Colour for a calendar cell, by the active mode. `day` may be undefined (no data).
+function calCellColor(day, expectedPerDay) {
+  if (!day) return "var(--cal-empty)";
+  if (state.calMode === "glucose") {
+    if (day.meanMgdl == null) return "var(--cal-nostat)";
+    return bandColorVar(day.meanMgdl);
+  }
+  const f = coverageFrac(day, expectedPerDay);
+  if (f <= 0.25) return "rgba(54,196,107,0.24)";
+  if (f <= 0.5) return "rgba(54,196,107,0.45)";
+  if (f <= 0.75) return "rgba(54,196,107,0.68)";
+  return "rgba(54,196,107,0.95)";
+}
+
+// A GitHub-style contribution calendar as inline SVG: weeks are columns, weekdays rows.
+// Scales cleanly to thousands of days (it just grows columns and scrolls horizontally).
+function renderCalendar(d) {
+  const wrap = $("#data-calendar");
+  wrap.innerHTML = "";
+  const days = d.days || [];
+  if (!days.length) { wrap.appendChild(el("p", { class: "muted", text: "No readings to map yet." })); renderCalLegend(d); return; }
+  const byIndex = new Map(days.map((x) => [x.dayIndex, x]));
+  const first = Math.min(...days.map((x) => x.dayIndex));
+  const last = Math.max(...days.map((x) => x.dayIndex));
+  const gridStart = first - calWeekday(first);       // back up to that week's Sunday
+  const cols = Math.floor((last - gridStart) / 7) + 1;
+  const cell = 12, gap = 3, step = cell + gap, padL = 30, padT = 18;
+  const W = padL + cols * step + 4, H = padT + 7 * step;
+
+  let cells = "", months = "", prevMonth = -1, lastLabelCol = -3;
+  for (let day = gridStart; day <= last; day++) {
+    const col = Math.floor((day - gridStart) / 7), row = calWeekday(day);
+    const x = padL + col * step, y = padT + row * step;
+    const dd = byIndex.get(day);
+    const color = calCellColor(dd, d.expectedPerDay);
+    const dt = dateOfIndex(day);
+    const label = dd
+      ? `${DOW[dt.getUTCDay()]} ${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()} · ${dd.n} readings` +
+        (dd.meanMgdl != null ? ` · avg ${fmtGlu(dd.meanMgdl)} ${unitName()} · uGMI ${dd.uGmiPercent.toFixed(1)}%` : "")
+      : `${DOW[dt.getUTCDay()]} ${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()} · no data`;
+    cells += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5" fill="${color}"><title>${label}</title></rect>`;
+    // Month label at the first column of each new month, but never crowding the previous
+    // label (≥3 columns apart) so the start of the strip doesn't print "JulAug".
+    if (row === 0) {
+      const m = dt.getUTCMonth();
+      if (m !== prevMonth && col - lastLabelCol >= 3) {
+        prevMonth = m;
+        lastLabelCol = col;
+        const txt = m === 0 ? `${MONTHS[m]} ’${String(dt.getUTCFullYear()).slice(2)}` : MONTHS[m];
+        months += `<text x="${x}" y="12" class="cal-month">${txt}</text>`;
+      } else if (m !== prevMonth) {
+        prevMonth = m; // advance the month tracker without drawing a crowded label
+      }
+    }
+  }
+  // Weekday guides (Mon/Wed/Fri).
+  let dows = "";
+  for (const r of [1, 3, 5]) dows += `<text x="0" y="${padT + r * step + cell - 2}" class="cal-dow">${DOW[r]}</text>`;
+
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Calendar of days with glucose data">${months}${dows}${cells}</svg>`;
+  renderCalLegend(d);
+}
+
+function renderCalLegend(d) {
+  const lg = $("#cal-legend");
+  lg.innerHTML = "";
+  const sw = (color, label) => {
+    const s = el("span", { class: "cal-leg-item" });
+    const box = el("span", { class: "cal-leg-sw" }); box.style.background = color;
+    s.append(box, el("span", { text: label }));
+    return s;
+  };
+  if (state.calMode === "glucose") {
+    lg.append(
+      sw("var(--g-inrange)", "In range"),
+      sw("var(--g-warn)", "High / low"),
+      sw("var(--g-danger)", "Very high / low"),
+      sw("var(--cal-nostat)", "No stats"),
+      sw("var(--cal-empty)", "No data"),
+    );
+  } else {
+    lg.append(el("span", { class: "cal-leg-label", text: "Less" }),
+      sw("var(--cal-empty)", ""), sw("rgba(54,196,107,0.24)", ""), sw("rgba(54,196,107,0.45)", ""),
+      sw("rgba(54,196,107,0.68)", ""), sw("rgba(54,196,107,0.95)", ""),
+      el("span", { class: "cal-leg-label", text: "More" }));
+  }
+}
+
+function renderDayList(d) {
+  const list = $("#data-days");
+  list.innerHTML = "";
+  const days = d.days || [];
+  $("#data-days-caption").textContent = days.length ? `${days.length.toLocaleString()} days, newest first` : "";
+  if (!days.length) { list.appendChild(el("p", { class: "muted", text: "No days with data yet." })); return; }
+
+  list.appendChild(el("div", { class: "day-row day-head" }, [
+    el("span", { text: "Date" }), el("span", { text: "Coverage" }), el("span", { text: "Avg" }),
+    el("span", { text: "Time in range" }), el("span", { text: "uGMI" }), el("span", { text: "Min–max" }),
+  ]));
+
+  for (const day of days) {
+    const dt = new Date(day.date + "T00:00:00");
+    const dateBox = el("div", { class: "day-date" }, [
+      el("span", { class: "day-dow", text: DOW[dt.getDay()] }),
+      el("span", { class: "day-num", text: `${dt.getDate()} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}` }),
+    ]);
+
+    // Coverage bar + count.
+    const frac = coverageFrac(day, d.expectedPerDay);
+    const fill = el("div", { class: "cov-fill" }); fill.style.width = `${frac * 100}%`;
+    const covBar = el("div", { class: "cov-bar" }, [fill]);
+    const covBox = el("div", { class: "day-cov" }, [
+      covBar,
+      el("span", { class: "day-cov-pct", text: `${Math.round(frac * 100)}%` }),
+      el("span", { class: "day-n", text: `${day.n.toLocaleString()} rdgs` }),
+    ]);
+
+    // Mean glucose (band-coloured) or em-dash for days outside the stats window.
+    const meanBox = el("div", { class: "day-mean" });
+    if (day.meanMgdl != null) {
+      const v = el("span", { class: "day-mean-v", text: fmtGlu(day.meanMgdl) });
+      v.style.color = bandColorVar(day.meanMgdl);
+      meanBox.append(v, el("small", { text: unitName() }));
+    } else meanBox.appendChild(el("span", { class: "muted", text: "—" }));
+
+    // Mini TIR bar.
+    const tirBox = el("div", { class: "day-tir" });
+    if (day.timeInRange) {
+      const segs = [["veryLowPct","var(--g-danger)"],["lowPct","var(--g-warn)"],["inRangePct","var(--g-inrange)"],["highPct","var(--g-warn)"],["veryHighPct","var(--g-danger)"]];
+      const bar = el("div", { class: "day-tir-bar" });
+      for (const [k, c] of segs) { const p = day.timeInRange[k] || 0; if (p > 0) { const s = el("div"); s.style.width = `${p}%`; s.style.background = c; bar.appendChild(s); } }
+      tirBox.appendChild(bar);
+    } else tirBox.appendChild(el("span", { class: "muted", text: "—" }));
+
+    const ugmiBox = el("div", { class: "day-ugmi", text: day.uGmiPercent != null ? `${day.uGmiPercent.toFixed(1)}%` : "—" });
+    const rangeBox = el("div", { class: "day-range", text: day.minMgdl != null ? `${fmtGlu(day.minMgdl)}–${fmtGlu(day.maxMgdl)}` : "—" });
+
+    list.appendChild(el("div", { class: "day-row" }, [dateBox, covBox, meanBox, tirBox, ugmiBox, rangeBox]));
+  }
 }
 
 async function loadMe() {
@@ -489,6 +696,12 @@ function wire() {
   }));
   $$(".aperiod-toggle .seg-btn").forEach((b) => b.addEventListener("click", () => {
     state.aPeriodDays = Number(b.dataset.days); syncActive($(".aperiod-toggle"), "days", state.aPeriodDays); refreshAnalysis();
+  }));
+  syncActive($(".cal-mode-toggle"), "mode", state.calMode);
+  $$(".cal-mode-toggle .seg-btn").forEach((b) => b.addEventListener("click", () => {
+    state.calMode = b.dataset.mode; localStorage.setItem("nk-cal-mode", state.calMode);
+    syncActive($(".cal-mode-toggle"), "mode", state.calMode);
+    if (state.daysData) { renderCalendar(state.daysData); }
   }));
   $$(".range-toggle .seg-btn").forEach((b) => b.addEventListener("click", () => {
     state.chartHours = Number(b.dataset.hours); syncActive($(".range-toggle"), "hours", state.chartHours); refreshLive();

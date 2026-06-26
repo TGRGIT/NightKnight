@@ -15,9 +15,9 @@ use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
 
 use nightknight_storage::{
-    connector_credential_from_cols, device_token_from_cols, model::Param, sql, stored_doc_from_cols,
-    user_from_cols, Collection, ConnectorCredential, DeviceToken, DocQuery, Result, StoredDoc,
-    Storage, StorageError, User, WriteOutcome,
+    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param, sql,
+    stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential, DayCount, DeviceToken,
+    DocQuery, Result, StoredDoc, Storage, StorageError, User, WriteOutcome,
 };
 
 /// A SQL-backed store over a sqlx `Any` pool (SQLite or Postgres).
@@ -154,6 +154,16 @@ fn row_to_doc(row: &AnyRow) -> Result<StoredDoc> {
     )
 }
 
+/// Map an aggregate row (`day, n, first_ms, last_ms`) into a [`DayCount`].
+fn row_to_day_count(row: &AnyRow) -> Result<DayCount> {
+    Ok(day_count_from_cols(
+        row.try_get(0).map_err(backend_err)?,
+        row.try_get(1).map_err(backend_err)?,
+        row.try_get(2).map_err(backend_err)?,
+        row.try_get(3).map_err(backend_err)?,
+    ))
+}
+
 fn row_to_user(row: &AnyRow) -> Result<User> {
     Ok(user_from_cols(
         row.try_get(0).map_err(backend_err)?,
@@ -260,6 +270,21 @@ impl Storage for SqlStore {
             Some(row) => Ok(row.try_get::<Option<i64>, _>(0).map_err(backend_err)?),
             None => Ok(None),
         }
+    }
+
+    async fn daily_counts(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        tz_offset_ms: i64,
+    ) -> Result<Vec<DayCount>> {
+        let (sql, params) = sql::daily_counts(c, user_id, doc_type, tz_offset_ms);
+        self.fetch_all(&sql, params)
+            .await?
+            .iter()
+            .map(row_to_day_count)
+            .collect()
     }
 
     async fn history_since(

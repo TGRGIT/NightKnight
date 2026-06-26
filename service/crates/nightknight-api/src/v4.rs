@@ -7,6 +7,8 @@
 //! * `GET  /api/v4/analytics`  — the full Statistical-Analysis set over a window:
 //!   data sufficiency, Time-in-Range (count + time-weighted), GMI/eA1c, SD/CV, GRI,
 //!   time-of-day patterns, episodes, and advanced variability.
+//! * `GET  /api/v4/days`       — per-day data coverage + glucose stats (the Data view):
+//!   every local day that has readings, its count, and a per-day summary for recent days.
 //! * `GET  /api/v4/agp`        — Ambulatory Glucose Profile percentile bands.
 //! * `GET/PUT /api/v4/me`      — the caller's profile (preferred unit, name).
 //! * `POST/GET /api/v4/tokens`, `DELETE /api/v4/tokens/{id}` — device tokens.
@@ -52,6 +54,12 @@ const LAG_TOLERANCE_MS: i64 = 10 * 60_000;
 const CONGA_HOURS: f64 = 2.0;
 /// How many of the most recent episodes the analytics payload lists for the UI feed.
 const RECENT_EPISODES: usize = 8;
+/// How many recent readings the `/days` view loads to compute per-day glucose stats
+/// (mean / TIR / uGMI / min-max). The day *list* — every local day that has data, with
+/// its reading count — always comes from the cheap `daily_counts` aggregation regardless
+/// of this cap, so coverage stays complete across thousands of days; only the richer
+/// per-day glucose summary is bounded, to keep memory/CPU sane on the Worker.
+const MAX_DAYS_STATS_POINTS: i64 = 30_000;
 
 impl<S: Storage> ApiService<S> {
     pub(crate) async fn route_v4(
@@ -67,6 +75,7 @@ impl<S: Storage> ApiService<S> {
             (Method::Get, ["current"]) => self.v4_current(&principal, now_ms).await,
             (Method::Get, ["entries"]) => self.v4_entries(req, &principal, now_ms).await,
             (Method::Get, ["analytics"]) => self.v4_analytics(req, &principal, now_ms).await,
+            (Method::Get, ["days"]) => self.v4_days(req, &principal).await,
             (Method::Get, ["agp"]) => self.v4_agp(req, &principal, now_ms).await,
             // `csv` auto-detects the exporter; `libreview` is kept as a back-compat alias.
             (Method::Post, ["import", "csv"] | ["import", "libreview"]) => {
@@ -239,6 +248,7 @@ impl<S: Storage> ApiService<S> {
                 "n": summary.n,
                 "meanMgdl": summary.mean_mgdl,
                 "sdMgdl": summary.sd_mgdl,
+                "uGmiPercent": summary.updated_gmi_percent,
                 "gmiPercent": summary.gmi_percent,
                 "estimatedA1cPercent": summary.estimated_a1c_percent,
                 "cvPercent": summary.cv_percent,
@@ -266,6 +276,119 @@ impl<S: Storage> ApiService<S> {
                     "veryHigh": episode_summary_json(&very_highs, days),
                     "recent": recent_episodes_json(&lows, &highs),
                 },
+            }),
+        ))
+    }
+
+    /// Per-day data coverage + glucose stats for the **Data** view — the answer to "did
+    /// my history actually import, and what does each day look like?".
+    ///
+    /// Two tiers, by design, so it scales to thousands of days:
+    /// * **Every** local day that has ≥1 sgv reading is listed with its reading `count`
+    ///   and first/last reading time, from the cheap indexed [`Storage::daily_counts`]
+    ///   aggregation (no document bodies loaded).
+    /// * The most recent [`MAX_DAYS_STATS_POINTS`] readings additionally get a per-day
+    ///   glucose summary (mean, TIR, uGMI/GMI, CV, min/max). Older days outside that
+    ///   window carry the count only — the UI shows that honestly.
+    ///
+    /// `?tzOffset=` (minutes east of UTC) sets the local day boundary so days line up
+    /// with the caller's calendar.
+    async fn v4_days(
+        &self,
+        req: &ApiRequest,
+        principal: &Principal,
+    ) -> Result<ApiResponse, ApiError> {
+        principal.require(Permission::api("entries", Action::Read))?;
+        let tz = tz_offset(req);
+        let tz_ms = tz * 60_000;
+
+        // 1) Every day that has data + its count (cheap; scales to thousands of days).
+        let counts = self
+            .storage
+            .daily_counts(Collection::Entries, &principal.user.id, "sgv", tz_ms)
+            .await?;
+
+        // 2) Recent readings → per-day glucose summaries (bounded by the cap above).
+        let docs = self
+            .storage
+            .search_documents(
+                Collection::Entries,
+                &principal.user.id,
+                &DocQuery::new().doc_type("sgv").limit(MAX_DAYS_STATS_POINTS),
+            )
+            .await?;
+        let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
+        let stats_capped = readings.len() as i64 >= MAX_DAYS_STATS_POINTS;
+
+        // Bucket the loaded readings by local day-number (matches the SQL day bucket).
+        let mut by_day: std::collections::HashMap<i64, Vec<GlucoseReading>> =
+            std::collections::HashMap::new();
+        for r in &readings {
+            by_day
+                .entry(timeutil::day_number(r.date_ms, tz))
+                .or_default()
+                .push(*r);
+        }
+
+        let t = TirThresholds::default();
+        let total_readings: i64 = counts.iter().map(|d| d.n).sum();
+        let cadence_ms = infer_cadence_ms(&readings, tz);
+        let expected_per_day = (timeutil::DAY_MS as f64 / cadence_ms as f64).round() as i64;
+
+        let days: Vec<Value> = counts
+            .iter()
+            .map(|d| {
+                let mut obj = json!({
+                    "date": timeutil::date_string_from_day_number(d.day_index),
+                    "dayIndex": d.day_index,
+                    "n": d.n,
+                    "firstMs": d.first_ms,
+                    "lastMs": d.last_ms,
+                });
+                // Decorate with a glucose summary when this day is in the loaded window.
+                if let (Some(rs), Value::Object(m)) = (by_day.get(&d.day_index), &mut obj) {
+                    let s = GlucoseSummary::compute(rs, &t);
+                    let (min, max) = rs.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |acc, r| {
+                        let v = r.value.mgdl();
+                        (acc.0.min(v), acc.1.max(v))
+                    });
+                    m.insert("meanMgdl".into(), json!(s.mean_mgdl));
+                    m.insert("minMgdl".into(), json!(min));
+                    m.insert("maxMgdl".into(), json!(max));
+                    m.insert("uGmiPercent".into(), json!(s.updated_gmi_percent));
+                    m.insert("gmiPercent".into(), json!(s.gmi_percent));
+                    m.insert("cvPercent".into(), json!(s.cv_percent));
+                    m.insert("timeInRange".into(), tir_json(&s.tir));
+                }
+                obj
+            })
+            .collect();
+
+        // Headline stats over the loaded window (the UI labels these as "recent").
+        let w = GlucoseSummary::compute(&readings, &t);
+
+        Ok(ApiResponse::json(
+            200,
+            &json!({
+                "tzOffset": tz,
+                "totalDays": counts.len(),
+                "totalReadings": total_readings,
+                "firstDay": counts.last().map(|d| timeutil::date_string_from_day_number(d.day_index)),
+                "lastDay": counts.first().map(|d| timeutil::date_string_from_day_number(d.day_index)),
+                "cadenceMs": cadence_ms,
+                "expectedPerDay": expected_per_day,
+                "statsWindowReadings": readings.len(),
+                "statsCapped": stats_capped,
+                "windowStats": {
+                    "n": w.n,
+                    "meanMgdl": w.mean_mgdl,
+                    "uGmiPercent": w.updated_gmi_percent,
+                    "gmiPercent": w.gmi_percent,
+                    "estimatedA1cPercent": w.estimated_a1c_percent,
+                    "cvPercent": w.cv_percent,
+                    "timeInRange": tir_json(&w.tir),
+                },
+                "days": days,
             }),
         ))
     }
@@ -609,6 +732,31 @@ fn reading_from_doc(d: &StoredDoc) -> Option<GlucoseReading> {
 fn direction_from_doc(d: &StoredDoc) -> Option<Direction> {
     let entry: Entry = serde_json::from_value(d.doc.clone()).ok()?;
     entry.direction_parsed()
+}
+
+/// Infer the CGM sampling cadence (ms) from a window of readings — the median gap
+/// between consecutive *same-day* readings, clamped to a sane [1 min, 15 min] range.
+/// Used to turn a day's raw reading count into a coverage percentage. Defaults to the
+/// 5-minute standard when there isn't enough data to tell. Counting only within-day,
+/// sub-hour gaps keeps overnight breaks and sensor changes from skewing the estimate.
+fn infer_cadence_ms(readings: &[GlucoseReading], tz: i64) -> i64 {
+    let mut times: Vec<i64> = readings.iter().map(|r| r.date_ms).collect();
+    times.sort_unstable();
+    let mut gaps: Vec<i64> = times
+        .windows(2)
+        .map(|w| (w[0], w[1] - w[0]))
+        .filter(|&(t0, gap)| {
+            gap > 0
+                && gap <= 60 * 60_000
+                && timeutil::day_number(t0, tz) == timeutil::day_number(t0 + gap, tz)
+        })
+        .map(|(_, gap)| gap)
+        .collect();
+    if gaps.is_empty() {
+        return 5 * 60_000;
+    }
+    gaps.sort_unstable();
+    gaps[gaps.len() / 2].clamp(60_000, 15 * 60_000)
 }
 
 /// The caller's UTC offset in minutes (east of UTC), for localising time-of-day

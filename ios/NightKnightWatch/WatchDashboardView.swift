@@ -43,8 +43,11 @@ struct WatchDashboardView: View {
                 Text("\(unit.label)  \(c.trend.glyph)")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text(c.date, style: .relative).font(.caption2).foregroundStyle(.secondary)
-                if let a = model.analytics, let a1c = a.estimatedA1cPercent {
-                    Text(String(format: "A1c %.1f%% · TIR %.0f%%", a1c, a.inRangePct))
+                // Lead with uGMI (the preferred A1c estimate); name it explicitly rather
+                // than a bare "A1c", and fall back to eA1c only if an old server omits it.
+                if let a = model.analytics, let a1c = a.uGmiPercent ?? a.estimatedA1cPercent {
+                    let label = a.uGmiPercent != nil ? "uGMI" : "eA1c"
+                    Text(String(format: "%@ %.1f%% · TIR %.0f%%", label, a1c, a.inRangePct))
                         .font(.caption2).foregroundStyle(.secondary).padding(.top, 2)
                 }
             } else if let err = model.errorText {
