@@ -132,36 +132,78 @@ function bandColorVar(mgdl) {
     : mgdl < state.targetLow || mgdl > state.targetHigh ? "var(--g-warn)" : "var(--g-inrange)";
 }
 
-// The spotlight sparkline: ONLY the last hour of readings, drawn behind the current
-// number as a calm line + soft fill + an endpoint dot, coloured by the latest band.
-// Hidden when there aren't at least two points in the last hour.
+// Centred moving average — calms per-sample sensor noise so the spotlight line reads as a
+// trend, not a scribble. The window narrows at the ends, so the final point stays faithful
+// to the latest reading (no lag at "now").
+function movingAverage(vals, win) {
+  const n = vals.length, half = Math.floor(win / 2);
+  return vals.map((_, i) => {
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(n - 1, i + half); j++) { sum += vals[j]; count++; }
+    return sum / count;
+  });
+}
+
+// Catmull-Rom → cubic-bézier smoothing as an SVG path string (the same non-overshooting
+// curve the main chart uses), so the spotlight line reads as a calm sweep, not jagged noise.
+function smoothSvgPath(coords) {
+  const f = (n) => n.toFixed(1);
+  if (coords.length < 2) return coords.length ? `M${f(coords[0][0])} ${f(coords[0][1])}` : "";
+  let d = `M${f(coords[0][0])} ${f(coords[0][1])}`;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[i - 1] || coords[i], p1 = coords[i], p2 = coords[i + 1], p3 = coords[i + 2] || p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(p2[0])} ${f(p2[1])}`;
+  }
+  return d;
+}
+
+// The spotlight sparkline: ONLY the last hour of readings — a calm smoothed line over a
+// gradient that fades to nothing, emerging from a soft left edge (no hard cliff) and
+// ending in a haloed dot at "now". Coloured by the latest band; hidden under two points.
 function renderHeroSpark(entries) {
   const svg = $("#hero-spark");
   const cutoff = Date.now() - 3600000; // last 60 minutes only
   const pts = (entries || []).filter((e) => e.date >= cutoff).sort((a, b) => a.date - b.date);
   if (pts.length < 2) { svg.setAttribute("hidden", ""); svg.replaceChildren(); return; }
   svg.removeAttribute("hidden");
-  // Draw in the element's own pixel space so the endpoint dot stays a circle (no stretch).
-  const W = svg.clientWidth || 240, H = svg.clientHeight || 50, pad = 7;
+  // Draw in the element's own pixel space so the endpoint dot stays a circle (no stretch);
+  // inset horizontally so the end dot + its halo have room and aren't clipped at the edge.
+  const W = svg.clientWidth || 240, H = svg.clientHeight || 50, padX = 8, padY = 9;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const t0 = pts[0].date, t1 = Math.max(pts[pts.length - 1].date, t0 + 1);
-  const vals = pts.map((p) => p.mgdl);
-  const lo = Math.min(...vals) - 6, hi = Math.max(...vals) + 6, span = Math.max(1, hi - lo);
-  const X = (t) => ((t - t0) / (t1 - t0)) * W;
-  const Y = (v) => pad + (1 - (v - lo) / span) * (H - pad * 2);
-  const coords = pts.map((p) => [X(p.date), Y(p.mgdl)]);
-  const line = coords.map((c, i) => `${i ? "L" : "M"}${c[0].toFixed(1)} ${c[1].toFixed(1)}`).join(" ");
-  const last = coords[coords.length - 1];
+  // Smooth the values (window scales with density: ~1 every 12 points), then plot — so a
+  // dense 1-min stream reads as calmly as a sparse 5-min one.
+  const smoothed = movingAverage(pts.map((p) => p.mgdl), Math.max(3, Math.round(pts.length / 12) | 1));
+  const lo = Math.min(...smoothed) - 6, hi = Math.max(...smoothed) + 6, span = Math.max(1, hi - lo);
+  const X = (t) => padX + ((t - t0) / (t1 - t0)) * (W - padX * 2);
+  const Y = (v) => padY + (1 - (v - lo) / span) * (H - padY * 2);
+  const coords = pts.map((p, i) => [X(p.date), Y(smoothed[i])]);
+  const lineD = smoothSvgPath(coords);
+  const f = (n) => n.toFixed(1);
+  const [x0] = coords[0], last = coords[coords.length - 1];
   const color = bandColorVar(pts[pts.length - 1].mgdl);
-  const gid = "heroSparkGrad";
-  // Inline `style` (not presentation attrs) so the CSS var() colours resolve.
+  // Inline `style` (not presentation attrs) so the CSS var() colours resolve. The line +
+  // fill ride a horizontal mask that fades them in from the left; the dot sits on top.
   svg.innerHTML =
-    `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" style="stop-color:${color};stop-opacity:.30"/>` +
-    `<stop offset="1" style="stop-color:${color};stop-opacity:.02"/></linearGradient></defs>` +
-    `<path d="${line} L${W} ${H} L0 ${H} Z" style="fill:url(#${gid})"/>` +
-    `<path d="${line}" style="fill:none;stroke:${color};stroke-width:2.4px" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.2" style="fill:${color}"/>`;
+    `<defs>` +
+      `<linearGradient id="heroSparkGrad" x1="0" y1="0" x2="0" y2="1">` +
+        `<stop offset="0" style="stop-color:${color};stop-opacity:.26"/>` +
+        `<stop offset="1" style="stop-color:${color};stop-opacity:0"/>` +
+      `</linearGradient>` +
+      `<linearGradient id="heroSparkFade" x1="0" y1="0" x2="1" y2="0">` +
+        `<stop offset="0" stop-color="#fff" stop-opacity="0"/>` +
+        `<stop offset="0.22" stop-color="#fff" stop-opacity="1"/>` +
+      `</linearGradient>` +
+      `<mask id="heroSparkMask"><rect width="${W}" height="${H}" fill="url(#heroSparkFade)"/></mask>` +
+    `</defs>` +
+    `<g mask="url(#heroSparkMask)">` +
+      `<path d="${lineD} L${f(last[0])} ${H} L${f(x0)} ${H} Z" style="fill:url(#heroSparkGrad)"/>` +
+      `<path d="${lineD}" style="fill:none;stroke:${color};stroke-width:2.2px;opacity:.92" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `</g>` +
+    `<circle cx="${f(last[0])}" cy="${f(last[1])}" r="6" style="fill:${color};opacity:.18"/>` +
+    `<circle cx="${f(last[0])}" cy="${f(last[1])}" r="3" style="fill:${color}"/>`;
 }
 
 function renderSummary(a) {
