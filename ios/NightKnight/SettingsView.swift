@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 import WidgetKit
 
 /// Connection, units, target range, Apple Health, and alarm configuration. Presented as
@@ -13,6 +15,8 @@ struct SettingsView: View {
     @State private var connStatus: String?
     @State private var connOK = false
     @State private var isTesting = false
+    /// Notification permission, so we can warn when alarms are on but iOS won't deliver.
+    @State private var notifStatus: UNAuthorizationStatus = .notDetermined
 
     private var unit: GlucoseUnit { settings.preferredUnit }
 
@@ -60,14 +64,25 @@ struct SettingsView: View {
                         footer: Text("On-device alarms for out-of-range and rapid drops, using your target range above. Simply on or off — there's no snooze. Nothing fires when disabled.")) {
                     Toggle("Enable alarms", isOn: Binding(get: { settings.alarmsEnabled }, set: { on in
                         settings.alarmsEnabled = on
-                        if on { Task { await AlarmManager.shared.requestAuth() } }
+                        if on { Task { notifStatus = await AlarmManager.shared.requestAuth() } }
                     }))
                     if settings.alarmsEnabled {
                         Toggle("Alert on rapid drop", isOn: Binding(get: { settings.fastDropAlarm }, set: { settings.fastDropAlarm = $0 }))
+                        if notifStatus == .denied {
+                            Label("Notifications are turned off for NightKnight in iOS Settings, so alarms can't alert you.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote).foregroundStyle(.orange)
+                            Button("Open iOS Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("Settings")
+            .task { notifStatus = await AlarmManager.shared.authorizationStatus() }
         }
     }
 
