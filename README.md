@@ -1,10 +1,15 @@
 # NightKnight
 
-A secure, modern reimplementation of [Nightscout](https://github.com/nightscout/cgm-remote-monitor)
-for continuous glucose monitoring — a Rust service that runs on **Cloudflare Workers
-+ D1** *or* as a **self-hosted container + Postgres**, with a matching native iOS app
-(in progress). It keeps the original Nightscout API for ecosystem compatibility while
-hardening it and adding a clean modern API.
+A modern continuous-glucose-monitoring service and native iOS app, written in Rust to
+run on **Cloudflare Workers + D1** *or* as a **self-hosted container + Postgres**. It
+speaks the [Nightscout](https://github.com/nightscout/cgm-remote-monitor) API so the
+uploaders and follower apps people already rely on keep working out of the box, and
+adds a clean modern `v4` API for first-party clients.
+
+**NightKnight is inspired by [Nightscout](https://github.com/nightscout/cgm-remote-monitor)** —
+the open-source project that pioneered self-hosted CGM monitoring and has helped
+countless people with diabetes and their families. NightKnight builds on the ideas and
+the open API that Nightscout established; see [Acknowledgements](#acknowledgements).
 
 > NightKnight is a personal-health project. It is **not** a medical device. Do not
 > use it as the sole basis for treatment decisions.
@@ -94,3 +99,12 @@ Planned work, not yet implemented:
   [docs/openapi.yaml](docs/openapi.yaml) (validates clean under Redocly), enabling
   generated clients, contract tests, and interactive docs. Auto-generating it from the
   Rust handlers (rather than hand-maintaining) is a possible follow-up.
+
+## Acknowledgements
+
+NightKnight is inspired by and indebted to **[Nightscout](https://github.com/nightscout/cgm-remote-monitor)**
+(the CGM Remote Monitor project) and the wider **#WeAreNotWaiting** community.
+Nightscout pioneered open, self-hosted continuous glucose monitoring and built the API
+and ecosystem that this project gratefully builds on. Heartfelt thanks to its
+maintainers and the many volunteers whose years of open-source work have helped so many
+people with diabetes and the people who care for them.
