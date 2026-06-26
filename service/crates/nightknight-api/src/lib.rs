@@ -33,6 +33,7 @@ use uuid::Uuid;
 use nightknight_auth::{extract_bearer, Action, Permission, ScopeSet};
 use nightknight_connectors::dexcom::{DexcomConnector, Region};
 use nightknight_connectors::librelinkup::LibreLinkUpConnector;
+use nightknight_connectors::nightscout::NightscoutConnector;
 use nightknight_connectors::{Connector, Http};
 use nightknight_core::documents::{Entry, Treatment};
 use nightknight_crypto as crypto;
@@ -48,6 +49,17 @@ pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// history backfills, but bounds the memory a single request can pin. Anything larger
 /// is rejected with 413 before parsing.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+/// Ceiling (minutes) on the Nightscout *recent* pull each tick — ~7 days. The whole
+/// history is pulled separately by the cursored backfill (`NS_PAGE`), so this only needs to
+/// cover newly-arriving readings between ticks; capping it keeps the recent pull tiny.
+const NS_BACKFILL_MINUTES: i64 = 7 * 24 * 60;
+
+/// History backfill page size (readings) — how much of a Nightscout source's past the
+/// cursored backfill pulls+ingests per cron tick. Bounded so one Worker invocation stays
+/// within its CPU/subrequest budget (≈ the load the hourly cron already handles); the
+/// per-minute cron then walks the full history backward at ~this many readings/minute.
+const NS_PAGE: i64 = 2_000;
 
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
@@ -372,12 +384,7 @@ impl<S: Storage> ApiService<S> {
             user,
             scopes: ScopeSet::all(),
         };
-        let mut stored = 0usize;
-        for entry in entries {
-            self.store_document(Collection::Entries, entry, &principal, now_ms).await?;
-            stored += 1;
-        }
-        Ok(stored)
+        Ok(self.ingest_resilient(&principal, entries, now_ms).await)
     }
 
     /// Ingest entries for a known user id (the connector scheduler path). Unlike
@@ -399,12 +406,34 @@ impl<S: Storage> ApiService<S> {
             user,
             scopes: ScopeSet::all(),
         };
+        Ok(self.ingest_resilient(&principal, entries, now_ms).await)
+    }
+
+    /// Store a batch of connector readings, returning how many were written. A single
+    /// implausible / future-dated / malformed reading is **skipped**, never aborting the
+    /// whole batch — matching the resilient CSV-import path. This matters because a
+    /// Nightscout source is user-controlled and can carry historically-dirty data (e.g. a
+    /// stray out-of-range or future-dated reading), and `parse_entries`' `sgv > 0` filter
+    /// is looser than `Entry::validate` (10–1000 mg/dL, timestamp ≤ now+24h); without this
+    /// one bad row in a backfill would discard the entire pull and keep the sync erroring.
+    async fn ingest_resilient(
+        &self,
+        principal: &Principal,
+        entries: Vec<Value>,
+        now_ms: i64,
+    ) -> usize {
         let mut stored = 0usize;
         for entry in entries {
-            self.store_document(Collection::Entries, entry, &principal, now_ms).await?;
-            stored += 1;
+            // Count only NEWLY created readings (not dedup-updates), so re-fetched overlap —
+            // e.g. the recent window and the backfill page both seeing the same reading —
+            // isn't double-counted. A bad row errors and is simply skipped.
+            if let Ok(o) = self.store_document(Collection::Entries, entry, principal, now_ms).await {
+                if o.created() {
+                    stored += 1;
+                }
+            }
         }
-        Ok(stored)
+        stored
     }
 
     /// Run every enabled connector once: fetch `minutes` of history, ingest it, and
@@ -448,6 +477,12 @@ impl<S: Storage> ApiService<S> {
             .map_err(|e| ApiError::Internal(format!("decrypt: {e}")))?;
         let creds: Value =
             serde_json::from_str(&json).map_err(|e| ApiError::Internal(e.to_string()))?;
+        // A Nightscout source carries arbitrarily deep history, so it gets a cursored
+        // backfill (walk the whole history backward, one bounded page per tick) rather than
+        // a single bounded pull. See `sync_nightscout`.
+        if cred.provider == "nightscout" {
+            return self.sync_nightscout(cred, creds, key, http, minutes, now_ms).await;
+        }
         let samples = match cred.provider.as_str() {
             "dexcom" => {
                 let c = DexcomConnector {
@@ -472,6 +507,85 @@ impl<S: Storage> ApiService<S> {
 
         let entries: Vec<Value> = samples.iter().map(|s| s.to_entry_json()).collect();
         self.ingest_for_user_id(&cred.user_id, entries, now_ms).await
+    }
+
+    /// Sync a Nightscout source with two bounded pulls per tick, so a single Worker
+    /// invocation never overruns its CPU/subrequest budget: a RECENT window (`minutes`,
+    /// capped) to keep the front of the data current, plus ONE history page walking BACKWARD
+    /// (`NS_PAGE` readings older than a cursor), repeated each cron tick until the source is
+    /// exhausted — so the WHOLE history imports over time instead of being capped to a single
+    /// window. The cursor (`bfCursor`) and a `bfDone` flag live inside the connector's
+    /// already-encrypted secret blob, so no schema change / extra table is needed; they're
+    /// written back only while backfilling (once `bfDone`, the cursor writes stop). Ingest is
+    /// resilient + content-deduped, so overlapping/dirty rows can't abort the sync or
+    /// double-count.
+    async fn sync_nightscout(
+        &self,
+        cred: &ConnectorCredential,
+        mut creds: Value,
+        key: &[u8; 32],
+        http: Http<'_>,
+        minutes: i64,
+        now_ms: i64,
+    ) -> Result<usize, ApiError> {
+        let c = NightscoutConnector {
+            base_url: cred_field(&creds, "url")?,
+            secret: cred_field(&creds, "secret")?,
+        };
+
+        // 1. Recent window — bounded; keeps newly-arriving readings flowing in.
+        let mut samples = c
+            .fetch_recent(http, minutes.min(NS_BACKFILL_MINUTES))
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+        // 2. One backward history page, unless we've already reached the beginning.
+        let mut cursor_changed = false;
+        let done = creds.get("bfDone").and_then(|v| v.as_bool()).unwrap_or(false);
+        if !done {
+            let before = creds.get("bfCursor").and_then(|v| v.as_i64()).unwrap_or(i64::MAX);
+            let page = c
+                .fetch_before(http, before, NS_PAGE)
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?;
+            match page.iter().map(|s| s.date_ms).min() {
+                // Advance the cursor to this page's oldest reading (next page fetches
+                // strictly older); a short/empty page means we've hit the start of history.
+                Some(oldest) => {
+                    creds["bfCursor"] = json!(oldest);
+                    if (page.len() as i64) < NS_PAGE {
+                        creds["bfDone"] = json!(true);
+                    }
+                    samples.extend(page);
+                    cursor_changed = true;
+                }
+                None => {
+                    creds["bfDone"] = json!(true);
+                    cursor_changed = true;
+                }
+            }
+        }
+
+        // 3. Ingest everything resiliently (skips dirty rows, dedups overlap).
+        let entries: Vec<Value> = samples.iter().map(|s| s.to_entry_json()).collect();
+        let stored = self.ingest_for_user_id(&cred.user_id, entries, now_ms).await?;
+
+        // 4. Persist the advanced cursor into the encrypted blob (only while backfilling).
+        //    The upsert touches only secret_enc/region/updated_at, so the sync status
+        //    recorded by `sync_connectors` afterwards is preserved.
+        if cursor_changed {
+            if let Ok(blob) = serde_json::to_string(&creds) {
+                if let Ok(enc) = crypto::encrypt_str(key, &blob) {
+                    let updated = ConnectorCredential {
+                        secret_enc: enc,
+                        updated_at: now_ms,
+                        ..cred.clone()
+                    };
+                    let _ = self.storage.upsert_connector_credential(&updated).await;
+                }
+            }
+        }
+        Ok(stored)
     }
 
     /// Validate, derive metadata for, and upsert one document. Returns the write

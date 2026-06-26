@@ -11,6 +11,8 @@ final class HealthKitManager {
     private let unit = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
     private let watermarkKey = "hkLastWrittenMs"
 
+    private var backgroundObserver: HKObserverQuery?
+
     func requestAuth() async -> Bool {
         guard HKHealthStore.isHealthDataAvailable() else { return false }
         do {
@@ -19,6 +21,28 @@ final class HealthKitManager {
         } catch {
             return false
         }
+    }
+
+    /// Wake the app whenever new glucose is written to Apple Health (e.g. by a vendor
+    /// CGM app) so we can refresh and reload widgets promptly — even in the background.
+    /// Idempotent. Relies on the HealthKit entitlement; no extra background mode needed.
+    func startBackgroundDelivery(onUpdate: @escaping @Sendable () -> Void) {
+        guard HKHealthStore.isHealthDataAvailable(), backgroundObserver == nil else { return }
+        // Requires the `com.apple.developer.healthkit.background-delivery` entitlement —
+        // surface (don't swallow) a failure so a missing entitlement / authorization is
+        // observable rather than silently disabling the "wake on new Health glucose" path.
+        store.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { ok, error in
+            if !ok {
+                NSLog("NightKnight: HealthKit background delivery not enabled: %@",
+                      error?.localizedDescription ?? "unknown error")
+            }
+        }
+        let observer = HKObserverQuery(sampleType: glucoseType, predicate: nil) { _, completion, _ in
+            onUpdate()
+            completion() // acknowledge so HealthKit doesn't keep retrying
+        }
+        backgroundObserver = observer
+        store.execute(observer)
     }
 
     /// Write any readings newer than the last write watermark.

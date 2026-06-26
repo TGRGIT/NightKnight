@@ -131,7 +131,7 @@
 
 /* Begin PBXFileReference section */
 		08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NightKnight.entitlements; sourceTree = "<group>"; };
-		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		11B6797901ED826D49A441BB /* Watch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Watch.entitlements; sourceTree = "<group>"; };
 		14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
 		19D04B3978569C581FA1C977 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
@@ -149,7 +149,7 @@
 		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
 		7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCacheTests.swift; sourceTree = "<group>"; };
 		8125DB02F421C50937D4CEC7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
-		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C9AA58DE37FB153D9974702 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnightWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F22872B22E684CF349F7D72 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -159,7 +159,7 @@
 		B8AABE6A1E18EE42241455E9 /* NightKnightWidgetTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightWidgetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCache.swift; sourceTree = "<group>"; };
 		C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C66E777FD6F466450B90A38B /* NightKnightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightWidget.swift; sourceTree = "<group>"; };
 		C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightApp.swift; sourceTree = "<group>"; };
 		CBC0D37B5BE05566AA5EF705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -401,26 +401,10 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
-					186DBD700FB6F2F8026F6032 = {
-						DevelopmentTeam = "";
-					};
-					1B6F3ACF8336E002DDB1D7EC = {
-						DevelopmentTeam = "";
-					};
-					2C1A27F65B2710B61D298658 = {
-						DevelopmentTeam = "";
-					};
-					4DF7C2A244952491E660730F = {
-						DevelopmentTeam = "";
-					};
 					C70219A5C67BC93B51981C03 = {
-						DevelopmentTeam = "";
 						TestTargetID = 186DBD700FB6F2F8026F6032;
-					};
-					EF1B0D387B60DE79E0113424 = {
-						DevelopmentTeam = "";
 					};
 				};
 			};
@@ -583,6 +567,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -598,6 +583,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -615,6 +601,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -632,6 +619,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
 				SDKROOT = watchos;
@@ -644,6 +632,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -677,6 +666,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -694,6 +684,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWidget/Widget.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -712,6 +703,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -728,6 +720,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatch/Watch.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatch/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight.watchkitapp;
 				SDKROOT = watchos;
@@ -740,6 +733,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -771,10 +765,12 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -788,6 +784,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
@@ -799,6 +796,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -830,10 +828,12 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -854,6 +854,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
@@ -881,6 +882,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NightKnightWatchWidget/WatchWidget.entitlements;
+				DEVELOPMENT_TEAM = 3U9W8ZZ9PL;
 				INFOPLIST_FILE = NightKnightWatchWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

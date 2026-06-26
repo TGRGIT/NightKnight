@@ -16,6 +16,34 @@ so a mixed mg/dL + mmol/L stream stays correct — the same invariant the existi
 
 ---
 
+## Status (implemented)
+
+Most of this roadmap now ships. The pure maths lives in
+[`nightknight-core::analytics`](../service/crates/nightknight-core/src/analytics.rs)
+(exhaustively unit-tested, pinned to the reference values in
+[CGM-ANALYTICS-RESEARCH.md](CGM-ANALYTICS-RESEARCH.md)), is served by `GET
+/api/v4/analytics` and `GET /api/v4/agp`, and is rendered in the web and iOS
+*Statistical Analysis* views (each metric carries an inline "?" explanation).
+
+| Area | Status |
+|---|---|
+| Data sufficiency (`percentActive`, `daysCovered`, distinct days, `sufficient`) | ✅ shipped |
+| SD surfaced; GMI vs eA1c labelled (GMI primary) | ✅ shipped |
+| Time-weighted TIR (gap-aware, alongside count-based) | ✅ shipped (`timeInRangeWeighted`) |
+| Glycemia Risk Index + A–E zones + hypo/hyper components | ✅ shipped |
+| Episode detection (hypo/hyper, level-1/2, nocturnal, gap-aware) | ✅ shipped |
+| Ambulatory Glucose Profile (5/25/50/75/95 percentile bands) | ✅ shipped (`/api/v4/agp`) |
+| Time-of-day patterns (overnight/morning/afternoon/evening) | ✅ shipped |
+| Advanced variability — J-index, MAGE, CONGA(n), MODD | ✅ shipped |
+| Research-based trend arrows (first-party + least-squares fallback + stale guard) | ✅ shipped |
+| Day-of-week patterns; printable AGP one-pager; CSV/JSON export | ⏳ follow-up |
+
+Timezone for time-of-day analytics is handled by a `tzOffset` query parameter the
+clients pass (minutes east of UTC); a stored per-user timezone is a future refinement.
+The notes below are the original research + rationale, kept for reference.
+
+---
+
 ## 1. Where we are today
 
 `nightknight-core::analytics` already computes, and `GET /api/v4/analytics` already

@@ -11,14 +11,17 @@
 //! * [`analytics`] — Time-in-Range, GMI, eA1c, variability.
 //! * [`documents`] — Nightscout `entries`/`treatments`/`devicestatus`/`profile`
 //!   record types and their clinical validation.
+//! * [`import`] — LibreView CSV export → canonical entries.
 
 pub mod analytics;
 pub mod documents;
+pub mod import;
 pub mod timeutil;
 pub mod trend;
 pub mod units;
 
 pub use analytics::{GlucoseReading, GlucoseSummary, TimeInRange, TirThresholds};
 pub use documents::{DeviceStatus, DocumentError, Entry, Profile, Treatment};
+pub use import::{parse_dexcom_csv, parse_glucose_csv, parse_libreview_csv, CsvImport, DateOrder};
 pub use trend::Direction;
 pub use units::{GlucoseUnit, GlucoseValue, UnitsError, MGDL_PER_MMOL};

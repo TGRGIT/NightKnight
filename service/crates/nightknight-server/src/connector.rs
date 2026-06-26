@@ -23,12 +23,19 @@ const DAY_SECS: u64 = 86_400;
 /// A `reqwest`-backed HTTP transport for connectors.
 pub struct ReqwestHttp {
     client: reqwest::Client,
+    /// A second client that never follows redirects, for user-supplied-URL fetches
+    /// (Nightscout) where following a 3xx would bypass the SSRF host check.
+    no_redirect: reqwest::Client,
 }
 
 impl ReqwestHttp {
     pub fn new() -> Self {
         ReqwestHttp {
             client: reqwest::Client::builder().build().unwrap_or_default(),
+            no_redirect: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap_or_default(),
         }
     }
 }
@@ -36,9 +43,10 @@ impl ReqwestHttp {
 #[async_trait]
 impl HttpClient for ReqwestHttp {
     async fn send(&self, req: HttpReq) -> Result<HttpResp, ConnectorError> {
+        let client = if req.follow_redirects { &self.client } else { &self.no_redirect };
         let mut rb = match req.method {
-            "POST" => self.client.post(&req.url),
-            _ => self.client.get(&req.url),
+            "POST" => client.post(&req.url),
+            _ => client.get(&req.url),
         };
         for (k, v) in &req.headers {
             rb = rb.header(k, v);

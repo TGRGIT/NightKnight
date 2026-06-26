@@ -279,6 +279,240 @@ async fn mixed_units_current_and_analytics() {
     assert_eq!(a["timeInRange"]["inRangePct"], 100.0);
 }
 
+/// SCENARIO: the dashboard's "current" reading prefers the **sensor's own** trend
+/// arrow when the latest entry carries one, and labels it in plain language. Here two
+/// flat readings would compute to "Flat", but the newest carries the sensor's "DoubleUp"
+/// — which must win — and the expanded analytics payload exposes the full metric set.
+#[tokio::test]
+async fn current_prefers_first_party_trend_and_analytics_is_complete() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let older = json!({ "type": "sgv", "date": NOW - 300_000, "sgv": 100, "device": "t" });
+    let newest =
+        json!({ "type": "sgv", "date": NOW - 60_000, "sgv": 100, "direction": "DoubleUp", "device": "t" });
+    svc.handle(request("POST", "/api/v1/entries", &[], json!([older, newest])), NOW, edge.clone())
+        .await;
+
+    let cur = body_json(&svc.handle(request("GET", "/api/v4/current", &[], Value::Null), NOW, edge.clone()).await);
+    assert_eq!(cur["current"]["direction"], "DoubleUp", "first-party sensor trend wins");
+    assert_eq!(cur["current"]["trendLabel"], "Rising rapidly");
+
+    let an = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge.clone()).await,
+    );
+    assert_eq!(an["n"], 2);
+    assert!(an["sdMgdl"].is_number(), "SD surfaced");
+    assert!(an["uGmiPercent"].is_number(), "uGMI (the preferred A1c estimate) surfaced");
+    assert!(an["coverage"]["percentActive"].is_number(), "data sufficiency surfaced");
+    assert!(an["gri"]["value"].is_number() && an["gri"]["zone"].is_string(), "GRI surfaced");
+    assert!(an["variability"]["jIndex"].is_number(), "advanced variability surfaced");
+    assert!(an["episodes"]["low"]["count"].is_number(), "episodes surfaced");
+    assert_eq!(an["patterns"].as_array().unwrap().len(), 4, "four time-of-day periods");
+
+    let agp = body_json(&svc.handle(request("GET", "/api/v4/agp?days=14", &[], Value::Null), NOW, edge).await);
+    assert_eq!(agp["bins"].as_array().unwrap().len(), 96, "AGP has 96 fifteen-minute bins");
+}
+
+/// SCENARIO: the Data view asks "which days actually have readings, and what do they
+/// look like?". `/days` lists every local day with data and its reading count (the
+/// importer-verification spine), and decorates recent days with a per-day glucose
+/// summary led by uGMI. The headline window stats summarise the loaded window.
+#[tokio::test]
+async fn days_view_lists_coverage_and_recent_stats() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // Five readings across three local (UTC) days: 2 today, 2 yesterday, 1 two days ago.
+    let entries = json!([
+        { "type": "sgv", "date": NOW - 60_000, "sgv": 120, "device": "t" },
+        { "type": "sgv", "date": NOW - 120_000, "sgv": 140, "device": "t" },
+        { "type": "sgv", "date": NOW - DAY_MS - 60_000, "sgv": 90, "device": "t" },
+        { "type": "sgv", "date": NOW - DAY_MS - 120_000, "sgv": 200, "device": "t" },
+        { "type": "sgv", "date": NOW - 2 * DAY_MS - 60_000, "sgv": 110, "device": "t" },
+    ]);
+    svc.handle(request("POST", "/api/v1/entries", &[], entries), NOW, edge.clone()).await;
+
+    let resp = svc.handle(request("GET", "/api/v4/days?tzOffset=0", &[], Value::Null), NOW, edge).await;
+    assert_eq!(resp.status, 200);
+    let b = body_json(&resp);
+    assert_eq!(b["totalDays"], 3, "three distinct days have data");
+    assert_eq!(b["totalReadings"], 5, "five readings across the whole history");
+    let days = b["days"].as_array().unwrap();
+    assert_eq!(days.len(), 3);
+    assert_eq!(days[0]["n"], 2, "newest day first, with its reading count");
+    assert!(days[0]["date"].as_str().unwrap().starts_with("2023-11"), "ISO day label");
+    // Recent days carry a per-day glucose summary led by uGMI.
+    assert!(days[0]["uGmiPercent"].is_number(), "recent day has uGMI");
+    assert!(days[0]["meanMgdl"].is_number());
+    assert!(days[0]["timeInRange"]["inRangePct"].is_number());
+    // Headline window stats are present and uGMI-led.
+    assert_eq!(b["windowStats"]["n"], 5);
+    assert!(b["windowStats"]["uGmiPercent"].is_number());
+}
+
+/// REGRESSION (validation finding #3): "% time active" must use the device's actual
+/// cadence, not a hardcoded 5 minutes. A flawless 14-day FreeStyle Libre (15-min historic
+/// cadence) used to read ~33% active and "limited data"; it must now read ~100% / sufficient.
+#[tokio::test]
+async fn analytics_coverage_uses_inferred_cadence_not_a_fixed_5min() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    const Q: i64 = 15 * 60_000; // 15-minute cadence
+    let mut entries = Vec::new();
+    let mut tms = NOW - 14 * 24 * 3_600_000;
+    while tms <= NOW {
+        entries.push(json!({ "type": "sgv", "date": tms, "sgv": 120, "device": "libre" }));
+        tms += Q;
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=336", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(a["cadenceMs"], 15 * 60_000, "cadence inferred as 15 min");
+    let active = a["coverage"]["percentActive"].as_f64().unwrap();
+    assert!(active > 90.0, "perfect 15-min data should read ~100% active, got {active}");
+    assert_eq!(a["coverage"]["sufficient"], true, "14 days of full 15-min data is sufficient");
+}
+
+/// REGRESSION (validation finding #4): episode detection must work at a sparse cadence.
+/// A real 3-hour low sampled hourly used to be invisible (every 1-h gap exceeded the fixed
+/// 30-min break); with a cadence-derived break it is detected.
+#[tokio::test]
+async fn analytics_detects_episodes_at_sparse_hourly_cadence() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let h = 3_600_000i64;
+    let base = NOW - 6 * h;
+    let vals = [120, 120, 60, 60, 60, 120, 120]; // a 3-hour low in the middle
+    let entries: Vec<Value> = vals
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| json!({ "type": "sgv", "date": base + i as i64 * h, "sgv": v, "device": "t" }))
+        .collect();
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(a["cadenceMs"], h, "cadence inferred as hourly");
+    assert!(
+        a["episodes"]["low"]["count"].as_i64().unwrap() >= 1,
+        "a 3-hour low at hourly cadence must be detected, got {}",
+        a["episodes"]["low"]["count"]
+    );
+}
+
+/// REGRESSION (validation finding #2): the headline mean / A1c estimate is time-weighted,
+/// so a dense burst (duplicate cluster / backfill overlap) can't drag it. 60 minutes of
+/// 1-min readings at 100 plus a 20-second burst of 200: the count mean is ~177, but the
+/// reported (time-weighted) mean stays near 100.
+#[tokio::test]
+async fn analytics_headline_mean_is_time_weighted() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let mut entries: Vec<Value> = (0..60)
+        .map(|m| json!({ "type": "sgv", "date": NOW - 60 * 60_000 + m * 60_000, "sgv": 100, "device": "t" }))
+        .collect();
+    let burst = NOW - 30 * 60_000;
+    for s in 0..200i64 {
+        entries.push(json!({ "type": "sgv", "date": burst + s * 100, "sgv": 200, "device": "burst" }));
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+    let a = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=2", &[], Value::Null), NOW, edge).await,
+    );
+    let mean = a["meanMgdl"].as_f64().unwrap();
+    assert!(mean < 120.0, "time-weighted headline mean must resist the burst, got {mean}");
+    // uGMI follows the corrected mean (not the count-inflated one).
+    assert!(a["uGmiPercent"].as_f64().unwrap() < 6.5, "uGMI tracks the time-weighted mean");
+}
+
+/// A window with no readings must not fabricate a "perfect" score — every metric,
+/// including the Glycemia Risk Index (where 0 = best), reports null rather than a
+/// best-possible value.
+#[tokio::test]
+async fn empty_window_analytics_are_null_not_fabricated() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let an = body_json(
+        &svc.handle(request("GET", "/api/v4/analytics?hours=24", &[], Value::Null), NOW, edge).await,
+    );
+    assert_eq!(an["n"], 0);
+    assert!(an["meanMgdl"].is_null(), "mean is null on empty");
+    assert!(an["gri"]["value"].is_null(), "GRI must be null, not a fabricated 0 / zone A");
+    assert!(an["gri"]["zone"].is_null());
+}
+
+/// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would
+/// mislead, so `current` reports NONE even though the entry stored an arrow.
+#[tokio::test]
+async fn current_suppresses_trend_for_a_stale_reading() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let stale =
+        json!({ "type": "sgv", "date": NOW - 30 * 60_000, "sgv": 100, "direction": "DoubleUp", "device": "t" });
+    svc.handle(request("POST", "/api/v1/entries", &[], json!([stale])), NOW, edge.clone()).await;
+    let cur = body_json(&svc.handle(request("GET", "/api/v4/current", &[], Value::Null), NOW, edge).await);
+    assert_eq!(cur["current"]["direction"], "NONE", "a stale reading shows no arrow");
+    assert_eq!(cur["current"]["trendLabel"], "", "no-trend states render empty");
+}
+
+/// SCENARIO: a user uploads a LibreView CSV export. The readings are parsed, ingested
+/// into their own account, and queryable; a re-upload of the same export deduplicates
+/// rather than doubling the points.
+#[tokio::test]
+async fn libreview_csv_import_round_trips_and_dedups() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let csv = "Device,Serial Number,Device Timestamp,Record Type,Historic Glucose mg/dL\n\
+               FreeStyle LibreLink,s1,11-14-2023 21:00,0,120\n\
+               FreeStyle LibreLink,s1,11-14-2023 21:15,0,118\n";
+    let import = |body: &str| ApiRequest {
+        method: Method::Post,
+        path: "/api/v4/import/libreview".to_string(),
+        query: vec![("tzOffset".to_string(), "0".to_string())],
+        headers: Headers::from_pairs(Vec::<(String, String)>::new()),
+        body: body.as_bytes().to_vec(),
+    };
+
+    let resp = svc.handle(import(csv), NOW, edge.clone()).await;
+    assert_eq!(resp.status, 200);
+    let b = body_json(&resp);
+    assert_eq!(b["unit"], "mg/dl");
+    assert_eq!(b["imported"], 2, "two readings imported");
+
+    // They read back through the normal entries API.
+    let list = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge.clone()).await;
+    assert_eq!(body_json(&list).as_array().unwrap().len(), 2);
+
+    // Re-uploading the same export deduplicates — no new points.
+    let resp2 = svc.handle(import(csv), NOW, edge.clone()).await;
+    let b2 = body_json(&resp2);
+    assert_eq!(b2["imported"], 0, "nothing new on re-import");
+    assert_eq!(b2["duplicates"], 2, "both deduped");
+    let list2 = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge).await;
+    assert_eq!(body_json(&list2).as_array().unwrap().len(), 2, "still only two points");
+}
+
+/// A read-only follower token cannot import data (needs entries:create).
+#[tokio::test]
+async fn libreview_import_requires_create_scope() {
+    let svc = service().await;
+    let edge = human("alice@cooney.be");
+    let mk = svc
+        .handle(request("POST", "/api/v4/tokens", &[], json!({ "scopes": ["api:entries:read"] })), NOW, Some(edge))
+        .await;
+    let raw = body_json(&mk)["token"].as_str().unwrap().to_string();
+    let req = ApiRequest {
+        method: Method::Post,
+        path: "/api/v4/import/libreview".to_string(),
+        query: vec![],
+        headers: Headers::from_pairs(vec![("api-secret".to_string(), raw)]),
+        body: b"Device,Device Timestamp,Record Type,Historic Glucose mg/dL\nx,11-14-2023 21:00,0,120".to_vec(),
+    };
+    let resp = svc.handle(req, NOW, None).await;
+    assert_eq!(resp.status, 403, "read-only token cannot import");
+}
+
 /// SECURITY: two users behind the gate cannot see each other's data.
 #[tokio::test]
 async fn users_are_isolated_end_to_end() {
@@ -588,6 +822,155 @@ async fn connector_credentials_encrypt_and_sync() {
     assert_eq!(arr.as_array().unwrap().len(), 1);
     assert_eq!(arr[0]["sgv"], 132);
     assert_eq!(arr[0]["device"], "dexcom-share");
+}
+
+/// A mock Nightscout instance that answers the entries read with one canned reading.
+struct MockNightscout {
+    reading_ms: i64,
+}
+
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockNightscout {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        let body: Vec<u8> = if req.url.contains("/api/v1/entries/sgv.json") {
+            format!(
+                r#"[{{"_id":"abc","type":"sgv","date":{},"sgv":132,"direction":"Flat","device":"ns-test"}}]"#,
+                self.reading_ms
+            )
+            .into_bytes()
+        } else {
+            b"[]".to_vec()
+        };
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// SCENARIO: a user mirrors another Nightscout instance. The URL+secret are stored
+/// encrypted (and the URL is normalised), an internal URL is refused (SSRF guard), the
+/// scheduler pulls and ingests the readings, and a re-sync deduplicates.
+#[tokio::test]
+async fn nightscout_connector_imports_and_dedups() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([42u8; 32]));
+    let edge = Some(human("member@cooney.be"));
+
+    // Add the Nightscout source via the UI endpoint (full endpoint URL is normalised).
+    let put = svc
+        .handle(
+            request(
+                "PUT",
+                "/api/v4/connectors/nightscout",
+                &[],
+                json!({ "url": "https://ns.example.com/api/v1/entries/sgv?count=100", "secret": "s3cr3t" }),
+            ),
+            NOW,
+            edge.clone(),
+        )
+        .await;
+    assert_eq!(put.status, 200);
+    // The secret is never echoed back.
+    assert!(!String::from_utf8(put.body.clone()).unwrap().contains("s3cr3t"));
+
+    // SSRF: an internal / non-https URL is refused before anything is stored.
+    let bad = svc
+        .handle(
+            request("PUT", "/api/v4/connectors/nightscout", &[], json!({ "url": "http://127.0.0.1:1337", "secret": "x" })),
+            NOW,
+            edge.clone(),
+        )
+        .await;
+    assert_eq!(bad.status, 400, "internal / non-https url refused");
+
+    // The scheduler pulls from the mock and ingests the reading.
+    let reading_ms = NOW - 120_000;
+    let n = svc.sync_connectors(&MockNightscout { reading_ms }, 60, NOW).await.unwrap();
+    assert_eq!(n, 1, "one reading ingested");
+
+    // A second sync re-fetches the same reading; storage dedups, so there is still
+    // exactly one point for the user.
+    let _ = svc.sync_connectors(&MockNightscout { reading_ms }, 60, NOW).await.unwrap();
+    let entries = svc.handle(request("GET", "/api/v1/entries", &[], Value::Null), NOW, edge).await;
+    let arr = body_json(&entries);
+    assert_eq!(arr.as_array().unwrap().len(), 1, "dedup: one point after re-sync");
+    assert_eq!(arr[0]["sgv"], 132);
+    assert_eq!(arr[0]["device"], "ns-test");
+}
+
+/// Serves `total` readings (1 min apart, newest at `base_ms`), honouring `count` and the
+/// percent-encoded `find[date][$lt]` cursor — so the cursored backfill can be walked.
+struct MockNsHistory {
+    total: i64,
+    base_ms: i64,
+}
+fn url_int(url: &str, key: &str) -> Option<i64> {
+    url.split(&['?', '&'][..])
+        .find_map(|kv| kv.strip_prefix(key))
+        .and_then(|v| v.parse().ok())
+}
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockNsHistory {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        let count = url_int(&req.url, "count=").unwrap_or(10);
+        // The cursor arrives percent-encoded as `find%5Bdate%5D%5B%24lt%5D=<ms>`.
+        let before = url_int(&req.url, "find%5Bdate%5D%5B%24lt%5D=").unwrap_or(i64::MAX);
+        let mut dates = Vec::new();
+        let mut i = 0i64;
+        while i < self.total && (dates.len() as i64) < count {
+            let d = self.base_ms - i * 60_000; // newest-first
+            if d < before {
+                dates.push(d);
+            }
+            i += 1;
+        }
+        let items: Vec<String> = dates
+            .iter()
+            .map(|d| format!(r#"{{"type":"sgv","date":{d},"sgv":120,"device":"ns"}}"#))
+            .collect();
+        let body = format!("[{}]", items.join(",")).into_bytes();
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// The cursored backfill walks a source's WHOLE history backward across cron ticks: each
+/// tick pulls one bounded page (older than the persisted cursor) until the source is
+/// exhausted, importing everything without any single pull exceeding the page size.
+#[tokio::test]
+async fn nightscout_backfill_walks_full_history() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([7u8; 32]));
+    let edge = Some(human("histuser@cooney.be"));
+    svc.handle(
+        request("PUT", "/api/v4/connectors/nightscout", &[],
+            json!({ "url": "https://ns.example.com", "secret": "s" })),
+        NOW, edge.clone(),
+    ).await;
+
+    // 2500 readings — more than one 2000-page, so it takes two backfill ticks.
+    let src = MockNsHistory { total: 2500, base_ms: NOW - 60_000 };
+
+    // Tick 1: recent window + the newest 2000-reading page.
+    let n1 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n1, 2000, "first tick imports the newest full page");
+    // Tick 2: the remaining 500 older readings; the short page marks the backfill done.
+    let n2 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n2, 500, "second tick imports the rest");
+    // Tick 3: backfill is complete, so only the (already-present) recent window is pulled.
+    let n3 = svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    assert_eq!(n3, 0, "nothing new once the whole history is in");
+
+    // All 2500 distinct readings are stored.
+    let entries = svc
+        .handle(request("GET", "/api/v1/entries?count=5000", &[], Value::Null), NOW, edge)
+        .await;
+    assert_eq!(body_json(&entries).as_array().unwrap().len(), 2500, "whole history imported");
 }
 
 /// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).

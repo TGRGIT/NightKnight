@@ -27,11 +27,15 @@ cargo clippy --workspace --all-targets
 
 ## Path A — Cloudflare (Workers + D1)
 
+> For the full Worker build / deploy / **redeploy** / verify runbook — exact commands,
+> the secrets table, and troubleshooting — see **[DEPLOY-WORKER.md](DEPLOY-WORKER.md)**.
+> The steps below are the one-time overview.
+
 1. **Create the D1 database** and copy the id into
    `service/crates/nightknight-worker/wrangler.toml` (`database_id`):
 
    ```bash
-   wrangler d1 create nightknight
+   npx --yes wrangler@latest d1 create nightknight
    ```
 
 2. **Put the app behind Cloudflare Access.** Create an Access application for your
@@ -53,11 +57,12 @@ cargo clippy --workspace --all-targets
 
    ```bash
    cd service/crates/nightknight-worker
-   wrangler deploy
+   npx --yes wrangler@latest deploy   # `@latest` — older wrangler rejects this config
    ```
 
    The first request runs the schema migration automatically. The SPA in `web/dist`
-   is served by Static Assets; the Worker handles `/api/*` only.
+   is served by Static Assets; the Worker handles `/api/*` only. To enable the connector
+   cron sync, also set `CF_CONNECTOR_KEY` (see [DEPLOY-WORKER.md](DEPLOY-WORKER.md)).
 
 5. **Add the custom domain** in the Cloudflare dashboard (Workers & Pages → your
    worker → Settings → Domains) so the Access policy applies.

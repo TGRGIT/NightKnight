@@ -28,6 +28,12 @@ hardening it and adding a clean modern API.
 - **A pretty, useful dashboard.** A bespoke glucose chart (target band, threshold
   lines, colour-by-range points) plus Time-in-Range, GMI, estimated A1c and
   variability.
+- **Deep, research-grounded analytics.** A dedicated *Statistical Analysis* view (web
+  + iOS) with the Glycemia Risk Index, an Ambulatory Glucose Profile, hypo/hyper
+  episode detection, time-of-day patterns and advanced variability (SD, J-index, MAGE,
+  CONGA, MODD) — every metric explained inline and pinned to the literature
+  ([docs/CGM-ANALYTICS-RESEARCH.md](docs/CGM-ANALYTICS-RESEARCH.md)), gap-tolerant, and
+  unit-independent.
 
 ## Repository layout
 
@@ -51,34 +57,39 @@ docs/                    SETUP, ARCHITECTURE, API-COMPAT, TESTING,
 
 ## Quick start
 
-See **[docs/SETUP.md](docs/SETUP.md)** for the full guide. The short version:
+See **[docs/SETUP.md](docs/SETUP.md)** for the full guide, or
+**[docs/DEPLOY-WORKER.md](docs/DEPLOY-WORKER.md)** for the Cloudflare Worker
+build/deploy/redeploy runbook. The short version:
 
 - **Cloudflare:** `wrangler d1 create nightknight`, paste the id into
   `service/crates/nightknight-worker/wrangler.toml`, set the Access secrets, then
-  `wrangler deploy`.
+  from `service/crates/nightknight-worker` run `npx --yes wrangler@latest deploy`.
 - **Container:** `cd deploy && cp .env.example .env && docker compose up -d`.
 
 ## Status
 
-The service (both runtimes) and the web dashboard are built and tested. The native
-iOS app (SwiftUI + App Intents widgets + HealthKit + on-device alarms) is the next
-phase. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The service (both runtimes), the web app (Dashboard / Analysis / Settings) and the
+native iOS app (SwiftUI tabs + Analysis view + App Intents widgets + HealthKit +
+on-device alarms + Apple Watch) are built and tested. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Roadmap / follow-ups
 
 Planned work, not yet implemented:
 
-- **Historical file imports (LibreView / Dexcom / Nightscout).** The live connectors
-  only reach back as far as each vendor's follower API allows (Dexcom Share ≤24h,
-  LibreLinkUp ≈12h). Add an upload path that ingests full history from account
-  exports — LibreView CSV, Dexcom Clarity CSV, and Nightscout `entries`/`treatments`
-  JSON (or a `mongodump`) — normalising into the canonical store with dedup.
+- **Historical data import.** **LibreView CSV** upload (`POST /api/v4/import/libreview`,
+  with a file picker in Settings → Import history) and a **Nightscout source connector**
+  (mirror another Nightscout/NightKnight instance by URL + api-secret) now ship —
+  normalising into the canonical store with content dedup. Still to come: **Dexcom
+  Clarity CSV** and a Nightscout `mongodump`/`treatments` path.
 - **CarPlay support.** A CarPlay scene for the iOS app: current glucose + trend and a
   glanceable recent-history view, safe for in-vehicle use.
-- **Statistical analysis.** Deeper analytics beyond TIR/GMI/eA1c — e.g. AGP-style
-  percentile bands, day-of-week and time-of-day patterns, hypo/hyper event detection,
-  and exportable reports. Research and a prioritised, codebase-grounded plan are in
-  [docs/STATISTICAL-ANALYSIS.md](docs/STATISTICAL-ANALYSIS.md); implementation pending.
+- **Exportable reports.** The deeper analytics (GRI, AGP percentile bands, time-of-day
+  patterns, hypo/hyper event detection, advanced variability) now ship in the web and
+  iOS *Statistical Analysis* views — see
+  [docs/STATISTICAL-ANALYSIS.md](docs/STATISTICAL-ANALYSIS.md) and
+  [docs/CGM-ANALYTICS-RESEARCH.md](docs/CGM-ANALYTICS-RESEARCH.md). Still to come: a
+  printable AGP one-pager and CSV/JSON export of the computed metric set.
 - **OpenAPI specification.** An OpenAPI 3.1 document for the v1/v3/v4 API is published at
   [docs/openapi.yaml](docs/openapi.yaml) (validates clean under Redocly), enabling
   generated clients, contract tests, and interactive docs. Auto-generating it from the

@@ -121,6 +121,45 @@ pub fn parse_iso8601_ms(s: &str) -> Option<i64> {
     Some(ms - offset_ms)
 }
 
+/// Number of milliseconds in a day.
+pub const DAY_MS: i64 = 86_400_000;
+
+/// Minute of the *local* day (`0..=1439`) for an instant, given a fixed UTC offset in
+/// minutes (e.g. `-300` for US Eastern standard time, `60` for CET). Time-of-day
+/// analytics (AGP, dawn-phenomenon patterns) need local wall-clock time, but readings
+/// are stored as UTC epoch-ms; this shifts by the offset and takes the day remainder.
+pub fn minute_of_day(ms: i64, utc_offset_min: i64) -> i64 {
+    let local = ms + utc_offset_min * 60_000;
+    local.rem_euclid(DAY_MS) / 60_000
+}
+
+/// Local calendar-day number (whole days since 1970-01-01 in the given offset).
+/// Distinct values count distinct local days; consecutive integers are consecutive
+/// days — the basis for "days covered", MODD (same time on consecutive days) and the
+/// distinct-calendar-day count.
+pub fn day_number(ms: i64, utc_offset_min: i64) -> i64 {
+    let local = ms + utc_offset_min * 60_000;
+    local.div_euclid(DAY_MS)
+}
+
+/// Local weekday: `0 = Sunday … 6 = Saturday`. (1970-01-01 was a Thursday, so the
+/// epoch day 0 maps to weekday 4.)
+pub fn weekday(ms: i64, utc_offset_min: i64) -> i64 {
+    (day_number(ms, utc_offset_min) + 4).rem_euclid(7)
+}
+
+/// The civil `(year, month, day)` for a whole-day count since 1970-01-01 — the inverse
+/// of [`day_number`]. Pair them to label a day bucket: `ymd_from_day_number(day_number(ms, off))`.
+pub fn ymd_from_day_number(day: i64) -> (i64, i64, i64) {
+    civil_from_days(day)
+}
+
+/// Format a local day-number (days since 1970-01-01) as a bare `YYYY-MM-DD` date.
+pub fn date_string_from_day_number(day: i64) -> String {
+    let (y, m, d) = civil_from_days(day);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Format epoch milliseconds (UTC) as `YYYY-MM-DDTHH:MM:SS.fffZ`.
 pub fn to_iso8601_ms(ms: i64) -> String {
     let (days, mut rem) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));
@@ -186,5 +225,34 @@ mod tests {
         assert_eq!(parse_iso8601_ms("not a date"), None);
         assert_eq!(parse_iso8601_ms("2023-13-01T00:00:00Z"), None); // month 13
         assert_eq!(parse_iso8601_ms("2023-01-01"), None); // no time
+    }
+
+    /// Local minute-of-day shifts correctly with the UTC offset and wraps across
+    /// midnight. 23:30Z at offset +60 min is 00:30 local the next day → minute 30.
+    #[test]
+    fn minute_of_day_applies_offset_and_wraps() {
+        let t = parse_iso8601_ms("2023-06-01T12:00:00Z").unwrap();
+        assert_eq!(minute_of_day(t, 0), 12 * 60);
+        assert_eq!(minute_of_day(t, -300), 7 * 60); // US Eastern: 07:00 local
+        assert_eq!(minute_of_day(t, 60), 13 * 60); // CET: 13:00 local
+        let near_midnight = parse_iso8601_ms("2023-06-01T23:30:00Z").unwrap();
+        assert_eq!(minute_of_day(near_midnight, 60), 30); // 00:30 next local day
+    }
+
+    /// Day numbering is consecutive across local midnight and the offset can push an
+    /// instant into the previous/next local day.
+    #[test]
+    fn day_number_and_weekday_track_local_days() {
+        // 2023-11-14 is a Tuesday (weekday 2). 22:13:19Z.
+        let t = parse_iso8601_ms("2023-11-14T22:13:19Z").unwrap();
+        assert_eq!(weekday(t, 0), 2, "Tuesday");
+        let d0 = day_number(t, 0);
+        // One day later is the next day number and the next weekday.
+        let t1 = t + DAY_MS;
+        assert_eq!(day_number(t1, 0), d0 + 1);
+        assert_eq!(weekday(t1, 0), 3, "Wednesday");
+        // A +120 min offset on 23:00Z lands past local midnight → next local day.
+        let late = parse_iso8601_ms("2023-11-14T23:00:00Z").unwrap();
+        assert_eq!(day_number(late, 120), day_number(late, 0) + 1);
     }
 }

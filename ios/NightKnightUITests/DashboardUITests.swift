@@ -53,7 +53,7 @@ final class DashboardUITests: XCTestCase {
         let app = launchApp()
         XCTAssertTrue(app.staticTexts["TRAILING SUMMARY"].waitForExistence(timeout: 15),
                       "trailing summary header visible")
-        XCTAssertTrue(app.staticTexts["EST. A1C"].exists, "A1c metric tile present")
+        XCTAssertTrue(app.staticTexts["uGMI"].exists, "uGMI (preferred A1c estimate) tile present")
         XCTAssertTrue(app.staticTexts["AVG"].exists, "average metric tile present")
 
         for label in ["90d", "24h", "30d", "7d"] {
@@ -66,11 +66,11 @@ final class DashboardUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["IN RANGE"].exists)
     }
 
-    /// Settings opens, shows the connection fields, and the in-app "Test connection"
+    /// The Settings tab shows the connection fields, and the in-app "Test connection"
     /// reaches the server successfully.
     func testSettingsConnectionTest() {
         let app = launchApp()
-        app.buttons["settingsButton"].tap()
+        app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "Settings opened")
         XCTAssertTrue(app.textFields["Server URL"].exists, "server URL field present")
 
@@ -78,5 +78,15 @@ final class DashboardUITests: XCTestCase {
         let connected = app.staticTexts
             .containing(NSPredicate(format: "label CONTAINS 'Connected'")).firstMatch
         XCTAssertTrue(connected.waitForExistence(timeout: 15), "connection test reports success")
+    }
+
+    /// The Analysis tab renders the Statistical-Analysis set: GRI plus the core metrics.
+    func testAnalysisTab() {
+        let app = launchApp()
+        app.tabBars.buttons["Analysis"].tap()
+        XCTAssertTrue(app.navigationBars["Analysis"].waitForExistence(timeout: 15), "Analysis opened")
+        XCTAssertTrue(app.staticTexts["GLYCEMIA RISK INDEX"].waitForExistence(timeout: 15), "GRI card present")
+        XCTAssertTrue(app.staticTexts["CORE METRICS"].exists, "core metrics present")
+        XCTAssertTrue(app.staticTexts["MEAN GLUCOSE"].exists, "mean glucose tile present")
     }
 }

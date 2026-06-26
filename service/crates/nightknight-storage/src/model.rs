@@ -132,6 +132,23 @@ impl DocQuery {
     }
 }
 
+/// One local calendar day's worth of readings, as returned by the cheap
+/// [`crate::Storage::daily_counts`] aggregation. Only the indexed `mills` column is
+/// touched, so this scales to thousands of days without loading any document bodies —
+/// it answers "which days have data, and how much" for the data-coverage view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DayCount {
+    /// Local day number — whole days since 1970-01-01 in the requested UTC offset
+    /// (matches `nightknight_core::timeutil::day_number`).
+    pub day_index: i64,
+    /// Number of readings on that local day.
+    pub n: i64,
+    /// Epoch ms of the earliest reading that day.
+    pub first_ms: i64,
+    /// Epoch ms of the latest reading that day.
+    pub last_ms: i64,
+}
+
 /// Whether an upsert created a new document or updated an existing one (the
 /// Nightscout v3 "create-becomes-update on identifier match" semantics).
 #[derive(Clone, Debug, PartialEq)]
