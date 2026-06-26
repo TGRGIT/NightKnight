@@ -1,9 +1,11 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for the few secrets the app stores (device token, CF
-/// Access service-token id/secret). Shared with the widget via an access group is
-/// possible later; for now each target keeps its own.
+/// Minimal Keychain wrapper for the few secrets the app stores (device token, CF Access
+/// service-token id/secret). No `kSecAttrAccessGroup` is set: every target declares a
+/// single shared `keychain-access-groups` entitlement (`$(AppIdentifierPrefix)be.cooney.
+/// nightknight`), which becomes the default group — so these items are automatically
+/// shared with the widget and watch while keeping device-only, backup-excluded protection.
 enum Keychain {
     static func set(_ key: String, _ value: String) {
         let data = Data(value.utf8)

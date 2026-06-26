@@ -162,8 +162,10 @@ impl Connector for NightscoutConnector {
         // window to a count (~1 reading / 5 min) with a sensible floor; dedup makes any
         // overlap harmless, and the daily "all" sync (a huge window) backfills history.
         let count = (minutes / 5).clamp(12, 131_072);
+        // Refuse redirects: the SSRF guard only vetted `base_url`, so a malicious source
+        // must not be able to 302 us (with the api-secret) to an internal address.
         let resp = http
-            .send(HttpReq::get(read_url(&self.base_url, count), headers(&self.secret)))
+            .send(HttpReq::get(read_url(&self.base_url, count), headers(&self.secret)).no_redirects())
             .await?;
         if !resp.is_success() {
             return Err(ConnectorError::Protocol(format!(

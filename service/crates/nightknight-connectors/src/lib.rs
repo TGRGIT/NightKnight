@@ -71,11 +71,18 @@ pub struct HttpReq {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
+    /// Whether the transport may follow 3xx redirects. Connectors that hit hard-coded
+    /// vendor hosts leave this `true`. The user-supplied-URL Nightscout fetch sets it
+    /// `false`: the SSRF guard only validates the *original* host, so a malicious source
+    /// could otherwise `302` the request (carrying its `api-secret`) to a loopback /
+    /// link-local / metadata target. With redirects refused, any 3xx comes back as-is and
+    /// the connector treats the non-2xx as an error instead of following it.
+    pub follow_redirects: bool,
 }
 
 impl HttpReq {
     pub fn get(url: impl Into<String>, headers: Vec<(String, String)>) -> HttpReq {
-        HttpReq { method: "GET", url: url.into(), headers, body: None }
+        HttpReq { method: "GET", url: url.into(), headers, body: None, follow_redirects: true }
     }
     pub fn post_json(url: impl Into<String>, headers: Vec<(String, String)>, body: &Value) -> HttpReq {
         let mut headers = headers;
@@ -85,7 +92,14 @@ impl HttpReq {
             url: url.into(),
             headers,
             body: Some(serde_json::to_vec(body).unwrap_or_default()),
+            follow_redirects: true,
         }
+    }
+    /// Refuse 3xx redirects — for user-supplied URLs where following one would bypass the
+    /// SSRF host check.
+    pub fn no_redirects(mut self) -> Self {
+        self.follow_redirects = false;
+        self
     }
 }
 

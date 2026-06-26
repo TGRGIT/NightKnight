@@ -6,5 +6,9 @@
 	<array>
 		<string>group.be.cooney.nightknight</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)be.cooney.nightknight</string>
+	</array>
 </dict>
 </plist>

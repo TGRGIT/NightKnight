@@ -50,12 +50,14 @@ pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// is rejected with 413 before parsing.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// Lookback window (minutes) for the first sync of a Nightscout source — ~30 days. Big
-/// enough to feel like a bulk CSV import (a month of history in one pass, not 12 readings
-/// at a time), but bounded so the single cron invocation that runs it stays within the
-/// Worker's CPU/time budget and D1's per-invocation query limits. Deeper history continues
-/// to fill in on later syncs. (A future batched/cursored ingest could lift this cap.)
-const NS_BACKFILL_MINUTES: i64 = 30 * 24 * 60;
+/// Ceiling (minutes) on any single Nightscout pull, and the window the first sync uses to
+/// bulk-import on the spot — ~7 days (≈2k readings at 5-min cadence). Far better than the
+/// 12-reading drip, while staying within one Worker invocation's CPU/subrequest budget: it
+/// matches the window the hourly cron already runs in production, so the unbatched per-row
+/// ingest is known to fit. (Pulling 30–365 days here would risk a 10k–100k-row ingest that
+/// can't complete in one invocation and then re-loops; deeper migration needs a future
+/// chunked/cursored ingest — see docs.) Every Nightscout pull is clamped to this.
+const NS_BACKFILL_MINUTES: i64 = 7 * 24 * 60;
 
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
@@ -380,12 +382,7 @@ impl<S: Storage> ApiService<S> {
             user,
             scopes: ScopeSet::all(),
         };
-        let mut stored = 0usize;
-        for entry in entries {
-            self.store_document(Collection::Entries, entry, &principal, now_ms).await?;
-            stored += 1;
-        }
-        Ok(stored)
+        Ok(self.ingest_resilient(&principal, entries, now_ms).await)
     }
 
     /// Ingest entries for a known user id (the connector scheduler path). Unlike
@@ -407,12 +404,33 @@ impl<S: Storage> ApiService<S> {
             user,
             scopes: ScopeSet::all(),
         };
+        Ok(self.ingest_resilient(&principal, entries, now_ms).await)
+    }
+
+    /// Store a batch of connector readings, returning how many were written. A single
+    /// implausible / future-dated / malformed reading is **skipped**, never aborting the
+    /// whole batch — matching the resilient CSV-import path. This matters because a
+    /// Nightscout source is user-controlled and can carry historically-dirty data (e.g. a
+    /// stray out-of-range or future-dated reading), and `parse_entries`' `sgv > 0` filter
+    /// is looser than `Entry::validate` (10–1000 mg/dL, timestamp ≤ now+24h); without this
+    /// one bad row in a backfill would discard the entire pull and keep the sync erroring.
+    async fn ingest_resilient(
+        &self,
+        principal: &Principal,
+        entries: Vec<Value>,
+        now_ms: i64,
+    ) -> usize {
         let mut stored = 0usize;
         for entry in entries {
-            self.store_document(Collection::Entries, entry, &principal, now_ms).await?;
-            stored += 1;
+            if self
+                .store_document(Collection::Entries, entry, principal, now_ms)
+                .await
+                .is_ok()
+            {
+                stored += 1;
+            }
         }
-        Ok(stored)
+        stored
     }
 
     /// Run every enabled connector once: fetch `minutes` of history, ingest it, and
@@ -479,18 +497,24 @@ impl<S: Storage> ApiService<S> {
                     base_url: cred_field(&creds, "url")?,
                     secret: cred_field(&creds, "secret")?,
                 };
-                // A Nightscout source is migrated history, not a live vendor feed: until
-                // a sync has SUCCEEDED, pull in BULK (a ~month-deep fetch in one pass, like
-                // a CSV import) instead of dripping the recent window 12 readings at a time.
-                // "Not yet succeeded" = never synced OR the last attempt errored — so a
-                // transient failure on the first run retries the bulk rather than getting
-                // stuck on the recent window forever (`last_sync_at` is stamped even on
-                // error). Once a sync succeeds, later syncs only pull the recent window;
-                // re-imports dedup harmlessly.
+                // A Nightscout source is migrated history, not a live vendor feed: until a
+                // sync has SUCCEEDED, pull in BULK on the very first tick (within ~60s of
+                // being added) instead of dripping the recent window 12 readings at a time.
+                // "Not yet succeeded" = never synced OR the last attempt errored, so a
+                // transient first-run failure retries (`last_sync_at` is stamped even on
+                // error). EVERY Nightscout pull is capped to `NS_BACKFILL_MINUTES` — unlike
+                // the vendor connectors (which hit hard-coded hosts that clamp recent
+                // windows), Nightscout honours huge `count`s, so the daily "all" cron would
+                // otherwise ask for ~365 days = 100k+ readings and try to ingest them in one
+                // Worker invocation (blowing the CPU/subrequest budget; a kill mid-ingest
+                // then never records success and re-loops). Capping to a window the hourly
+                // cron already handles keeps every pull within one invocation. Ingest is
+                // resilient (`ingest_resilient`), so a dirty historical row can't abort or
+                // re-loop the sync. Deeper history needs a future chunked/cursored ingest.
                 let needs_backfill = cred.last_sync_at.is_none()
                     || cred.last_status.as_deref().is_some_and(|s| s.starts_with("error"));
                 let window = if needs_backfill { NS_BACKFILL_MINUTES } else { minutes };
-                c.fetch_recent(http, window).await
+                c.fetch_recent(http, window.min(NS_BACKFILL_MINUTES)).await
             }
             other => return Err(ApiError::BadRequest(format!("unknown provider {other}"))),
         }

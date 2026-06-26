@@ -196,8 +196,11 @@ async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     if ensure_migrated(&service).await.is_err() {
         return;
     }
-    // Map each cron to its lookback window. The daily job asks for "everything"
-    // (vendors clamp far below this); hourly backfills a week; per-minute grabs latest.
+    // Map each cron to its lookback window. The daily job asks for "everything"; the
+    // hard-coded vendor connectors (Dexcom/LibreLinkUp) clamp far below this, and the
+    // Nightscout connector — which would otherwise honour a 365-day count — clamps the
+    // request itself to NS_BACKFILL_MINUTES so a single invocation can't be handed a
+    // 100k-row ingest. Hourly backfills a week; per-minute grabs the latest.
     let minutes: i64 = match event.cron().as_str() {
         "0 0 * * *" => ALL_MINUTES,
         "0 * * * *" => 10_080,
@@ -228,6 +231,11 @@ impl HttpClient for WorkerHttp {
         }
         let mut init = RequestInit::new();
         init.with_method(method).with_headers(headers);
+        if !req.follow_redirects {
+            // SSRF defence for user-supplied URLs (Nightscout): don't chase a 3xx into the
+            // internal network — return it as-is so the connector treats it as an error.
+            init.with_redirect(RequestRedirect::Manual);
+        }
         if let Some(body) = &req.body {
             // Connector bodies are JSON (UTF-8) — send as a string.
             init.with_body(Some(JsValue::from_str(&String::from_utf8_lossy(body))));

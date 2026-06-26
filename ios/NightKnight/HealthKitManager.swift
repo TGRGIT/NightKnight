@@ -28,7 +28,15 @@ final class HealthKitManager {
     /// Idempotent. Relies on the HealthKit entitlement; no extra background mode needed.
     func startBackgroundDelivery(onUpdate: @escaping @Sendable () -> Void) {
         guard HKHealthStore.isHealthDataAvailable(), backgroundObserver == nil else { return }
-        store.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { _, _ in }
+        // Requires the `com.apple.developer.healthkit.background-delivery` entitlement —
+        // surface (don't swallow) a failure so a missing entitlement / authorization is
+        // observable rather than silently disabling the "wake on new Health glucose" path.
+        store.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { ok, error in
+            if !ok {
+                NSLog("NightKnight: HealthKit background delivery not enabled: %@",
+                      error?.localizedDescription ?? "unknown error")
+            }
+        }
         let observer = HKObserverQuery(sampleType: glucoseType, predicate: nil) { _, completion, _ in
             onUpdate()
             completion() // acknowledge so HealthKit doesn't keep retrying
