@@ -56,6 +56,9 @@ struct APIClient {
     static var tzOffsetMinutes: Int { TimeZone.current.secondsFromGMT() / 60 }
 
     func current() async throws -> CurrentReading? {
+        #if DEBUG
+        if Demo.isEnabled { return Demo.current() }
+        #endif
         let dto = try await fetch(CurrentEnvelope.self, path: "/api/v4/current")
         guard let c = dto.current else { return nil }
         let trend = TrendDirection(name: c.direction)
@@ -68,6 +71,9 @@ struct APIClient {
     }
 
     func entries(hours: Int) async throws -> [GlucoseReading] {
+        #if DEBUG
+        if Demo.isEnabled { return Demo.readings(hours: hours) }
+        #endif
         let dto = try await fetch(EntriesEnvelope.self, path: "/api/v4/entries",
                                   query: [.init(name: "hours", value: String(hours))])
         return dto.entries.map {
@@ -77,6 +83,9 @@ struct APIClient {
     }
 
     func analytics(hours: Int) async throws -> GlucoseAnalytics {
+        #if DEBUG
+        if Demo.isEnabled { return Demo.analytics(hours: hours) }
+        #endif
         let d = try await fetch(AnalyticsDTO.self, path: "/api/v4/analytics", query: [
             .init(name: "hours", value: String(hours)),
             .init(name: "tzOffset", value: String(Self.tzOffsetMinutes)),
@@ -118,6 +127,9 @@ struct APIClient {
     }
 
     func agp(days: Int) async throws -> [AgpBin] {
+        #if DEBUG
+        if Demo.isEnabled { return Demo.agp(days: days) }
+        #endif
         let d = try await fetch(AgpDTO.self, path: "/api/v4/agp", query: [
             .init(name: "days", value: String(days)),
             .init(name: "tzOffset", value: String(Self.tzOffsetMinutes)),

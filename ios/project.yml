@@ -32,7 +32,9 @@ targets:
         UILaunchScreen: {}
         NSHealthShareUsageDescription: "NightKnight reads glucose from Apple Health to show and analyse it."
         NSHealthUpdateUsageDescription: "NightKnight writes glucose readings to Apple Health."
-        UIBackgroundModes: [fetch, processing]
+        # remote-notification: silent APNs wake for background refresh (docs/SILENT-PUSH.md).
+        UIBackgroundModes: [fetch, processing, remote-notification]
+        BGTaskSchedulerPermittedIdentifiers: [be.cooney.nightknight.refresh]
         # Allow http to localhost / local network (used for local dev against the server).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -44,7 +46,9 @@ targets:
       properties:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: [health-records]
+        com.apple.developer.healthkit.background-delivery: true
         com.apple.security.application-groups: [group.be.cooney.nightknight]
+        keychain-access-groups: ["$(AppIdentifierPrefix)be.cooney.nightknight"]
         aps-environment: development
     dependencies:
       - target: NightKnightWidget
@@ -82,6 +86,7 @@ targets:
       path: NightKnightWidget/Widget.entitlements
       properties:
         com.apple.security.application-groups: [group.be.cooney.nightknight]
+        keychain-access-groups: ["$(AppIdentifierPrefix)be.cooney.nightknight"]
 
   NightKnightWatch:
     type: application
@@ -104,6 +109,7 @@ targets:
       path: NightKnightWatch/Watch.entitlements
       properties:
         com.apple.security.application-groups: [group.be.cooney.nightknight]
+        keychain-access-groups: ["$(AppIdentifierPrefix)be.cooney.nightknight"]
     dependencies:
       - target: NightKnightWatchWidget
 
@@ -129,6 +135,7 @@ targets:
       path: NightKnightWatchWidget/WatchWidget.entitlements
       properties:
         com.apple.security.application-groups: [group.be.cooney.nightknight]
+        keychain-access-groups: ["$(AppIdentifierPrefix)be.cooney.nightknight"]
 
   NightKnightUITests:
     type: bundle.ui-testing

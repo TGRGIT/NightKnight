@@ -77,9 +77,27 @@ struct DashboardView: View {
                 ToolbarItem(placement: .topBarLeading) { alarmButton }
             }
             .task { await pollLoop() }
+            #if DEBUG
+            .task { await autoplaySweep() }
+            #endif
         }
         .tint(Color.nkAccent)
     }
+
+    #if DEBUG
+    /// Preview recording: sweep the trailing-period selector so the summary animates.
+    private func autoplaySweep() async {
+        guard Demo.autoplay else { return }
+        try? await Task.sleep(for: .seconds(1.5))
+        let seq: [TrailingPeriod] = [.day, .week, .twoWeeks, .month, .quarter]
+        while !Task.isCancelled {
+            for p in seq {
+                withAnimation { model.period = p }
+                try? await Task.sleep(for: .seconds(1.5))
+            }
+        }
+    }
+    #endif
 
     /// Quick alarm on/off. Tapping off silences all alarms immediately; turning on
     /// requests notification permission. (No snooze — alarms are simply on or off.)
@@ -618,39 +636,69 @@ struct AnalysisView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Picker("Period", selection: $model.period) {
-                        Text("7d").tag(7); Text("14d").tag(14); Text("30d").tag(30)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: model.period) { Task { await model.load() } }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Picker("Period", selection: $model.period) {
+                            Text("7d").tag(7); Text("14d").tag(14); Text("30d").tag(30)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: model.period) { Task { await model.load() } }
 
-                    if let a = model.analytics {
-                        Text(caption(a)).font(.caption).foregroundStyle(.secondary)
-                        griCard(a.gri)
-                        coreMetrics(a)
-                        agpCard()
-                        timeOfDay(a.patterns)
-                        episodesCard(a.episodes)
-                        advancedCard(a.variability, sd: a.sdMgdl)
-                        Text("Not a medical device. These metrics are estimates for personal insight, not a basis for treatment decisions.")
-                            .font(.caption2).foregroundStyle(.secondary).padding(.top, 4)
-                    } else if let err = model.errorText {
-                        Text(err).font(.callout).foregroundStyle(Color.nkAccent).padding(.top, 40)
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
+                        if let a = model.analytics {
+                            Text(caption(a)).font(.caption).foregroundStyle(.secondary)
+                            griCard(a.gri).id("gri")
+                            coreMetrics(a).id("core")
+                            agpCard().id("agp")
+                            timeOfDay(a.patterns).id("tod")
+                            episodesCard(a.episodes).id("episodes")
+                            advancedCard(a.variability, sd: a.sdMgdl).id("advanced")
+                            Text("Not a medical device. These metrics are estimates for personal insight, not a basis for treatment decisions.")
+                                .font(.caption2).foregroundStyle(.secondary).padding(.top, 4)
+                        } else if let err = model.errorText {
+                            Text(err).font(.callout).foregroundStyle(Color.nkAccent).padding(.top, 40)
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity).padding(.top, 60)
+                        }
+                    }
+                    .padding()
+                }
+                #if DEBUG
+                // Screenshot helper: jump to a named section once data is in.
+                .onChange(of: model.analytics == nil) { _, isNil in
+                    if !isNil, let t = Demo.scrollTarget {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation { proxy.scrollTo(t, anchor: .top) }
+                        }
                     }
                 }
-                .padding()
+                #endif
             }
             .background(Color.nkInk.ignoresSafeArea())
             .navigationTitle("Analysis")
             .task { if model.analytics == nil { await model.load() } }
+            #if DEBUG
+            .task { await autoplaySweep() }
+            #endif
             .refreshable { await model.load() }
         }
         .tint(Color.nkAccent)
     }
+
+    #if DEBUG
+    /// Preview recording: sweep the period selector so the cards animate.
+    private func autoplaySweep() async {
+        guard Demo.autoplay else { return }
+        try? await Task.sleep(for: .seconds(2))
+        let seq = [7, 14, 30]
+        while !Task.isCancelled {
+            for p in seq {
+                withAnimation { model.period = p }
+                try? await Task.sleep(for: .seconds(2.0))
+            }
+        }
+    }
+    #endif
 
     // MARK: cards
 
