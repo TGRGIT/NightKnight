@@ -33,8 +33,11 @@ struct Provider: AppIntentTimelineProvider {
 
     func timeline(for configuration: ConfigIntent, in context: Context) async -> Timeline<GlucoseEntry> {
         let entry = await load()
-        // CGM cadence: refresh in ~5 minutes.
-        return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(300)))
+        // Refresh on the CGM cadence (~5 min) when we actually got a reading; if the fetch
+        // came back empty (transient network, or creds not yet propagated to the App
+        // Group), retry in ~2 min so the widget doesn't sit blank for a full cycle.
+        let next: TimeInterval = entry.value == nil ? 120 : 300
+        return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(next)))
     }
 
     private func load() async -> GlucoseEntry {

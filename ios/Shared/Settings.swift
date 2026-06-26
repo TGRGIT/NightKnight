@@ -1,8 +1,11 @@
 import Foundation
 import Observation
 
-/// User settings, shared between the app and the widget via an App Group. Non-secret
-/// values live in the shared `UserDefaults`; credentials live in the Keychain.
+/// User settings, shared between the app, the widget and the watch via an App Group.
+/// Everything — including the read-scoped credentials the widget/watch need to make
+/// authenticated, Cloudflare-Access-passing API calls — lives in the shared App Group
+/// `UserDefaults`. (The credentials used to live in the per-process Keychain, which the
+/// widget's separate process couldn't read, so the widget could never fetch data.)
 @Observable
 final class Settings {
     static let appGroup = "group.be.cooney.nightknight"
@@ -25,10 +28,12 @@ final class Settings {
     var writeToHealthKit: Bool { didSet { defaults.set(writeToHealthKit, forKey: "hkWrite") } }
     var readFromHealthKit: Bool { didSet { defaults.set(readFromHealthKit, forKey: "hkRead") } }
 
-    // Credentials (Keychain).
-    var deviceToken: String { didSet { Keychain.set("deviceToken", deviceToken) } }
-    var cfAccessClientId: String { didSet { Keychain.set("cfId", cfAccessClientId) } }
-    var cfAccessClientSecret: String { didSet { Keychain.set("cfSecret", cfAccessClientSecret) } }
+    // Credentials. Stored in the shared App Group (NOT the Keychain) so the widget and
+    // watch — separate processes — can read them. These are a read-scoped follower token
+    // and a Cloudflare Access service token, kept in the app's sandboxed shared container.
+    var deviceToken: String { didSet { defaults.set(deviceToken, forKey: "deviceToken") } }
+    var cfAccessClientId: String { didSet { defaults.set(cfAccessClientId, forKey: "cfId") } }
+    var cfAccessClientSecret: String { didSet { defaults.set(cfAccessClientSecret, forKey: "cfSecret") } }
 
     private init() {
         baseURL = defaults.string(forKey: "baseURL") ?? "https://nightknight.cooney.be"
@@ -40,16 +45,27 @@ final class Settings {
         fastDropAlarm = defaults.object(forKey: "fastDrop") as? Bool ?? true
         writeToHealthKit = defaults.object(forKey: "hkWrite") as? Bool ?? false
         readFromHealthKit = defaults.object(forKey: "hkRead") as? Bool ?? false
-        deviceToken = Keychain.get("deviceToken")
-        cfAccessClientId = Keychain.get("cfId")
-        cfAccessClientSecret = Keychain.get("cfSecret")
+        deviceToken = Settings.sharedSecret(defaults, "deviceToken")
+        cfAccessClientId = Settings.sharedSecret(defaults, "cfId")
+        cfAccessClientSecret = Settings.sharedSecret(defaults, "cfSecret")
 
         #if DEBUG
         // Test hook: let a simulator launch inject a server + token (SIMCTL_CHILD_*).
+        // Persist to the App Group too, so the widget's separate process picks them up.
         let env = ProcessInfo.processInfo.environment
-        if let url = env["NK_BASE_URL"], !url.isEmpty { baseURL = url }
-        if let tok = env["NK_TOKEN"], !tok.isEmpty { deviceToken = tok }
+        if let url = env["NK_BASE_URL"], !url.isEmpty { baseURL = url; defaults.set(url, forKey: "baseURL") }
+        if let tok = env["NK_TOKEN"], !tok.isEmpty { deviceToken = tok; defaults.set(tok, forKey: "deviceToken") }
         #endif
+    }
+
+    /// Read a credential from the shared App Group, migrating it out of the old per-process
+    /// Keychain location (which the widget/watch couldn't reach) on first launch so existing
+    /// installs don't have to re-enter it.
+    private static func sharedSecret(_ defaults: UserDefaults, _ key: String) -> String {
+        if let v = defaults.string(forKey: key), !v.isEmpty { return v }
+        let legacy = Keychain.get(key)
+        if !legacy.isEmpty { defaults.set(legacy, forKey: key) }
+        return legacy
     }
 
     var isConfigured: Bool { !baseURL.isEmpty && !deviceToken.isEmpty }
