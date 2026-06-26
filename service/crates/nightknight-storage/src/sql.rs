@@ -160,6 +160,41 @@ pub fn search_documents(c: Collection, user_id: &str, q: &DocQuery) -> (String, 
     (sql, params)
 }
 
+/// Per-local-day reading counts for a collection, newest day first. Buckets on the
+/// indexed `mills` column alone — `(mills + offset) / 86_400_000` is the local
+/// day-number (integer division, identical in SQLite/D1 and Postgres for the positive
+/// epoch values we store) — so it never reads a document body and stays cheap across
+/// thousands of days. Columns are aliased (`day`, `n`, `first_ms`, `last_ms`) so the
+/// D1 backend, which reads by name, finds them; the sqlx backend reads by position.
+///
+/// `GROUP BY`/`ORDER BY` use the output **ordinal** (`1`), not a repeat of the bucket
+/// expression: the `?`→`$n` rewrite would turn two textually-identical expressions into
+/// `$1` and `$4`, which Postgres treats as *different* expressions and then rejects
+/// ("mills must appear in the GROUP BY clause"). The ordinal sidesteps that.
+///
+/// The offset is **inlined as an integer literal**, NOT a bound parameter, on purpose:
+/// the D1 backend binds every integer param as a JS float, so `(mills + ?)` would make
+/// SQLite do REAL arithmetic and `/ 86400000` REAL division — the bucket becomes a
+/// fractional day and `GROUP BY` explodes to one group per reading (hundreds of thousands
+/// of rows → the Worker OOMs). Inlining keeps the arithmetic integer on every backend.
+/// `tz_offset_ms` is a server-computed, clamped `i64` (never user SQL), so interpolating
+/// the number is safe.
+pub fn daily_counts(
+    c: Collection,
+    user_id: &str,
+    doc_type: &str,
+    tz_offset_ms: i64,
+) -> (String, Vec<Param>) {
+    let t = c.table();
+    let sql = format!(
+        "SELECT (mills + {tz_offset_ms}) / 86400000 AS day, COUNT(*) AS n, \
+                MIN(mills) AS first_ms, MAX(mills) AS last_ms \
+         FROM {t} WHERE user_id=? AND is_valid=1 AND doc_type=? \
+         GROUP BY 1 ORDER BY 1 DESC"
+    );
+    (sql, vec![Param::text(user_id), Param::text(doc_type)])
+}
+
 /// Soft-delete: flag `is_valid=0` so the document drops out of normal results but
 /// still surfaces in history. Only affects a currently-valid row.
 pub fn soft_delete_document(

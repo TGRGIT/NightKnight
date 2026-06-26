@@ -118,6 +118,7 @@ small { font-size: 0.5em; font-weight: 600; color: var(--muted); margin-left: 2p
 .metric { background: var(--tile); border: 1px solid var(--rim); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
 .metric-hero { background: linear-gradient(180deg, rgba(229,72,77,.08), var(--tile)); border-color: #33262a; }
 .metric-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; display: inline-flex; align-items: center; gap: 5px; }
+.metric-label.exact { text-transform: none; letter-spacing: 0.01em; }
 .metric-value { font-size: 1.7rem; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .metric-sub { color: var(--muted); font-size: 0.74rem; }
 
@@ -282,4 +283,58 @@ h2 { display: inline-flex; align-items: center; gap: 7px; }
   .brand-name { display: none; }
   .tab { padding: 7px 11px; font-size: 0.8rem; }
   .ep-stats { grid-template-columns: 1fr; }
+}
+
+/* ── Data coverage page ───────────────────────────────────────────── */
+:root { --cal-empty: #161d27; --cal-nostat: #39434f; }
+.metric-grid.data-summary { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+.cal-wrap { overflow-x: auto; padding: 2px 0 4px; }
+.cal-wrap svg { display: block; }
+.cal-month { fill: var(--muted); font-size: 10px; font-weight: 600; }
+.cal-dow { fill: var(--muted); font-size: 9px; }
+.cal-wrap rect { stroke: rgba(255, 255, 255, 0.05); stroke-width: 1; transition: stroke .12s; }
+.cal-wrap rect:hover { stroke: var(--text); stroke-width: 1.5; }
+.cal-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; color: var(--muted); font-size: 0.74rem; }
+.cal-leg-item { display: inline-flex; align-items: center; gap: 5px; }
+.cal-leg-sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.06); display: inline-block; }
+.cal-leg-label { font-size: 0.72rem; }
+
+.day-list { display: flex; flex-direction: column; gap: 6px; max-height: 640px; overflow-y: auto; }
+.day-row {
+  display: grid; grid-template-columns: 150px minmax(150px, 1.4fr) 92px 1fr 62px 96px;
+  align-items: center; gap: 14px; padding: 9px 12px;
+  background: var(--tile); border: 1px solid var(--rim-soft); border-radius: 10px;
+}
+.day-row:hover { border-color: var(--rim); }
+.day-head {
+  position: sticky; top: 0; z-index: 1; background: var(--ink); border: 0; padding: 4px 12px 6px;
+  color: var(--muted); font-size: 0.72rem; letter-spacing: 0.02em;
+}
+.day-head:hover { border: 0; }
+.day-date { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.day-dow { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.day-num { font-weight: 650; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.day-cov { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cov-bar { flex: 1; height: 7px; min-width: 34px; background: var(--ink); border-radius: 4px; overflow: hidden; }
+.cov-fill { height: 100%; background: var(--g-inrange); border-radius: 4px; }
+.day-cov-pct { font-size: 0.78rem; font-variant-numeric: tabular-nums; width: 34px; text-align: right; }
+.day-n { font-size: 0.72rem; color: var(--muted); width: 64px; text-align: right; }
+.day-mean { font-weight: 700; font-variant-numeric: tabular-nums; }
+.day-mean-v { font-size: 1.02rem; }
+.day-tir { min-width: 0; }
+.day-tir-bar { display: flex; width: 100%; height: 8px; border-radius: 5px; overflow: hidden; background: var(--ink); }
+.day-tir-bar > div { height: 100%; }
+.day-ugmi { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 0.9rem; }
+.day-range { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.82rem; text-align: right; }
+
+@media (max-width: 720px) {
+  .day-row { grid-template-columns: 1fr auto; row-gap: 9px; column-gap: 12px; }
+  .day-head { display: none; }
+  .day-date { grid-column: 1; grid-row: 1; }
+  .day-mean { grid-column: 2; grid-row: 1; text-align: right; justify-self: end; }
+  .day-cov { grid-column: 1 / -1; grid-row: 2; }
+  .day-tir { grid-column: 1 / -1; grid-row: 3; }
+  .day-ugmi { grid-column: 1; grid-row: 4; }
+  .day-range { grid-column: 2; grid-row: 4; }
 }

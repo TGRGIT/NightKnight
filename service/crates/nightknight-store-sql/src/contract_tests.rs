@@ -162,6 +162,123 @@ async fn search_filters_and_orders() {
     assert_eq!(sgvs.len(), 4);
 }
 
+/// GUARANTEE: `daily_counts` buckets readings into local calendar days and returns one
+/// row per day (newest first) with the correct count and first/last reading time, while
+/// excluding other users, non-sgv types and soft-deleted rows. This cheap aggregation is
+/// what the Data view trusts to prove "these days actually have data" across a whole
+/// history without loading every reading.
+#[tokio::test]
+async fn daily_counts_buckets_by_local_day() {
+    const DAY_MS: i64 = 86_400_000;
+    let store = fresh_store().await;
+    // Day 0: three readings.
+    for (i, t) in [1_000i64, 2_000, 3_000].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("a{i}"), *t, 100, 1))
+            .await
+            .unwrap();
+    }
+    // Day 5: two readings.
+    let d5 = 5 * DAY_MS;
+    for (i, off) in [600_000i64, 700_000].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("b{i}"), d5 + off, 120, 1))
+            .await
+            .unwrap();
+    }
+    // Excluded: a non-sgv entry, another user's reading, and a soft-deleted reading.
+    let mut mbg = sgv_doc("u1", "mbg0", d5 + 800_000, 99, 1);
+    mbg.doc_type = Some("mbg".into());
+    store.upsert_document(Collection::Entries, mbg).await.unwrap();
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u2", "z0", 1_500, 100, 1))
+        .await
+        .unwrap();
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "del0", d5 + 900_000, 88, 1))
+        .await
+        .unwrap();
+    store
+        .soft_delete_document(Collection::Entries, "u1", "del0", 2)
+        .await
+        .unwrap();
+
+    let days = store
+        .daily_counts(Collection::Entries, "u1", "sgv", 0)
+        .await
+        .unwrap();
+    assert_eq!(days.len(), 2, "two distinct days with valid sgv data");
+    // Newest day first.
+    assert_eq!(days[0].day_index, 5);
+    assert_eq!(days[0].n, 2);
+    assert_eq!(days[0].first_ms, d5 + 600_000);
+    assert_eq!(days[0].last_ms, d5 + 700_000);
+    assert_eq!(days[1].day_index, 0);
+    assert_eq!(days[1].n, 3);
+    assert_eq!(days[1].first_ms, 1_000);
+    assert_eq!(days[1].last_ms, 3_000);
+}
+
+/// GUARANTEE: the UTC offset moves the local-day boundary, so a late-evening reading can
+/// land on the next local day. A user east of UTC must see their own midnight, not UTC's
+/// — otherwise the Data calendar would split or misdate their nights.
+#[tokio::test]
+async fn daily_counts_respects_utc_offset() {
+    const DAY_MS: i64 = 86_400_000;
+    let store = fresh_store().await;
+    // 23:30 UTC on day 1.
+    let t = 2 * DAY_MS - 30 * 60_000;
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "e", t, 100, 1))
+        .await
+        .unwrap();
+    let utc = store
+        .daily_counts(Collection::Entries, "u1", "sgv", 0)
+        .await
+        .unwrap();
+    assert_eq!(utc[0].day_index, 1, "UTC bucket is day 1");
+    // At +60 minutes it rolls into day 2 (00:30 local).
+    let plus = store
+        .daily_counts(Collection::Entries, "u1", "sgv", 60 * 60_000)
+        .await
+        .unwrap();
+    assert_eq!(plus[0].day_index, 2, "+1h offset rolls the reading into day 2");
+}
+
+/// REGRESSION (D1 float-binding, found via a production HAR where `/api/v4/days` threw a
+/// Worker exception): the day-bucket arithmetic must use an INTEGER offset, not a bound
+/// param. D1 binds integer params as JS floats, which would make SQLite do REAL division
+/// and explode `GROUP BY` to one group per reading (hundreds of thousands of rows → the
+/// Worker OOMs). The shipped `daily_counts` inlines the offset as an integer literal; this
+/// reproduces the float regime against SQLite to prove the difference and guard it.
+#[tokio::test]
+async fn daily_counts_resists_float_offset_binding_explosion() {
+    const DAY_MS: i64 = 86_400_000;
+    let store = fresh_store().await;
+    // 3 readings on day 0, 2 on day 5 — distinct times within each day.
+    for (i, t) in [1_000i64, 2_000, 3_000, 5 * DAY_MS + 10, 5 * DAY_MS + 20].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("e{i}"), *t, 100, 1))
+            .await
+            .unwrap();
+    }
+    // The shipped query (offset inlined as an integer) buckets per day → 2 rows.
+    let days = store.daily_counts(Collection::Entries, "u1", "sgv", 0).await.unwrap();
+    assert_eq!(days.len(), 2, "inlined-offset day bucketing gives one row per day");
+    // Simulate what D1 does: bind the offset as a float into the same expression. SQLite
+    // then does REAL division and groups by fractional day → one group per reading.
+    let exploded = sqlx::query(
+        "SELECT (mills + ?) / 86400000 AS day FROM entries \
+         WHERE user_id=? AND is_valid=1 AND doc_type='sgv' GROUP BY 1",
+    )
+    .bind(0.0_f64)
+    .bind("u1")
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(exploded.len(), 5, "a float-bound offset explodes to one group per reading");
+}
+
 /// GUARANTEE: a soft-deleted document disappears from normal search but remains
 /// available through history (so a synced device learns it was removed), and the
 /// collection's `last_modified` advances.

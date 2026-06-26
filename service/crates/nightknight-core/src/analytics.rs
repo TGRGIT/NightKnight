@@ -8,8 +8,12 @@
 //! * **Time in Range (TIR)** — the share of readings in each glucose band. The
 //!   single most actionable CGM metric. Bands (mg/dL): very-low `<54`, low `54–69`,
 //!   target `70–180`, high `181–250`, very-high `>250`.
-//! * **GMI** (Glucose Management Indicator) — an A1c-like % estimated from mean
-//!   glucose: `GMI% = 3.31 + 0.02392 × mean_mg/dL`.
+//! * **uGMI** (updated GMI) — the consensus-preferred 2026 revision of GMI, which
+//!   aligns better with lab A1c: `uGMI% = 1 / (15.36 / mean_mg/dL + 0.0425)`
+//!   (Bergenstal et al., *Diabetologia* 2026). This is the A1c estimate NightKnight
+//!   leads with everywhere.
+//! * **GMI** (Glucose Management Indicator) — the 2018 estimate, kept for comparison:
+//!   `GMI% = 3.31 + 0.02392 × mean_mg/dL`.
 //! * **eA1c** — the older ADAG estimate: `(mean_mg/dL + 46.7) / 28.7`.
 //! * **CV** (coefficient of variation) — variability; `≤ 36%` is considered stable.
 
@@ -179,7 +183,64 @@ pub fn coefficient_of_variation(readings: &[GlucoseReading]) -> Option<f64> {
     Some(std_dev_mgdl(readings)? / mean * 100.0)
 }
 
-/// Glucose Management Indicator (%), the modern A1c estimate, from mean mg/dL.
+/// Time-weighted mean and SD, computed over the piecewise-linear glucose curve.
+///
+/// Where [`mean_mgdl`] / [`std_dev_mgdl`] weight each *reading* equally, this weights each
+/// *millisecond*: it integrates the linear interpolant between consecutive readings and
+/// skips any interval longer than `max_gap_ms` (a sensor outage accrues no time). So a
+/// dense burst of readings — a duplicate cluster, a backfill overlap, or a mix of 1-min
+/// and 5-min stretches — no longer out-votes a sparser period, and the figure reflects
+/// true time-averaged glucose exposure. That makes it the unbiased basis for an A1c
+/// estimate when sampling is non-uniform; for clean uniform CGM it equals the count-based
+/// mean to rounding. Returns `None` when no interval is short enough to accrue (a single
+/// reading, or only isolated points), so callers fall back to the count-based figure.
+///
+/// `mean = ∫g dt / ∫dt`; `var = ∫g² dt / ∫dt − mean²`, using the exact integrals of each
+/// linear segment (`∫g = (g₀+g₁)/2·dt`, `∫g² = (g₀²+g₀g₁+g₁²)/3·dt`). The variance is the
+/// continuous time-average (population) form — the natural definition for an integrated
+/// signal — so it differs slightly from the discrete sample (`N−1`) [`std_dev_mgdl`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimeWeightedStats {
+    pub mean_mgdl: f64,
+    pub sd_mgdl: f64,
+}
+
+pub fn time_weighted_stats(
+    readings: &[GlucoseReading],
+    max_gap_ms: i64,
+) -> Option<TimeWeightedStats> {
+    let rs = sorted_by_time(readings);
+    let (mut sum_t, mut sum_v, mut sum_v2) = (0.0f64, 0.0f64, 0.0f64);
+    for pair in rs.windows(2) {
+        let dt = pair[1].date_ms - pair[0].date_ms;
+        if dt <= 0 || dt > max_gap_ms {
+            continue; // duplicate/out-of-order timestamp or sensor gap → no accrual
+        }
+        let (g0, g1) = (pair[0].value.mgdl(), pair[1].value.mgdl());
+        let w = dt as f64;
+        sum_t += w;
+        sum_v += (g0 + g1) / 2.0 * w;
+        sum_v2 += (g0 * g0 + g0 * g1 + g1 * g1) / 3.0 * w;
+    }
+    if sum_t <= 0.0 {
+        return None;
+    }
+    let mean = sum_v / sum_t;
+    let var = (sum_v2 / sum_t - mean * mean).max(0.0);
+    Some(TimeWeightedStats { mean_mgdl: mean, sd_mgdl: var.sqrt() })
+}
+
+/// Updated Glucose Management Indicator (%), the 2026 consensus-preferred A1c estimate,
+/// from mean mg/dL. The revised model aligns more closely with lab-measured HbA1c than
+/// the 2018 GMI, especially at the extremes. `uGMI% = 1 / (15.36 / mean + 0.0425)`
+/// (Bergenstal et al., *Diabetologia* 2026; https://doi.org/10.1007/s00125-026-06739-w).
+/// `mean` must be > 0 (an empty window never reaches here — callers guard with `Option`).
+pub fn updated_gmi_percent(mean_mgdl: f64) -> f64 {
+    1.0 / (15.36 / mean_mgdl + 0.0425)
+}
+
+/// Glucose Management Indicator (%), the 2018 A1c estimate, from mean mg/dL. Kept
+/// alongside [`updated_gmi_percent`] for comparison; uGMI is preferred.
 pub fn gmi_percent(mean_mgdl: f64) -> f64 {
     3.31 + 0.02392 * mean_mgdl
 }
@@ -198,6 +259,8 @@ pub struct GlucoseSummary {
     /// [`std_dev_mgdl`]. Surfaced per the consensus core set; pairs with
     /// [`cv_percent`](Self::cv_percent).
     pub sd_mgdl: Option<f64>,
+    /// Updated GMI (2026) — the preferred A1c estimate. See [`updated_gmi_percent`].
+    pub updated_gmi_percent: Option<f64>,
     pub gmi_percent: Option<f64>,
     pub estimated_a1c_percent: Option<f64>,
     pub cv_percent: Option<f64>,
@@ -213,6 +276,7 @@ impl GlucoseSummary {
             n: readings.len(),
             mean_mgdl: mean,
             sd_mgdl: sd,
+            updated_gmi_percent: mean.map(updated_gmi_percent),
             gmi_percent: mean.map(gmi_percent),
             estimated_a1c_percent: mean.map(estimated_a1c_percent),
             // CV = SD/mean·100; reuse the values we already have rather than re-summing.
@@ -633,11 +697,41 @@ pub struct AgpBin {
     pub p95: Option<f64>,
 }
 
+/// Circularly smooth a per-bin percentile series with a centred moving average of
+/// half-width `half` bins, wrapping across midnight (23:45 is adjacent to 00:00). Only
+/// bins that have data (a `Some` value) get a smoothed output, and only the `Some`
+/// neighbours in the window contribute — so empty bins stay `None` and an isolated bin
+/// keeps its own value. This is the AGP "smooth the curves" step that turns noisy
+/// per-bin percentiles into the readable envelopes a clinical AGP shows.
+fn smooth_circular(series: &[Option<f64>], half: usize) -> Vec<Option<f64>> {
+    let n = series.len();
+    (0..n)
+        .map(|i| {
+            series[i]?; // empty bin stays empty — never fabricate data
+            let (mut sum, mut cnt) = (0.0, 0u32);
+            for d in 0..=2 * half {
+                let j = (i + n + d - half) % n; // circular index, always in range
+                if let Some(v) = series[j] {
+                    sum += v;
+                    cnt += 1;
+                }
+            }
+            (cnt > 0).then(|| sum / cnt as f64)
+        })
+        .collect()
+}
+
 /// Build the **Ambulatory Glucose Profile**: overlay every day in the window onto a
 /// single 24-hour axis split into `bin_minutes`-wide bins (default 15 → 96 bins), and
 /// for each bin report the 5/25/50/75/95 glucose percentiles (Bergenstal AGP). Returns
 /// one entry per bin across the whole day, in order. `bin_minutes` is clamped to a
 /// divisor-friendly `1..=720`.
+///
+/// The five percentile **curves are smoothed** across bins (a circular ±~45-minute moving
+/// average) before being returned — raw per-bin percentiles are noisy when few days back a
+/// time-of-day slot, and a clinical AGP always presents smoothed envelopes (the 2019
+/// consensus / Bergenstal AGP "LOESS-smoothed" curves). Smoothing never invents data:
+/// empty bins stay empty and per-bin `n` is the true count.
 pub fn agp_bins(readings: &[GlucoseReading], bin_minutes: i64, utc_offset_min: i64) -> Vec<AgpBin> {
     let bin = bin_minutes.clamp(1, 720);
     let count = (1440 / bin).max(1) as usize;
@@ -647,17 +741,24 @@ pub fn agp_bins(readings: &[GlucoseReading], bin_minutes: i64, utc_offset_min: i
         let idx = ((m / bin) as usize).min(count - 1);
         buckets[idx].push(r.value.mgdl());
     }
-    buckets
-        .into_iter()
-        .enumerate()
-        .map(|(i, vals)| AgpBin {
+    let ns: Vec<usize> = buckets.iter().map(Vec::len).collect();
+    // Smooth each percentile curve over a ~45-minute half-window, wrapping at midnight.
+    let half = (45 / bin).max(1) as usize;
+    let raw = |p: f64| buckets.iter().map(|b| percentile(b, p)).collect::<Vec<_>>();
+    let p05 = smooth_circular(&raw(5.0), half);
+    let p25 = smooth_circular(&raw(25.0), half);
+    let p50 = smooth_circular(&raw(50.0), half);
+    let p75 = smooth_circular(&raw(75.0), half);
+    let p95 = smooth_circular(&raw(95.0), half);
+    (0..count)
+        .map(|i| AgpBin {
             minute_of_day: i as i64 * bin,
-            n: vals.len(),
-            p05: percentile(&vals, 5.0),
-            p25: percentile(&vals, 25.0),
-            p50: percentile(&vals, 50.0),
-            p75: percentile(&vals, 75.0),
-            p95: percentile(&vals, 95.0),
+            n: ns[i],
+            p05: p05[i],
+            p25: p25[i],
+            p50: p50[i],
+            p75: p75[i],
+            p95: p95[i],
         })
         .collect()
 }
@@ -712,15 +813,19 @@ pub fn j_index(mean_mgdl: Option<f64>, sd_mgdl: Option<f64>) -> Option<f64> {
 }
 
 /// **MAGE** — Mean Amplitude of Glycemic Excursions (Service 1970): the mean size of
-/// the *meaningful* swings, i.e. the peak-to-nadir amplitudes between successive
-/// turning points that exceed **1 SD** of the glucose. Smaller daily SD-sized wobble is
-/// ignored, so MAGE captures the excursions a person actually feels.
+/// the *meaningful* swings — peak-to-nadir amplitudes that exceed **1 SD** of the
+/// glucose. Smaller wobble is ignored, so MAGE captures the excursions a person feels.
 ///
-/// Algorithm (a widely-used deterministic form): walk the time-ordered series, collect
-/// the local turning points (including the endpoints), then average the absolute
-/// amplitudes between consecutive turning points that are larger than 1 SD. Returns
-/// `None` if there are too few readings, or no swing exceeds 1 SD. MAGE is known to be
-/// algorithm-sensitive — this is a stable, documented variant, not the only one.
+/// Implemented as a **threshold-crossing ("zigzag") scan** with the 1-SD significance
+/// threshold: a direction reversal is registered only once glucose has retraced ≥ 1 SD
+/// from a running extreme, and excursion amplitudes are measured pivot-to-pivot. This is
+/// the key robustness property — sub-SD measurement noise, *however densely sampled*,
+/// cannot fragment one real excursion into many tiny ones and suppress it. A naive
+/// adjacent-turning-point method does exactly that: on realistically-noisy fine-cadence
+/// data it returns no value where a coarser sampling of the *same* signal returns one.
+/// Single pass, O(n), so the result is stable across sampling cadence. Returns `None`
+/// for < 3 readings, flat data (SD 0), or when no excursion reaches 1 SD. (MAGE is
+/// algorithm-sensitive; this is a documented, deterministic, noise-robust variant.)
 pub fn mage(readings: &[GlucoseReading]) -> Option<f64> {
     let sd = std_dev_mgdl(readings)?;
     if sd <= 0.0 {
@@ -731,21 +836,57 @@ pub fn mage(readings: &[GlucoseReading]) -> Option<f64> {
     if v.len() < 3 {
         return None;
     }
-    // Turning points: endpoints plus every local extremum.
-    let mut turns = vec![v[0]];
-    for i in 1..v.len() - 1 {
-        let up_peak = v[i] > v[i - 1] && v[i] >= v[i + 1];
-        let down_trough = v[i] < v[i - 1] && v[i] <= v[i + 1];
-        if up_peak || down_trough {
-            turns.push(v[i]);
+    let thr = sd;
+    let mut amps: Vec<f64> = Vec::new();
+    // Phase 0 — find the first significant move out of the opening consolidation; its
+    // direction is set by whether the running low or the running high came later in time.
+    let (mut lo, mut lo_i) = (v[0], 0usize);
+    let (mut hi, mut hi_i) = (v[0], 0usize);
+    let mut trend: i8 = 0; // 0 = undetermined, +1 = rising, −1 = falling
+    let mut pivot = v[0]; // value of the last confirmed extreme
+    let mut ext = v[0]; // running extreme since the pivot
+    for (k, &x) in v.iter().enumerate().skip(1) {
+        match trend {
+            0 => {
+                if x > hi {
+                    hi = x;
+                    hi_i = k;
+                }
+                if x < lo {
+                    lo = x;
+                    lo_i = k;
+                }
+                if hi - lo >= thr {
+                    if hi_i > lo_i {
+                        (pivot, ext, trend) = (lo, hi, 1); // dipped then rose → rising
+                    } else {
+                        (pivot, ext, trend) = (hi, lo, -1); // rose then dipped → falling
+                    }
+                }
+            }
+            1 => {
+                if x > ext {
+                    ext = x; // extend the rise
+                } else if ext - x >= thr {
+                    amps.push(ext - pivot); // a ≥1-SD retrace confirms the up-excursion
+                    (pivot, ext, trend) = (ext, x, -1);
+                }
+            }
+            _ => {
+                if x < ext {
+                    ext = x; // extend the fall
+                } else if x - ext >= thr {
+                    amps.push(pivot - ext); // confirms the down-excursion (amplitude > 0)
+                    (pivot, ext, trend) = (ext, x, 1);
+                }
+            }
         }
     }
-    turns.push(v[v.len() - 1]);
-    let amps: Vec<f64> = turns
-        .windows(2)
-        .map(|w| (w[1] - w[0]).abs())
-        .filter(|&a| a > sd)
-        .collect();
+    // The final, still-open excursion counts if it reached the threshold.
+    let final_amp = (ext - pivot).abs();
+    if final_amp >= thr {
+        amps.push(final_amp);
+    }
     if amps.is_empty() {
         return None;
     }
@@ -903,6 +1044,25 @@ mod tests {
         assert!((gmi_percent(100.0) - 5.702).abs() < 0.001);
         assert!((gmi_percent(200.0) - 8.094).abs() < 0.001);
         assert!((gmi_percent(300.0) - 10.486).abs() < 0.001);
+    }
+
+    /// uGMI matches the Bergenstal 2026 reference points: a mean of 86 mg/dL gives
+    /// 4.5% (the worked example on the Jaeb calculator) and 154 mg/dL stays at ~7.0%.
+    #[test]
+    fn updated_gmi_matches_reference_points() {
+        assert!(
+            (updated_gmi_percent(86.0) - 4.523).abs() < 0.005,
+            "uGMI(86) was {}",
+            updated_gmi_percent(86.0)
+        );
+        assert!(
+            (updated_gmi_percent(154.0) - 7.030).abs() < 0.005,
+            "uGMI(154) was {}",
+            updated_gmi_percent(154.0)
+        );
+        // It diverges from the 2018 GMI at the low end (where the realignment matters):
+        // GMI(100)=5.70 but uGMI(100)≈5.10.
+        assert!((updated_gmi_percent(100.0) - 5.099).abs() < 0.005);
     }
 
     /// Mean, SD and CV on a tiny known set.
@@ -1222,6 +1382,28 @@ mod tests {
         assert_eq!(bins.iter().map(|b| b.n).sum::<usize>(), 3);
     }
 
+    /// REGRESSION: the AGP percentile curves are smoothed across bins (the readable
+    /// envelope a clinical AGP shows), so a lone noisy bin can't render as a spike — yet
+    /// smoothing never invents data (empty bins stay empty, `n` is the true count) and it
+    /// wraps across midnight.
+    #[test]
+    fn agp_curves_are_smoothed_across_bins() {
+        // One reading per 15-min bin: all 100 except a single 200 at noon (bin 48) and a
+        // single 200 in the last bin (95), the latter to exercise the midnight wrap.
+        let rs: Vec<GlucoseReading> = (0..96)
+            .map(|k| at_ms(k as i64 * 15 * 60_000, if k == 48 || k == 95 { 200.0 } else { 100.0 }))
+            .collect();
+        let bins = agp_bins(&rs, 15, 0);
+        // The noon spike is pulled toward its 100-neighbours, not left standing at 200.
+        let noon = bins[48].p50.unwrap();
+        assert!(noon > 100.0 && noon < 140.0, "noon p50 smoothed to {noon}, not the raw 200");
+        // Smoothing wraps midnight: bin 0 is influenced by the 200 in the last bin.
+        assert!(bins[0].p50.unwrap() > 100.0, "bin 0 reflects the wrapped neighbour");
+        // A bin far from any spike is unchanged, and the true counts are preserved.
+        assert!((bins[24].p50.unwrap() - 100.0).abs() < 1e-9, "quiet bin unchanged");
+        assert_eq!(bins.iter().map(|b| b.n).sum::<usize>(), 96); // one reading per bin, true counts
+    }
+
     /// Time-of-day patterns bucket by local hour into the four standard periods.
     #[test]
     fn time_of_day_patterns_split_by_local_hour() {
@@ -1260,6 +1442,81 @@ mod tests {
         assert!(close(mage(&osc).unwrap(), 50.0));
         // Flat data → SD 0 → no excursion.
         assert_eq!(mage(&[at(0, 100.0), at(5, 100.0), at(10, 100.0)]), None);
+    }
+
+    /// REGRESSION (validation finding #1): sub-SD measurement noise on densely-sampled
+    /// data must NOT suppress a real excursion. A ±50 triangle (peak-to-trough ~100,
+    /// SD ~29) carrying ±7 alternating noise puts a turning point at nearly every sample;
+    /// the old adjacent-turning-point MAGE fragmented that into sub-SD pieces and returned
+    /// `None`, while the *same signal* sampled coarsely returned a value. The zigzag MAGE
+    /// must recover the ~100 excursion regardless of cadence.
+    #[test]
+    fn mage_is_robust_to_sub_sd_noise_at_fine_cadence() {
+        let mut bases: Vec<f64> = Vec::new();
+        for _ in 0..2 {
+            for s in 0..20 {
+                bases.push(100.0 + s as f64 * 5.0); // rising 100 → 195
+            }
+            for s in 0..20 {
+                bases.push(200.0 - s as f64 * 5.0); // falling 200 → 105
+            }
+        }
+        let v: Vec<GlucoseReading> = bases
+            .iter()
+            .enumerate()
+            .map(|(k, &b)| at_ms(k as i64 * 60_000, b + if k % 2 == 0 { 7.0 } else { -7.0 }))
+            .collect();
+        let m = mage(&v).expect("sub-SD noise must not suppress a real excursion");
+        assert!((m - 100.0).abs() < 25.0, "MAGE should recover the ~100 excursion, got {m}");
+        // And the same MAGE is recoverable when that signal is decimated 5× (coarser
+        // cadence) — i.e. the metric is not an artefact of sampling density.
+        let coarse: Vec<GlucoseReading> = v.iter().step_by(5).copied().collect();
+        assert!(mage(&coarse).is_some(), "coarse sampling of the same signal also yields MAGE");
+    }
+
+    /// REGRESSION (validation finding #2): time-weighting equals count-weighting for clean
+    /// uniform sampling (so ordinary CGM users see no change), but is NOT dragged off by a
+    /// dense burst the way the count-based mean is — the unbiased basis for the A1c
+    /// estimate under non-uniform sampling.
+    #[test]
+    fn time_weighted_mean_ignores_dense_bursts_but_matches_uniform() {
+        // (a) Uniform 5-min ramp → time-weighted mean ≈ count mean.
+        let uniform: Vec<_> = (0..20).map(|i| at(i * 5, 80.0 + i as f64 * 4.0)).collect();
+        let tw = time_weighted_stats(&uniform, DEFAULT_MAX_GAP_MS).unwrap();
+        let count = mean_mgdl(&uniform).unwrap();
+        assert!((tw.mean_mgdl - count).abs() < 0.5, "uniform: tw {} vs count {count}", tw.mean_mgdl);
+
+        // (b) An hour of 1-min readings at 100, plus a 20-second burst of 200 at the
+        // half-hour. The count mean is dragged far above 100; the time-weighted mean,
+        // which the burst barely moves (it owns ~20 s of the hour), stays ~100.
+        let mut burst = uniform_minute_series(60, 100.0);
+        let base = 30 * 60_000;
+        for s in 0..200 {
+            burst.push(at_ms(base + s * 100, 200.0)); // 200 readings over 20 s
+        }
+        let cm = mean_mgdl(&burst).unwrap();
+        let twb = time_weighted_stats(&burst, DEFAULT_MAX_GAP_MS).unwrap();
+        assert!(cm > 150.0, "count mean is dragged up by the burst: {cm}");
+        assert!((twb.mean_mgdl - 100.0).abs() < 6.0, "time-weighted resists the burst: {}", twb.mean_mgdl);
+    }
+
+    /// Time-weighting needs a short-enough interval to accrue: a single reading or a pair
+    /// separated by more than `max_gap` yields `None`, so callers fall back to the count.
+    #[test]
+    fn time_weighted_stats_need_an_interval_within_max_gap() {
+        assert_eq!(time_weighted_stats(&[at(0, 100.0)], DEFAULT_MAX_GAP_MS), None);
+        let gapped = [at(0, 100.0), at(60, 200.0)]; // 60-min gap > 15-min cap
+        assert_eq!(time_weighted_stats(&gapped, DEFAULT_MAX_GAP_MS), None);
+        // Duplicate timestamps (dt = 0) accrue nothing either.
+        assert_eq!(
+            time_weighted_stats(&[at_ms(0, 100.0), at_ms(0, 200.0)], DEFAULT_MAX_GAP_MS),
+            None
+        );
+    }
+
+    /// `n` one-minute-apart readings all at `mgdl`.
+    fn uniform_minute_series(n: i64, mgdl: f64) -> Vec<GlucoseReading> {
+        (0..n).map(|i| at_ms(i * 60_000, mgdl)).collect()
     }
 
     /// CONGA(1h) is the **sample** SD of the n-hour differences, matched gap-tolerantly.

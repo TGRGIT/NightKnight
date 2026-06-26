@@ -26,7 +26,8 @@ pub mod sql;
 use serde_json::Value;
 
 pub use model::{
-    Collection, ConnectorCredential, DeviceToken, DocQuery, Param, StoredDoc, User, WriteOutcome,
+    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Param, StoredDoc, User,
+    WriteOutcome,
 };
 
 /// A storage failure. Backends map their native errors into these variants so the
@@ -90,6 +91,18 @@ pub trait Storage {
 
     /// Latest server-modification time for a user's collection (`None` if empty).
     async fn last_modified(&self, c: Collection, user_id: &str) -> Result<Option<i64>>;
+
+    /// Per-local-day reading counts (newest day first) for a collection and document
+    /// type, bucketed in the given UTC offset (minutes east of UTC, as milliseconds).
+    /// Aggregates on the indexed `mills` column only, so it scales to thousands of days
+    /// without loading document bodies — the basis for the data-coverage view.
+    async fn daily_counts(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        tz_offset_ms: i64,
+    ) -> Result<Vec<DayCount>>;
 
     /// Documents changed since `since_srv_modified` (oldest first, capped at `limit`),
     /// including soft-deleted ones so clients learn about deletions.
@@ -215,6 +228,17 @@ pub fn device_token_from_cols(
         revoked: revoked != 0,
         legacy_hash,
     })
+}
+
+/// Build a [`DayCount`] from extracted aggregate column values (`day, n, first_ms,
+/// last_ms` order — matching [`sql::daily_counts`](crate::sql::daily_counts)).
+pub fn day_count_from_cols(day_index: i64, n: i64, first_ms: i64, last_ms: i64) -> DayCount {
+    DayCount {
+        day_index,
+        n,
+        first_ms,
+        last_ms,
+    }
 }
 
 /// Build a [`ConnectorCredential`] from extracted column values (in `CRED_COLS` order).

@@ -106,7 +106,8 @@ struct APIClient {
                 })
         } ?? EpisodesInfo(low: emptyStat, veryLow: emptyStat, high: emptyStat, veryHigh: emptyStat, recent: [])
         return GlucoseAnalytics(
-            n: d.n, meanMgdl: d.meanMgdl, sdMgdl: d.sdMgdl, gmiPercent: d.gmiPercent,
+            n: d.n, meanMgdl: d.meanMgdl, sdMgdl: d.sdMgdl, uGmiPercent: d.uGmiPercent,
+            gmiPercent: d.gmiPercent,
             estimatedA1cPercent: d.estimatedA1cPercent, cvPercent: d.cvPercent,
             veryLowPct: d.timeInRange.veryLowPct, lowPct: d.timeInRange.lowPct,
             inRangePct: d.timeInRange.inRangePct, highPct: d.timeInRange.highPct,
@@ -134,7 +135,10 @@ struct APIClient {
     private struct EntriesEnvelope: Decodable { let entries: [EntryDTO] }
     private struct EntryDTO: Decodable { let date: Int64; let mgdl: Double }
     private struct AnalyticsDTO: Decodable {
-        let n: Int; let meanMgdl: Double?; let sdMgdl: Double?; let gmiPercent: Double?
+        let n: Int; let meanMgdl: Double?; let sdMgdl: Double?
+        // Optional so an older server (pre-uGMI) still decodes — uGMI just shows "--".
+        let uGmiPercent: Double?
+        let gmiPercent: Double?
         let estimatedA1cPercent: Double?; let cvPercent: Double?; let timeInRange: TIRDTO
         // Optional so an older server (no Statistical-Analysis block) still decodes.
         let coverage: CoverageDTO?; let gri: GriDTO?; let variability: VarDTO?

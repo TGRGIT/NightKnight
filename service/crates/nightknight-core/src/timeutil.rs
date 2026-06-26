@@ -148,6 +148,18 @@ pub fn weekday(ms: i64, utc_offset_min: i64) -> i64 {
     (day_number(ms, utc_offset_min) + 4).rem_euclid(7)
 }
 
+/// The civil `(year, month, day)` for a whole-day count since 1970-01-01 — the inverse
+/// of [`day_number`]. Pair them to label a day bucket: `ymd_from_day_number(day_number(ms, off))`.
+pub fn ymd_from_day_number(day: i64) -> (i64, i64, i64) {
+    civil_from_days(day)
+}
+
+/// Format a local day-number (days since 1970-01-01) as a bare `YYYY-MM-DD` date.
+pub fn date_string_from_day_number(day: i64) -> String {
+    let (y, m, d) = civil_from_days(day);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Format epoch milliseconds (UTC) as `YYYY-MM-DDTHH:MM:SS.fffZ`.
 pub fn to_iso8601_ms(ms: i64) -> String {
     let (days, mut rem) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));

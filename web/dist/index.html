@@ -20,6 +20,7 @@
         <nav class="tabs" role="tablist" aria-label="Sections">
           <button class="tab is-active" data-view="dashboard" role="tab">Dashboard</button>
           <button class="tab" data-view="analysis" role="tab">Analysis</button>
+          <button class="tab" data-view="data" role="tab">Data</button>
           <button class="tab" data-view="settings" role="tab">Settings</button>
         </nav>
       </div>
@@ -141,6 +142,40 @@
       </div>
 
       <p class="disclaimer">Not a medical device. These metrics are estimates for personal insight, not a basis for treatment decisions.</p>
+    </main>
+
+    <!-- ░░ DATA COVERAGE ░░ -->
+    <main class="layout single" data-page="data" hidden>
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Data coverage</h1>
+          <p class="page-sub">Every day that has readings — confirm your history imported, and spot the gaps.</p>
+        </div>
+      </div>
+
+      <div class="metric-grid data-summary" id="data-summary"></div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Calendar</h2>
+          <div class="seg cal-mode-toggle" role="group" aria-label="Calendar colouring">
+            <button data-mode="coverage" class="seg-btn is-active">Coverage</button>
+            <button data-mode="glucose" class="seg-btn">Avg glucose</button>
+          </div>
+        </div>
+        <div id="data-calendar" class="cal-wrap"></div>
+        <div id="cal-legend" class="cal-legend"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>By day</h2>
+          <span class="caption" id="data-days-caption"></span>
+        </div>
+        <div id="data-days" class="day-list"></div>
+      </section>
+
+      <p class="disclaimer" id="data-note"></p>
     </main>
 
     <!-- ░░ SETTINGS ░░ -->

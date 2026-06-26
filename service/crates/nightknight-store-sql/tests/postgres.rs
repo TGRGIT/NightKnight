@@ -106,5 +106,28 @@ async fn postgres_parity() {
     assert!(store.get_device_token_by_hash(&format!("lh-{now}")).await.unwrap().is_some());
     assert!(store.revoke_device_token(&user, &format!("tok-{now}")).await.unwrap());
 
+    // Daily-count aggregation must behave identically on Postgres — the `/days` view
+    // relies on the integer day-bucket expression dividing the same way as SQLite/D1.
+    const DAY_MS: i64 = 86_400_000;
+    let dayuser = format!("pg-days-{now}");
+    let base = 19_000 * DAY_MS; // a fixed, far-future-proof day so buckets are stable
+    for (i, t) in [base + 1_000, base + 2_000, base + DAY_MS + 5_000].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc(&dayuser, &format!("d{i}"), *t, 120, now))
+            .await
+            .unwrap();
+    }
+    let days = store
+        .daily_counts(Collection::Entries, &dayuser, "sgv", 0)
+        .await
+        .unwrap();
+    assert_eq!(days.len(), 2, "two distinct days on Postgres");
+    assert_eq!(days[0].day_index, 19_001, "newest day first, correct bucket");
+    assert_eq!(days[0].n, 1);
+    assert_eq!(days[1].day_index, 19_000);
+    assert_eq!(days[1].n, 2);
+    assert_eq!(days[1].first_ms, base + 1_000);
+    assert_eq!(days[1].last_ms, base + 2_000);
+
     eprintln!("postgres_parity passed against {url}");
 }
