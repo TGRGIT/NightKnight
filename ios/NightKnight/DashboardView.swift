@@ -52,7 +52,8 @@ final class DashboardModel {
 }
 
 struct DashboardView: View {
-    @State private var model = DashboardModel()
+    /// Owned by `RootTabView` so the launch splash can watch for the first live reading.
+    @Bindable var model: DashboardModel
     private var unit: GlucoseUnit { model.settings.preferredUnit }
     private let metricCols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
@@ -71,7 +72,7 @@ struct DashboardView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    NightKnightLogo(height: 34)
+                    NightKnightLogo(height: 40)
                         .accessibilityLabel("NightKnight")
                 }
                 ToolbarItem(placement: .topBarLeading) { alarmButton }
