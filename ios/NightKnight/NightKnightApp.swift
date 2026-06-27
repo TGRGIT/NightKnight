@@ -127,29 +127,104 @@ struct RootTabView: View {
         #endif
     }()
 
-    var body: some View {
-        TabView(selection: $selection) {
-            DashboardView()
-                .tabItem { Label("Dashboard", systemImage: "waveform.path.ecg") }
-                .tag(0)
-            AnalysisView()
-                .tabItem { Label("Analysis", systemImage: "chart.bar.xaxis") }
-                .tag(1)
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(2)
-        }
-        .tint(Color.nkAccent)
+    /// Owned here (not inside `DashboardView`) so the launch splash can observe when the
+    /// first live reading lands and dismiss itself.
+    @State private var model = DashboardModel()
+
+    /// The branded launch splash covers the tabs until the live glucose stat is loaded.
+    /// Skipped in demo/screenshot mode so App Store captures stay deterministic.
+    @State private var showSplash: Bool = {
         #if DEBUG
-        // Preview recording: walk Dashboard → Analysis → Settings → Dashboard.
-        .task {
-            guard Demo.autoplay else { return }
-            let plan: [(Double, Int)] = [(10, 1), (9, 2), (6, 0)]
-            for (dwell, tab) in plan {
-                try? await Task.sleep(for: .seconds(dwell))
-                withAnimation { selection = tab }
+        return !Demo.isEnabled
+        #else
+        return true
+        #endif
+    }()
+
+    var body: some View {
+        ZStack {
+            TabView(selection: $selection) {
+                DashboardView(model: model)
+                    .tabItem { Label("Dashboard", systemImage: "waveform.path.ecg") }
+                    .tag(0)
+                AnalysisView()
+                    .tabItem { Label("Analysis", systemImage: "chart.bar.xaxis") }
+                    .tag(1)
+                SettingsView()
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(2)
+            }
+            .tint(Color.nkAccent)
+            #if DEBUG
+            // Preview recording: walk Dashboard → Analysis → Settings → Dashboard.
+            .task {
+                guard Demo.autoplay else { return }
+                let plan: [(Double, Int)] = [(10, 1), (9, 2), (6, 0)]
+                for (dwell, tab) in plan {
+                    try? await Task.sleep(for: .seconds(dwell))
+                    withAnimation { selection = tab }
+                }
+            }
+            #endif
+
+            if showSplash {
+                SplashView()
+                    .transition(.opacity)
+                    .zIndex(1)
             }
         }
-        #endif
+        // Dismiss once the live reading loads — or as soon as the dashboard surfaces an
+        // error (e.g. not configured yet), so a new or offline user isn't trapped here.
+        .onChange(of: model.current?.date) { dismissSplash() }
+        .onChange(of: model.errorText) { dismissSplash() }
+        // Safety net: never let the splash outlive a slow or stalled first fetch.
+        .task {
+            try? await Task.sleep(for: .seconds(10))
+            hideSplash()
+        }
+    }
+
+    private func dismissSplash() {
+        guard showSplash, model.current != nil || model.errorText != nil else { return }
+        hideSplash()
+    }
+
+    private func hideSplash() {
+        guard showSplash else { return }
+        withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
+    }
+}
+
+/// The branded launch screen: a large logo, a welcome line, and a "Loading data…"
+/// indicator shown until the dashboard's first live reading arrives (see `RootTabView`).
+struct SplashView: View {
+    var body: some View {
+        ZStack {
+            Color.nkInk.ignoresSafeArea()
+            VStack(spacing: 24) {
+                Spacer()
+                NightKnightLogo(height: 132)
+                    .shadow(color: Color.nkAccent.opacity(0.25), radius: 24)
+                VStack(spacing: 8) {
+                    Text("NightKnight")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                    Text("Keeping watch over your glucose")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    ProgressView().tint(Color.nkAccent)
+                    Text("Loading data…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 56)
+            }
+            .padding(.horizontal, 32)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("NightKnight. Loading data.")
     }
 }
