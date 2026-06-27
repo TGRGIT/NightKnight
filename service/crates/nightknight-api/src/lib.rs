@@ -613,22 +613,32 @@ impl<S: Storage> ApiService<S> {
                 .fetch_before(http, before, NS_PAGE)
                 .await
                 .map_err(|e| ApiError::Internal(e.to_string()))?;
-            match page.iter().map(|s| s.date_ms).min() {
-                // Advance the cursor to this page's oldest reading (next page fetches
-                // strictly older); a short/empty page means we've hit the start of history.
-                Some(oldest) => {
+            // Advance the cursor so the NEXT tick fetches strictly-older records. Prefer the
+            // oldest USABLE sample; fall back to the oldest RAW record date so a full page
+            // that filtered down to nothing (all error codes / missing dates) still makes
+            // progress instead of stalling on the same page.
+            let advance_to = page.samples.iter().map(|s| s.date_ms).min().or(page.raw_min_date);
+            match advance_to {
+                Some(oldest) if oldest < before => {
                     creds["bfCursor"] = json!(oldest);
-                    if (page.len() as i64) < NS_PAGE {
-                        creds["bfDone"] = json!(true);
-                    }
-                    samples.extend(page);
                     cursor_changed = true;
                 }
-                None => {
+                _ => {
+                    // No older cursor target — can't guarantee forward progress, so stop
+                    // here rather than refetch the same page forever.
                     creds["bfDone"] = json!(true);
                     cursor_changed = true;
                 }
             }
+            // End of history is a short RAW page (the server returned fewer than a full
+            // page) — NOT a full page that merely filtered down to fewer usable samples.
+            // Using the filtered count here would let a single dropped row (an sgv≤0 error
+            // code) abandon every older reading.
+            if (page.raw_len as i64) < NS_PAGE {
+                creds["bfDone"] = json!(true);
+                cursor_changed = true;
+            }
+            samples.extend(page.samples);
         }
 
         // 3. Ingest everything resiliently (skips dirty rows, dedups overlap). The report's

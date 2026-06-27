@@ -350,6 +350,51 @@ async fn days_view_lists_coverage_and_recent_stats() {
     assert!(b["windowStats"]["uGmiPercent"].is_number());
 }
 
+/// REGRESSION (issue #17 follow-up, PR #28): per-day coverage must be judged against
+/// **each day's own** sensor cadence, not one global rate. A genuinely complete day on a
+/// slower sensor (5-min, n≈288) imported alongside a faster recent era (1-min, ≈1440/day)
+/// used to render at ~20% coverage (288/1440) — lightest band, dragging down the average —
+/// even though the day was fully covered. It must now expect ~288 and read ~100%.
+#[tokio::test]
+async fn days_view_coverage_is_per_day_not_a_global_cadence() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+
+    // An older full day on a 5-minute sensor: 288 readings across one UTC day.
+    let old_base = 19_670 * DAY_MS;
+    let mut entries: Vec<Value> = (0..288)
+        .map(|i| json!({ "type": "sgv", "date": old_base + i * 5 * 60_000, "sgv": 120, "device": "dex" }))
+        .collect();
+    // A recent day on a 1-minute sensor, dense enough that the *global* inferred cadence is
+    // 1-min (≈1440/day) — the value the old code wrongly applied to every day.
+    let new_base = 19_675 * DAY_MS;
+    entries.extend((0..400).map(|i| {
+        json!({ "type": "sgv", "date": new_base + i * 60_000, "sgv": 120, "device": "libre" })
+    }));
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+
+    let b = body_json(
+        &svc.handle(request("GET", "/api/v4/days?tzOffset=0", &[], Value::Null), NOW, edge).await,
+    );
+    // The global cadence is the fast (recent) 1-minute rate — the trap the old code fell in.
+    assert_eq!(b["cadenceMs"], 60_000, "global cadence inferred as the recent 1-min era");
+    assert_eq!(b["expectedPerDay"], 1440, "global expectation is the fast 1-min rate");
+
+    let days = b["days"].as_array().unwrap();
+    let old_day = days.iter().find(|d| d["n"] == 288).expect("the 5-min day is listed");
+    let new_day = days.iter().find(|d| d["n"] == 400).expect("the 1-min day is listed");
+
+    // The old day carries its OWN expectation (~288), so it reads as fully covered — not
+    // the ~20% it showed when divided by the global 1440.
+    assert_eq!(old_day["expectedPerDay"], 288, "5-min day expects ~288, not the global 1440");
+    let old_cov = old_day["n"].as_f64().unwrap() / old_day["expectedPerDay"].as_f64().unwrap();
+    assert!(old_cov >= 0.95, "a complete 5-min day reads ~100% covered, got {old_cov}");
+
+    // The recent day keeps the 1-min expectation (a partial day reads as partial coverage).
+    assert_eq!(new_day["expectedPerDay"], 1440, "1-min day keeps its own fast expectation");
+}
+
 /// REGRESSION (validation finding #3): "% time active" must use the device's actual
 /// cadence, not a hardcoded 5 minutes. A flawless 14-day FreeStyle Libre (15-min historic
 /// cadence) used to read ~33% active and "limited data"; it must now read ~100% / sufficient.
@@ -973,6 +1018,142 @@ async fn nightscout_backfill_walks_full_history() {
     assert_eq!(body_json(&entries).as_array().unwrap().len(), 2500, "whole history imported");
 }
 
+/// REGRESSION (issue #17): a v1 upload batch must be resilient — one invalid reading in
+/// the middle must not abort the import and discard every good reading after it. A backfill
+/// from xDrip+/Loop/Trio can carry the odd dirty row; fail-fast here silently truncated the
+/// whole upload at the first bad record.
+#[tokio::test]
+async fn v1_post_batch_skips_bad_rows_keeps_the_rest() {
+    let svc = service().await;
+    let edge = Some(human("uploader@cooney.be"));
+    // Good, BAD (implausible glucose), good — the bad one sits between two valid readings.
+    let batch = json!([
+        { "type": "sgv", "date": NOW - 60_000, "sgv": 120, "device": "x" },
+        { "type": "sgv", "date": NOW - 120_000, "sgv": 9999, "device": "x" },
+        { "type": "sgv", "date": NOW - 180_000, "sgv": 110, "device": "x" },
+    ]);
+    let resp = svc.handle(request("POST", "/api/v1/entries", &[], batch), NOW, edge.clone()).await;
+    assert_eq!(resp.status, 200, "the batch is accepted even with one bad row");
+    assert_eq!(
+        body_json(&resp).as_array().unwrap().len(),
+        2,
+        "both good readings are stored and returned; only the bad one is dropped"
+    );
+
+    // Both good readings are queryable; the implausible one never landed.
+    let got = svc
+        .handle(request("GET", "/api/v1/entries?count=10", &[], Value::Null), NOW, edge)
+        .await;
+    let arr = body_json(&got);
+    let arr = arr.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "exactly the two valid readings persisted");
+    assert!(arr.iter().all(|e| e["sgv"].as_i64() != Some(9999)), "the bad reading was skipped");
+}
+
+/// A single bad document (not a batch) still returns its error, so a client posting one
+/// malformed reading gets honest feedback rather than a silent 200.
+#[tokio::test]
+async fn v1_post_single_bad_doc_still_errors() {
+    let svc = service().await;
+    let edge = Some(human("uploader2@cooney.be"));
+    let resp = svc
+        .handle(
+            request("POST", "/api/v1/entries", &[],
+                json!({ "type": "sgv", "date": NOW - 60_000, "sgv": 9999, "device": "x" })),
+            NOW, edge,
+        )
+        .await;
+    assert_eq!(resp.status, 400, "a lone invalid reading is rejected, not silently accepted");
+}
+
+/// Like [`MockNsHistory`] but salts every page with `sgv: 0` error-code rows (which the
+/// parser drops). So a FULL raw page of `count` records yields fewer than `count` usable
+/// samples — exactly the shape that used to make the backfill mistake a filtered page for
+/// the end of history and abandon all older readings.
+struct MockNsDirty {
+    total: i64,
+    base_ms: i64,
+}
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockNsDirty {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        let count = url_int(&req.url, "count=").unwrap_or(10);
+        let before = url_int(&req.url, "find%5Bdate%5D%5B%24lt%5D=").unwrap_or(i64::MAX);
+        // Serve up to `count` RAW records older than the cursor, newest-first. Every 100th
+        // record is an sgv=0 error code (kept in the raw array, dropped on parse) — so a
+        // full page still carries `count` raw records but fewer usable samples.
+        let mut items = Vec::new();
+        let mut i = 0i64;
+        while i < self.total && (items.len() as i64) < count {
+            let d = self.base_ms - i * 60_000;
+            if d < before {
+                let sgv = if i % 100 == 0 { 0 } else { 120 };
+                items.push(format!(r#"{{"type":"sgv","date":{d},"sgv":{sgv},"device":"ns"}}"#));
+            }
+            i += 1;
+        }
+        let body = format!("[{}]", items.join(",")).into_bytes();
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// REGRESSION (issue #17): the backfill must terminate on the RAW page size, not the
+/// post-filter sample count. A single dropped row (an `sgv ≤ 0` error code) inside an
+/// otherwise-full page used to look like end-of-history — the walk set `bfDone` after the
+/// first page and silently abandoned every older reading (the user's "I had more data in
+/// March" report). With the fix, the walk continues until the server returns a short raw
+/// page, so the whole valid history imports despite the dropped rows.
+#[tokio::test]
+async fn nightscout_backfill_survives_filtered_full_pages() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([7u8; 32]));
+    let edge = Some(human("dirtyuser@cooney.be"));
+    svc.handle(
+        request("PUT", "/api/v4/connectors/nightscout", &[],
+            json!({ "url": "https://ns.example.com", "secret": "s" })),
+        NOW, edge.clone(),
+    ).await;
+
+    // 2500 records spanning >1 page; every 100th is an error code → 25 dropped, 2475 valid.
+    let src = MockNsDirty { total: 2500, base_ms: NOW - 60_000 };
+
+    // Walk the backfill to completion. Each tick advances one page; the first page is a
+    // FULL raw page that filtered down to fewer samples — the old code stopped right here.
+    let mut total = 0usize;
+    for _ in 0..5 {
+        total += svc.sync_connectors(&src, 60, NOW).await.unwrap();
+    }
+    assert_eq!(total, 2475, "every valid reading imports despite the dropped error-code rows");
+
+    // The oldest valid record (index 2499) is present — proof the walk reached the start
+    // of history rather than stopping at the first filtered page.
+    let oldest_ms = (NOW - 60_000) - 2499 * 60_000;
+    let entries = svc
+        .handle(request("GET", "/api/v1/entries?count=5000", &[], Value::Null), NOW, edge)
+        .await;
+    let arr = body_json(&entries);
+    let arr = arr.as_array().unwrap();
+    assert_eq!(arr.len(), 2475, "the full valid history is stored");
+    assert!(
+        arr.iter().any(|e| e["date"].as_i64() == Some(oldest_ms)),
+        "the oldest reading made it in — the backfill did not stop at the first filtered page"
+    );
+}
+
+/// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).
+fn sha1_hex(s: &str) -> String {
+    use sha1::{Digest, Sha1};
+    let mut out = String::new();
+    for b in Sha1::digest(s.as_bytes()) {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
 /// A throwaway P-256 PKCS#8 key for exercising the APNs send path. It authenticates
 /// nothing real (no Apple-registered Key/Team ID), but it lets `provider_token` produce a
 /// genuine signed JWT so the silent-push request is built exactly as in production.
@@ -1399,12 +1580,3 @@ async fn no_apns_config_means_no_push_but_registration_still_works() {
     assert!(mock.apns_calls().is_empty(), "no APNs key → no push attempted");
 }
 
-/// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).
-fn sha1_hex(s: &str) -> String {
-    use sha1::{Digest, Sha1};
-    let mut out = String::new();
-    for b in Sha1::digest(s.as_bytes()) {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
-}
