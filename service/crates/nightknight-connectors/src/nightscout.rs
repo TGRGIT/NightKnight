@@ -47,13 +47,15 @@ pub fn read_url_before(base: &str, count: i64, before_ms: i64) -> String {
 
 impl NightscoutConnector {
     /// Fetch one history page: up to `count` readings older than `before_ms` (newest-first).
-    /// SSRF-guarded and redirect-refusing exactly like [`fetch_recent`](NightscoutConnector::fetch_recent).
+    /// Returns a [`HistoryPage`] so the caller can paginate on the **raw** page size rather
+    /// than the filtered sample count (see [`HistoryPage`]). SSRF-guarded and
+    /// redirect-refusing exactly like [`fetch_recent`](NightscoutConnector::fetch_recent).
     pub async fn fetch_before(
         &self,
         http: Http<'_>,
         before_ms: i64,
         count: i64,
-    ) -> Result<Vec<CgmSample>, ConnectorError> {
+    ) -> Result<HistoryPage, ConnectorError> {
         if !is_safe_base(&self.base_url) {
             return Err(ConnectorError::Protocol(
                 "nightscout url must be https to a public host".into(),
@@ -67,7 +69,7 @@ impl NightscoutConnector {
                 resp.status
             )));
         }
-        parse_entries(&resp.body)
+        parse_history_page(&resp.body)
     }
 }
 
@@ -133,16 +135,46 @@ fn headers(secret: &str) -> Vec<(String, String)> {
     ]
 }
 
-/// Parse a Nightscout `/entries` JSON array into [`CgmSample`]s. Non-`sgv` records and
-/// any reading without a plausible numeric `sgv` + `date` are skipped. The source `_id`
-/// is intentionally dropped so our `date|type|device` dedup owns re-imports.
-pub fn parse_entries(body: &[u8]) -> Result<Vec<CgmSample>, ConnectorError> {
+/// A parsed history page plus the raw bookkeeping the backward backfill needs to
+/// paginate correctly: how many records the server actually returned **before** the
+/// `sgv`/`date` filtering below, and the oldest raw `date` seen.
+///
+/// The distinction matters: the backfill walks history one fixed-size page at a time and
+/// must decide "have I reached the start of history?". That answer is "the server returned
+/// fewer than a full page", which is a property of the **raw** array — *not* of the
+/// filtered sample count. A single dropped row (an `sgv ≤ 0` error code, a record missing
+/// `date`) inside an otherwise-full page would shrink `samples` below the requested count
+/// and, if used as the stop signal, look like end-of-history — silently abandoning every
+/// older reading. `raw_min_date` lets the cursor advance past a page even when it filtered
+/// down to nothing, so an all-error-code page can't stall the walk either.
+pub struct HistoryPage {
+    /// The usable readings parsed from the page.
+    pub samples: Vec<CgmSample>,
+    /// Number of records in the server's JSON array, before any filtering.
+    pub raw_len: usize,
+    /// Oldest `date` (epoch ms) across **all** raw records, including ones that didn't
+    /// yield a usable sample. `None` if no record carried a numeric `date`.
+    pub raw_min_date: Option<i64>,
+}
+
+/// Parse a Nightscout `/entries` JSON array into a [`HistoryPage`] — the usable
+/// [`CgmSample`]s plus the raw page bookkeeping (see [`HistoryPage`]). Non-`sgv` records
+/// and any reading without a plausible numeric `sgv` + `date` are skipped. The source
+/// `_id` is intentionally dropped so our `date|type|device` dedup owns re-imports.
+pub fn parse_history_page(body: &[u8]) -> Result<HistoryPage, ConnectorError> {
     let v: Value = serde_json::from_slice(body).map_err(|e| ConnectorError::Parse(e.to_string()))?;
     let arr = v
         .as_array()
         .ok_or_else(|| ConnectorError::Parse("expected a JSON array of entries".into()))?;
+    let raw_len = arr.len();
+    let mut raw_min_date: Option<i64> = None;
     let mut out = Vec::with_capacity(arr.len());
     for it in arr {
+        // Track the oldest raw timestamp regardless of whether the record yields a sample,
+        // so the cursor can always advance past this page (even an all-filtered one).
+        if let Some(d) = it.get("date").and_then(|v| v.as_i64()) {
+            raw_min_date = Some(raw_min_date.map_or(d, |m| m.min(d)));
+        }
         if let Some(t) = it.get("type").and_then(|t| t.as_str()) {
             if t != "sgv" {
                 continue; // skip cal/mbg/etc.
@@ -171,7 +203,13 @@ pub fn parse_entries(body: &[u8]) -> Result<Vec<CgmSample>, ConnectorError> {
             .to_string();
         out.push(CgmSample { date_ms, mgdl, direction, device });
     }
-    Ok(out)
+    Ok(HistoryPage { samples: out, raw_len, raw_min_date })
+}
+
+/// Parse a Nightscout `/entries` JSON array into [`CgmSample`]s, discarding the raw page
+/// bookkeeping. Used by the recent-window pull, where the caller doesn't paginate.
+pub fn parse_entries(body: &[u8]) -> Result<Vec<CgmSample>, ConnectorError> {
+    Ok(parse_history_page(body)?.samples)
 }
 
 /// A configured Nightscout source connector (origin URL + api-secret).
@@ -307,5 +345,42 @@ mod tests {
         assert_eq!(parse_entries(b"[]").unwrap().len(), 0);
         assert!(parse_entries(b"not json").is_err());
         assert!(parse_entries(b"{\"not\":\"an array\"}").is_err());
+    }
+
+    /// The history page reports the RAW record count (before filtering) and the oldest raw
+    /// `date`, so the backfill can tell "a full page that filtered down" from "a short page
+    /// (end of history)". The payload has 4 raw records but only 2 usable sgv samples; the
+    /// page must report `raw_len == 4`, not 2 — otherwise one error-coded row anywhere in a
+    /// full backfill page would look like end-of-history and abandon all older readings.
+    #[test]
+    fn history_page_reports_raw_count_and_oldest_date() {
+        let body = br#"[
+            {"type":"sgv","date":1782404097000,"sgv":91,"device":"d"},
+            {"type":"sgv","date":1782403977000,"sgv":90,"device":"d"},
+            {"type":"cal","date":1782403900000,"sgv":0},
+            {"type":"sgv","date":1782403800000,"sgv":0}
+        ]"#;
+        let page = parse_history_page(body).unwrap();
+        assert_eq!(page.raw_len, 4, "raw count counts every record, before filtering");
+        assert_eq!(page.samples.len(), 2, "only the two real sgv readings are usable");
+        assert_eq!(
+            page.raw_min_date,
+            Some(1782403800000),
+            "oldest raw date includes the filtered-out rows, so the cursor can still advance"
+        );
+    }
+
+    /// A page whose rows are ALL error codes / non-sgv still surfaces a non-empty raw count
+    /// and an oldest date, so the backfill advances past it instead of stalling forever.
+    #[test]
+    fn all_filtered_page_still_reports_raw_progress() {
+        let body = br#"[
+            {"type":"sgv","date":1782403900000,"sgv":0},
+            {"type":"cal","date":1782403800000,"sgv":0}
+        ]"#;
+        let page = parse_history_page(body).unwrap();
+        assert_eq!(page.raw_len, 2);
+        assert!(page.samples.is_empty());
+        assert_eq!(page.raw_min_date, Some(1782403800000));
     }
 }
