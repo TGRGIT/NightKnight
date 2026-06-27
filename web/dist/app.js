@@ -19,8 +19,8 @@ const TREND_LABELS = {
 // that don't send `levelLabel`.
 function levelLabelFromMgdl(mgdl) {
   if (mgdl < 54) return "Urgent low";
-  if (mgdl < LOW) return "Low";
-  if (mgdl <= HIGH) return "In range";
+  if (mgdl < state.targetLow) return "Low";
+  if (mgdl <= state.targetHigh) return "In range";
   if (mgdl <= 250) return "High";
   return "Urgent high";
 }
