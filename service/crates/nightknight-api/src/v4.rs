@@ -30,7 +30,7 @@ use nightknight_core::timeutil;
 use nightknight_core::trend::{self, Direction};
 use nightknight_core::units::GlucoseUnit;
 use nightknight_storage::{
-    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Storage, StoredDoc,
+    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, PushToken, Storage, StoredDoc,
 };
 
 use super::{ApiError, ApiRequest, ApiResponse, ApiService, EdgeIdentity, Principal};
@@ -103,6 +103,12 @@ impl<S: Storage> ApiService<S> {
             }
             (Method::Delete, ["connectors", provider]) => {
                 self.v4_delete_connector(&principal, provider).await
+            }
+            (Method::Post, ["push", "register"]) => {
+                self.v4_push_register(req, &principal, now_ms).await
+            }
+            (Method::Delete, ["push", "register"]) => {
+                self.v4_push_unregister(req, &principal).await
             }
             _ => Err(ApiError::NotFound),
         }
@@ -848,6 +854,71 @@ impl<S: Storage> ApiService<S> {
     ) -> Result<ApiResponse, ApiError> {
         principal.require(Permission::api("connectors", Action::Admin))?;
         if self.storage().delete_connector_credential(&principal.user.id, provider).await? {
+            Ok(ApiResponse::empty(204))
+        } else {
+            Err(ApiError::NotFound)
+        }
+    }
+
+    /// Register an APNs device token for **silent-push** background refresh, scoped to the
+    /// calling user. Idempotent: iOS re-POSTs its token on every launch and whenever iOS
+    /// rotates it, so a repeat registration updates the one row.
+    ///
+    /// Authorization is `entries:read` — deliberately the *follower* permission, not a
+    /// settings/tokens admin scope. The iOS app authenticates with a read-only device
+    /// token, and "register the device I'm reading on" is part of following; the write
+    /// only ever touches the caller's own rows, so a broader scope would just lock the
+    /// real client out. (Compare `/me`, which mutates the account and needs `settings:admin`.)
+    async fn v4_push_register(
+        &self,
+        req: &ApiRequest,
+        principal: &Principal,
+        now_ms: i64,
+    ) -> Result<ApiResponse, ApiError> {
+        principal.require(Permission::api("entries", Action::Read))?;
+        let body = req.body_json()?;
+        // An APNs device token is hex. Historically 32 bytes (64 hex chars); newer tokens
+        // can be longer, so accept a generous hex range and reject anything else outright —
+        // a malformed token would only ever yield `BadDeviceToken` from APNs.
+        let token = body
+            .get("token")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|t| t.len() >= 16 && t.len() <= 256 && t.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or_else(|| ApiError::BadRequest("token must be a hex APNs device token".into()))?;
+        // The device reports which APNs environment it minted the token under; anything but
+        // "production" is treated as sandbox (a development build's safe default).
+        let environment = match body.get("environment").and_then(|v| v.as_str()) {
+            Some("production") => "production",
+            _ => "sandbox",
+        };
+        let push = PushToken {
+            user_id: principal.user.id.clone(),
+            token: token.to_string(),
+            environment: environment.to_string(),
+            bundle_id: self.push_bundle_id(),
+            updated_at: now_ms,
+        };
+        self.storage.upsert_push_token(&push).await?;
+        Ok(ApiResponse::json(200, &json!({ "ok": true })))
+    }
+
+    /// Unregister a device token (on sign-out, or when the client drops it). Scoped to the
+    /// caller, so one user can never delete another's token.
+    async fn v4_push_unregister(
+        &self,
+        req: &ApiRequest,
+        principal: &Principal,
+    ) -> Result<ApiResponse, ApiError> {
+        principal.require(Permission::api("entries", Action::Read))?;
+        let body = req.body_json()?;
+        let token = body
+            .get("token")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .ok_or_else(|| ApiError::BadRequest("token is required".into()))?;
+        if self.storage.delete_push_token(&principal.user.id, token).await? {
             Ok(ApiResponse::empty(204))
         } else {
             Err(ApiError::NotFound)

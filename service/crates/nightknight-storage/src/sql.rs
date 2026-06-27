@@ -10,7 +10,7 @@
 use serde_json::Value;
 
 use crate::model::{
-    Collection, ConnectorCredential, DeviceToken, DocQuery, Param, StoredDoc, User,
+    Collection, ConnectorCredential, DeviceToken, DocQuery, Param, PushToken, StoredDoc, User,
 };
 
 /// Column list for document rows, in a fixed order shared by reads and writes.
@@ -22,6 +22,7 @@ const CRED_COLS: &str =
     "user_id,provider,enabled,secret_enc,region,created_at,updated_at,last_sync_at,last_status";
 const TOKEN_COLS: &str =
     "id,user_id,name,token_hash,scopes,created_at,last_used_at,revoked,legacy_hash";
+const PUSH_COLS: &str = "user_id,token,environment,bundle_id,updated_at";
 
 /// All DDL statements that build the schema, in order. Every statement is
 /// `IF NOT EXISTS`, so running them on each boot is a safe, idempotent migration.
@@ -63,6 +64,17 @@ pub fn schema_statements() -> Vec<String> {
             .to_string(),
         "CREATE INDEX IF NOT EXISTS idx_connector_enabled ON connector_credentials(enabled)"
             .to_string(),
+        // APNs device tokens for silent-push background refresh. One row per
+        // (user, device-token); the per-user index is the push scheduler's lookup.
+        "CREATE TABLE IF NOT EXISTS push_tokens (\
+            user_id TEXT NOT NULL, \
+            token TEXT NOT NULL, \
+            environment TEXT NOT NULL, \
+            bundle_id TEXT NOT NULL, \
+            updated_at BIGINT NOT NULL, \
+            PRIMARY KEY (user_id, token))"
+            .to_string(),
+        "CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id)".to_string(),
     ];
     for c in Collection::all() {
         let t = c.table();
@@ -411,5 +423,44 @@ pub fn update_connector_sync(
             Param::text(user_id),
             Param::text(provider),
         ],
+    )
+}
+
+// ----- push tokens ------------------------------------------------------------
+
+/// Register (or refresh) an APNs device token for a user. Re-registering the same token
+/// just updates its environment, bundle id and `updated_at` — iOS re-POSTs the token on
+/// every launch and whenever it rotates, so this must be idempotent.
+pub fn upsert_push_token(t: &PushToken) -> (String, Vec<Param>) {
+    let sql = format!(
+        "INSERT INTO push_tokens ({PUSH_COLS}) VALUES (?,?,?,?,?) \
+         ON CONFLICT(user_id, token) DO UPDATE SET \
+            environment=excluded.environment, bundle_id=excluded.bundle_id, \
+            updated_at=excluded.updated_at"
+    );
+    let params = vec![
+        Param::text(&t.user_id),
+        Param::text(&t.token),
+        Param::text(&t.environment),
+        Param::text(&t.bundle_id),
+        Param::Int(t.updated_at),
+    ];
+    (sql, params)
+}
+
+/// Every device token registered by a user — the push scheduler's send list.
+pub fn list_push_tokens(user_id: &str) -> (String, Vec<Param>) {
+    (
+        format!("SELECT {PUSH_COLS} FROM push_tokens WHERE user_id=? ORDER BY updated_at DESC"),
+        vec![Param::text(user_id)],
+    )
+}
+
+/// Remove one of a user's device tokens — on explicit sign-out, or when APNs reports it
+/// as `410 Unregistered`.
+pub fn delete_push_token(user_id: &str, token: &str) -> (String, Vec<Param>) {
+    (
+        "DELETE FROM push_tokens WHERE user_id=? AND token=?".to_string(),
+        vec![Param::text(user_id), Param::text(token)],
     )
 }

@@ -14,9 +14,10 @@ use worker::wasm_bindgen::JsValue;
 use worker::D1Database;
 
 use nightknight_storage::{
-    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param, sql,
-    stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential, DayCount, DeviceToken,
-    DocQuery, Result, StoredDoc, Storage, StorageError, User, WriteOutcome,
+    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param,
+    push_token_from_cols, sql, stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential,
+    DayCount, DeviceToken, DocQuery, PushToken, Result, StoredDoc, Storage, StorageError, User,
+    WriteOutcome,
 };
 
 /// A [`Storage`] backed by a bound D1 database.
@@ -146,6 +147,16 @@ fn row_to_token(v: &Value) -> Result<DeviceToken> {
         col_opt_i64(v, "last_used_at"),
         col_i64(v, "revoked"),
         col_opt_str(v, "legacy_hash"),
+    )
+}
+
+fn row_to_push_token(v: &Value) -> PushToken {
+    push_token_from_cols(
+        col_str(v, "user_id"),
+        col_str(v, "token"),
+        col_str(v, "environment"),
+        col_str(v, "bundle_id"),
+        col_i64(v, "updated_at"),
     )
 }
 
@@ -345,5 +356,28 @@ impl Storage for D1Store {
     ) -> Result<()> {
         let (q, params) = sql::update_connector_sync(user_id, provider, last_sync_at, last_status);
         self.run(&q, params).await
+    }
+
+    async fn upsert_push_token(&self, token: &PushToken) -> Result<()> {
+        let (q, params) = sql::upsert_push_token(token);
+        self.run(&q, params).await
+    }
+
+    async fn list_push_tokens(&self, user_id: &str) -> Result<Vec<PushToken>> {
+        let (q, params) = sql::list_push_tokens(user_id);
+        Ok(self.rows(&q, params).await?.iter().map(row_to_push_token).collect())
+    }
+
+    async fn delete_push_token(&self, user_id: &str, token: &str) -> Result<bool> {
+        let exists = self
+            .list_push_tokens(user_id)
+            .await?
+            .into_iter()
+            .any(|t| t.token == token);
+        if exists {
+            let (q, params) = sql::delete_push_token(user_id, token);
+            self.run(&q, params).await?;
+        }
+        Ok(exists)
     }
 }

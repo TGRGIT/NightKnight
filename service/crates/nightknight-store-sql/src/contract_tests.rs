@@ -9,7 +9,8 @@
 
 use super::SqlStore;
 use nightknight_storage::{
-    Collection, ConnectorCredential, DeviceToken, DocQuery, StoredDoc, Storage, WriteOutcome,
+    Collection, ConnectorCredential, DeviceToken, DocQuery, PushToken, StoredDoc, Storage,
+    WriteOutcome,
 };
 use serde_json::json;
 
@@ -510,4 +511,47 @@ async fn connector_credentials_crud() {
 
     assert!(store.delete_connector_credential("u1", "dexcom").await.unwrap());
     assert!(store.get_connector_credential("u1", "dexcom").await.unwrap().is_none());
+}
+
+/// GUARANTEE: APNs push tokens register idempotently, list per-user, and delete. The iOS
+/// app re-POSTs its token on every launch (and when iOS rotates it), so a repeat
+/// registration must UPDATE the one row — not pile up duplicates that each get a wasted
+/// silent push — and changing environment (sandbox→production across a TestFlight build)
+/// must take effect. Pruning is how a `410 Unregistered` from APNs is honoured.
+#[tokio::test]
+async fn push_tokens_register_idempotently_and_isolate_users() {
+    let store = fresh_store().await;
+    let tok = |user: &str, token: &str, env: &str, at: i64| PushToken {
+        user_id: user.into(),
+        token: token.into(),
+        environment: env.into(),
+        bundle_id: "be.cooney.nightknight.NightKnight".into(),
+        updated_at: at,
+    };
+
+    // First registration, then a re-registration of the SAME token that flips the
+    // environment and bumps updated_at — must collapse to one row carrying the new values.
+    store.upsert_push_token(&tok("u1", "aaaa", "sandbox", 1_000)).await.unwrap();
+    store.upsert_push_token(&tok("u1", "aaaa", "production", 2_000)).await.unwrap();
+    let u1 = store.list_push_tokens("u1").await.unwrap();
+    assert_eq!(u1.len(), 1, "re-registering a token updates, never duplicates");
+    assert_eq!(u1[0].environment, "production", "environment update took effect");
+    assert_eq!(u1[0].updated_at, 2_000);
+    assert_eq!(u1[0].bundle_id, "be.cooney.nightknight.NightKnight",
+               "bundle_id round-trips through storage (it becomes the APNs topic)");
+
+    // A second distinct device for u1, and a token for a different user.
+    store.upsert_push_token(&tok("u1", "bbbb", "sandbox", 3_000)).await.unwrap();
+    store.upsert_push_token(&tok("u2", "cccc", "sandbox", 4_000)).await.unwrap();
+    assert_eq!(store.list_push_tokens("u1").await.unwrap().len(), 2, "u1 has two devices");
+    let u2 = store.list_push_tokens("u2").await.unwrap();
+    assert_eq!(u2.len(), 1, "u2 sees only its own token — never u1's");
+    assert_eq!(u2[0].token, "cccc");
+
+    // Pruning (e.g. on 410 Unregistered) removes exactly that token, scoped to its owner.
+    assert!(store.delete_push_token("u1", "aaaa").await.unwrap());
+    assert!(!store.delete_push_token("u1", "aaaa").await.unwrap(), "second delete is a no-op");
+    // u2 cannot delete u1's remaining token (cross-user delete is a no-op).
+    assert!(!store.delete_push_token("u2", "bbbb").await.unwrap());
+    assert_eq!(store.list_push_tokens("u1").await.unwrap().len(), 1, "only the pruned token went");
 }

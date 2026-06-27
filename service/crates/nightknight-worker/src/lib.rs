@@ -18,8 +18,8 @@ use worker::wasm_bindgen::JsValue;
 use worker::*;
 
 use nightknight_api::{
-    ApiRequest, ApiResponse, ApiService, EdgeIdentity, Headers as ApiHeaders, Method as ApiMethod,
-    PrincipalKind,
+    ApiRequest, ApiResponse, ApiService, ApnsConfig, EdgeIdentity, Headers as ApiHeaders,
+    Method as ApiMethod, PrincipalKind,
 };
 use nightknight_auth::{Jwks, Verifier};
 use nightknight_connectors::{ConnectorError, HttpClient, HttpReq, HttpResp};
@@ -32,7 +32,22 @@ fn connector_key(env: &Env) -> Option<[u8; 32]> {
         .and_then(|v| nightknight_crypto::parse_key(&v.to_string()).ok())
 }
 
-/// Build the API service from the environment (storage + group + connector key).
+/// Build the APNs provider config for silent push from secrets + vars. `APNS_KEY_P8`
+/// (the `.p8` PEM), `APNS_KEY_ID` and `APNS_TEAM_ID` are secrets; `APNS_BUNDLE_ID` and
+/// `APNS_DEFAULT_ENV` are non-secret vars in `wrangler.toml`. Returns `None` (push
+/// disabled) unless the three secrets are all present.
+fn apns_config(env: &Env) -> Option<ApnsConfig> {
+    let var = |k: &str| env.var(k).ok().map(|v| v.to_string());
+    ApnsConfig::from_parts(
+        var("APNS_KEY_P8"),
+        var("APNS_KEY_ID"),
+        var("APNS_TEAM_ID"),
+        var("APNS_BUNDLE_ID"),
+        var("APNS_DEFAULT_ENV"),
+    )
+}
+
+/// Build the API service from the environment (storage + group + connector key + APNs).
 fn build_service(env: &Env) -> Result<ApiService<D1Store>> {
     let store = D1Store::new(env.d1("DB")?);
     let required_group = env.var("CF_REQUIRED_GROUP").ok().map(|v| v.to_string());
@@ -43,6 +58,7 @@ fn build_service(env: &Env) -> Result<ApiService<D1Store>> {
     Ok(ApiService::new(store)
         .require_group(required_group)
         .with_connector_key(connector_key(env))
+        .with_apns(apns_config(env))
         .migrate_legacy_subjects(migrate_legacy))
 }
 

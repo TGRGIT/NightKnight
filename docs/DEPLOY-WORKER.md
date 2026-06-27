@@ -79,6 +79,8 @@ Skip any step already done.
    - `CF_TEAM_DOMAIN` — your Zero Trust team subdomain (e.g. `cooney`).
    - `CF_REQUIRED_GROUP` — the Pocket ID group a human must be in (defence-in-depth on
      top of the edge policy). Leave empty to disable the in-app group check.
+   - `APNS_BUNDLE_ID` / `APNS_DEFAULT_ENV` — silent-push topic + default environment
+     (already present with sane defaults; only touch for a non-default bundle id).
 
 4. **Set the secrets** (encrypted; never in the repo):
    ```bash
@@ -90,8 +92,16 @@ Skip any step already done.
    # is disabled:
    npx --yes wrangler@latest secret put CF_CONNECTOR_KEY
    ```
-   Generate a key with e.g. `openssl rand -hex 32`. (Silent-push later adds
-   `APNS_KEY_P8` / `APNS_KEY_ID` / `APNS_TEAM_ID` — see [SILENT-PUSH.md](SILENT-PUSH.md).)
+   Generate a key with e.g. `openssl rand -hex 32`.
+
+   **Optional — silent push (APNs)** for timely background refresh. Until all three are
+   set, push is simply disabled (device-token registration still works), so this can be
+   done later. Full guide + rollout: [SILENT-PUSH.md](SILENT-PUSH.md).
+   ```bash
+   npx --yes wrangler@latest secret put APNS_KEY_P8     # the full .p8 PEM
+   npx --yes wrangler@latest secret put APNS_KEY_ID     # 10-char Key ID
+   npx --yes wrangler@latest secret put APNS_TEAM_ID    # 10-char Team ID
+   ```
 
 5. **Deploy** (next section).
 
@@ -171,6 +181,7 @@ token + a device token), see the curl block in [SETUP.md](SETUP.md#verifying-a-d
 | `[[d1_databases]] binding = "DB"` | The D1 database (`database_id` is account-specific). |
 | `[assets] directory = "../../../web/dist"` | The SPA, SPA fallback, `run_worker_first = ["/api/*"]`. |
 | `[vars] CF_TEAM_DOMAIN` / `CF_REQUIRED_GROUP` | Non-secret config (above). |
+| `[vars] APNS_BUNDLE_ID` / `APNS_DEFAULT_ENV` | Silent-push topic + default env (see [SILENT-PUSH.md](SILENT-PUSH.md)). |
 
 **Secrets** (set with `wrangler secret put`, listed with `wrangler secret list`):
 

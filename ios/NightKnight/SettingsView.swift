@@ -125,5 +125,14 @@ struct SettingsView: View {
         // showing "--" until its next scheduled refresh (minutes away, and budget-
         // throttled). Reload now so it picks up the new URL/token immediately.
         WidgetCenter.shared.reloadAllTimelines()
+        // Register for silent push now that we may finally be configured. The token
+        // callback at launch is a no-op until `isConfigured`, and the common path is to
+        // configure the connection *after* first launch — so without this, the APNs token
+        // wouldn't reach the server (and silent-push wake-ups wouldn't work) until the next
+        // cold launch. Re-registering is cheap (iOS returns the cached token fast) and
+        // re-fires `didRegisterForRemoteNotificationsWithDeviceToken`, which now POSTs it.
+        if settings.isConfigured {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
     }
 }

@@ -25,7 +25,10 @@ mod v4;
 
 pub use error::ApiError;
 pub use http::{ApiRequest, ApiResponse, Headers, Method};
+pub use nightknight_apns::{ApnsConfig, ApnsEnv};
 pub use nightknight_auth::PrincipalKind;
+
+use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -34,7 +37,7 @@ use nightknight_auth::{extract_bearer, Action, Permission, ScopeSet};
 use nightknight_connectors::dexcom::{DexcomConnector, Region};
 use nightknight_connectors::librelinkup::LibreLinkUpConnector;
 use nightknight_connectors::nightscout::NightscoutConnector;
-use nightknight_connectors::{Connector, Http};
+use nightknight_connectors::{Connector, Http, HttpReq};
 use nightknight_core::documents::{Entry, Treatment};
 use nightknight_crypto as crypto;
 use nightknight_storage::{Collection, ConnectorCredential, StoredDoc, Storage, User, WriteOutcome};
@@ -60,6 +63,13 @@ const NS_BACKFILL_MINUTES: i64 = 7 * 24 * 60;
 /// within its CPU/subrequest budget (≈ the load the hourly cron already handles); the
 /// per-minute cron then walks the full history backward at ~this many readings/minute.
 const NS_PAGE: i64 = 2_000;
+
+/// How recent a newly-stored reading must be for it to trigger a silent push. A silent
+/// push means "wake up, there's fresh data" — so it should fire only for genuinely current
+/// readings, never for the historical rows a one-time backfill (the cursored Nightscout
+/// import) creates. 15 minutes comfortably covers the per-minute sync's recent window
+/// while excluding back-dated history.
+const PUSH_FRESH_WINDOW_MS: i64 = 15 * 60_000;
 
 /// The identity the runtime verified at the edge (Cloudflare Access JWT or OIDC),
 /// before the request reached the API. `None` means no edge identity (e.g. a pure
@@ -126,6 +136,26 @@ fn service_scopes() -> ScopeSet {
     ])
 }
 
+/// The outcome of ingesting a batch of readings for one user: how many were newly
+/// created, and the timestamp of the most recent created reading. The latter is what
+/// lets the sync decide whether to send a silent push — only genuinely *fresh* new data
+/// is worth waking a phone for, never the back-dated rows of a one-time history backfill.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct IngestReport {
+    /// Newly created readings (dedup-updates of already-seen readings are not counted).
+    pub created: usize,
+    /// Epoch ms of the newest reading created this batch, if any.
+    pub newest_created_ms: Option<i64>,
+}
+
+impl IngestReport {
+    /// Whether this batch created a reading recent enough to warrant a silent push.
+    fn has_fresh(&self, now_ms: i64, window_ms: i64) -> bool {
+        self.newest_created_ms
+            .is_some_and(|t| now_ms - t <= window_ms)
+    }
+}
+
 /// The authenticated principal for a request: which user, and what they may do.
 pub struct Principal {
     pub user: User,
@@ -163,6 +193,9 @@ pub struct ApiService<S: Storage> {
     /// in place. Default off; enable only for the migration window (and only where the
     /// edge's email is trustworthy — e.g. behind Cloudflare Access).
     migrate_legacy_subjects: bool,
+    /// APNs provider config for silent-push background refresh. `None` disables push
+    /// (registration still stores tokens, so they are ready when a key is added later).
+    apns: Option<ApnsConfig>,
 }
 
 impl<S: Storage> ApiService<S> {
@@ -172,6 +205,7 @@ impl<S: Storage> ApiService<S> {
             required_group: None,
             connector_key: None,
             migrate_legacy_subjects: false,
+            apns: None,
         }
     }
 
@@ -197,6 +231,23 @@ impl<S: Storage> ApiService<S> {
 
     pub(crate) fn connector_key(&self) -> Option<[u8; 32]> {
         self.connector_key
+    }
+
+    /// Set the APNs provider config. With it, the connector sync sends a silent push to a
+    /// user's registered devices when fresh readings arrive. Without it, `/push/register`
+    /// still records tokens (so they're ready once a key is configured) but no push is sent.
+    pub fn with_apns(mut self, apns: Option<ApnsConfig>) -> Self {
+        self.apns = apns;
+        self
+    }
+
+    /// The bundle id new push-token registrations are stamped with (the configured APNs
+    /// topic, or the default when push isn't configured yet).
+    pub(crate) fn push_bundle_id(&self) -> String {
+        self.apns
+            .as_ref()
+            .map(|c| c.bundle_id.clone())
+            .unwrap_or_else(|| nightknight_apns::DEFAULT_BUNDLE_ID.to_string())
     }
 
     /// Borrow the storage (used by the runtime for migrations / health checks).
@@ -384,18 +435,20 @@ impl<S: Storage> ApiService<S> {
             user,
             scopes: ScopeSet::all(),
         };
-        Ok(self.ingest_resilient(&principal, entries, now_ms).await)
+        Ok(self.ingest_resilient(&principal, entries, now_ms).await.created)
     }
 
     /// Ingest entries for a known user id (the connector scheduler path). Unlike
     /// [`ingest_entries`](Self::ingest_entries), this never creates a user — the user
-    /// must already exist (they entered the credentials).
+    /// must already exist (they entered the credentials). Returns an [`IngestReport`] so
+    /// the caller can both count readings and decide whether the data is fresh enough to
+    /// push.
     pub async fn ingest_for_user_id(
         &self,
         user_id: &str,
         entries: Vec<Value>,
         now_ms: i64,
-    ) -> Result<usize, ApiError> {
+    ) -> Result<IngestReport, ApiError> {
         let user = self
             .storage
             .get_user_by_id(user_id)
@@ -421,19 +474,22 @@ impl<S: Storage> ApiService<S> {
         principal: &Principal,
         entries: Vec<Value>,
         now_ms: i64,
-    ) -> usize {
-        let mut stored = 0usize;
+    ) -> IngestReport {
+        let mut report = IngestReport::default();
         for entry in entries {
             // Count only NEWLY created readings (not dedup-updates), so re-fetched overlap —
             // e.g. the recent window and the backfill page both seeing the same reading —
             // isn't double-counted. A bad row errors and is simply skipped.
             if let Ok(o) = self.store_document(Collection::Entries, entry, principal, now_ms).await {
                 if o.created() {
-                    stored += 1;
+                    report.created += 1;
+                    let mills = o.doc().mills;
+                    report.newest_created_ms =
+                        Some(report.newest_created_ms.map_or(mills, |m| m.max(mills)));
                 }
             }
         }
-        stored
+        report
     }
 
     /// Run every enabled connector once: fetch `minutes` of history, ingest it, and
@@ -449,11 +505,17 @@ impl<S: Storage> ApiService<S> {
             return Ok(0);
         };
         let mut total = 0usize;
+        // Users that gained a *fresh* reading this tick → exactly one silent push each,
+        // even if they have several connectors that all synced this round.
+        let mut to_notify: BTreeSet<String> = BTreeSet::new();
         for cred in self.storage.list_enabled_connector_credentials().await? {
             let status = match self.sync_one(&cred, &key, http, minutes, now_ms).await {
-                Ok(n) => {
-                    total += n;
-                    format!("ok: {n} readings")
+                Ok(report) => {
+                    total += report.created;
+                    if report.has_fresh(now_ms, PUSH_FRESH_WINDOW_MS) {
+                        to_notify.insert(cred.user_id.clone());
+                    }
+                    format!("ok: {} readings", report.created)
                 }
                 Err(e) => format!("error: {e}"),
             };
@@ -462,6 +524,9 @@ impl<S: Storage> ApiService<S> {
                 .update_connector_sync(&cred.user_id, &cred.provider, now_ms, &status)
                 .await;
         }
+        // Wake the phones of users with fresh data. Best-effort: a push failure (or no
+        // APNs config at all) never affects the sync result.
+        self.push_new_readings(http, &to_notify, now_ms).await;
         Ok(total)
     }
 
@@ -472,7 +537,7 @@ impl<S: Storage> ApiService<S> {
         http: Http<'_>,
         minutes: i64,
         now_ms: i64,
-    ) -> Result<usize, ApiError> {
+    ) -> Result<IngestReport, ApiError> {
         let json = crypto::decrypt_str(key, &cred.secret_enc)
             .map_err(|e| ApiError::Internal(format!("decrypt: {e}")))?;
         let creds: Value =
@@ -527,7 +592,7 @@ impl<S: Storage> ApiService<S> {
         http: Http<'_>,
         minutes: i64,
         now_ms: i64,
-    ) -> Result<usize, ApiError> {
+    ) -> Result<IngestReport, ApiError> {
         let c = NightscoutConnector {
             base_url: cred_field(&creds, "url")?,
             secret: cred_field(&creds, "secret")?,
@@ -576,9 +641,11 @@ impl<S: Storage> ApiService<S> {
             samples.extend(page.samples);
         }
 
-        // 3. Ingest everything resiliently (skips dirty rows, dedups overlap).
+        // 3. Ingest everything resiliently (skips dirty rows, dedups overlap). The report's
+        //    newest-created timestamp is what gates the push: a backfill page is all
+        //    back-dated history, so it won't (on its own) trip the freshness window.
         let entries: Vec<Value> = samples.iter().map(|s| s.to_entry_json()).collect();
-        let stored = self.ingest_for_user_id(&cred.user_id, entries, now_ms).await?;
+        let report = self.ingest_for_user_id(&cred.user_id, entries, now_ms).await?;
 
         // 4. Persist the advanced cursor into the encrypted blob (only while backfilling).
         //    The upsert touches only secret_enc/region/updated_at, so the sync status
@@ -595,7 +662,41 @@ impl<S: Storage> ApiService<S> {
                 }
             }
         }
-        Ok(stored)
+        Ok(report)
+    }
+
+    /// Send a silent push to every device registered by each user in `users`, so their
+    /// phone wakes and fetches the fresh reading. Entirely best-effort: returns `()`, logs
+    /// nothing (the API layer is transport/log-agnostic), and a failed send never disturbs
+    /// the caller. On `410 Unregistered` the dead token is pruned so we stop sending into
+    /// the void. A no-op when APNs isn't configured or `users` is empty.
+    async fn push_new_readings(&self, http: Http<'_>, users: &BTreeSet<String>, now_ms: i64) {
+        let Some(cfg) = self.apns.as_ref() else { return };
+        if users.is_empty() {
+            return;
+        }
+        // One provider token covers every push this tick (cached across ticks too).
+        let Ok(jwt) = nightknight_apns::cached_provider_token(cfg, now_ms / 1000) else {
+            return;
+        };
+        for user_id in users {
+            let Ok(tokens) = self.storage.list_push_tokens(user_id).await else { continue };
+            for t in tokens {
+                let env = nightknight_apns::ApnsEnv::parse(&t.environment);
+                let req = HttpReq {
+                    method: "POST",
+                    url: nightknight_apns::device_url(env, &t.token),
+                    headers: nightknight_apns::silent_push_headers(&jwt, &cfg.bundle_id),
+                    body: Some(nightknight_apns::SILENT_PUSH_BODY.as_bytes().to_vec()),
+                    follow_redirects: true,
+                };
+                if let Ok(resp) = http.send(req).await {
+                    if nightknight_apns::classify(resp.status).should_prune() {
+                        let _ = self.storage.delete_push_token(user_id, &t.token).await;
+                    }
+                }
+            }
+        }
     }
 
     /// Validate, derive metadata for, and upsert one document. Returns the write

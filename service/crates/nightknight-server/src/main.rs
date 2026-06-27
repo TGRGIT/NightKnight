@@ -35,7 +35,9 @@ use axum::routing::{any, get};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 
-use nightknight_api::{ApiRequest, ApiResponse, ApiService, EdgeIdentity, Headers, Method, PrincipalKind};
+use nightknight_api::{
+    ApiRequest, ApiResponse, ApiService, ApnsConfig, EdgeIdentity, Headers, Method, PrincipalKind,
+};
 use nightknight_storage::Storage;
 use nightknight_store_sql::SqlStore;
 
@@ -163,10 +165,26 @@ async fn main() {
     let migrate_legacy = std::env::var("NK_MIGRATE_LEGACY_SUBJECTS")
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    // Silent-push (APNs) provider config. The container reads the same values as the
+    // Worker; with all three secrets present it sends a silent push when a connector sync
+    // brings in fresh readings. The container's reqwest transport speaks HTTP/2, so unlike
+    // `wrangler dev` it can also drive APNs locally for end-to-end testing (see
+    // docs/SILENT-PUSH.md). Push is disabled (but tokens still register) when unset.
+    let apns = ApnsConfig::from_parts(
+        std::env::var("APNS_KEY_P8").ok(),
+        std::env::var("APNS_KEY_ID").ok(),
+        std::env::var("APNS_TEAM_ID").ok(),
+        std::env::var("APNS_BUNDLE_ID").ok(),
+        std::env::var("APNS_DEFAULT_ENV").ok(),
+    );
+    if apns.is_some() {
+        tracing::info!("APNs silent push enabled");
+    }
     let service = Arc::new(
         ApiService::new(store)
             .require_group(required_group)
             .with_connector_key(connector_key)
+            .with_apns(apns)
             .migrate_legacy_subjects(migrate_legacy),
     );
 

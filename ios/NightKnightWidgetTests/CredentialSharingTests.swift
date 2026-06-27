@@ -39,3 +39,28 @@ final class CredentialSharingTests: XCTestCase {
         XCTAssertTrue(Settings.shared.isConfigured)
     }
 }
+
+/// Guards the encoding of the APNs device token. `didRegisterForRemoteNotifications
+/// WithDeviceToken` hands over raw `Data`; the server and APNs expect it as a lowercase,
+/// zero-padded, separator-free hex string. A wrong encoding here is invisible until every
+/// silent push fails with `BadDeviceToken`, so it's worth pinning down.
+final class PushTokenEncodingTests: XCTestCase {
+    func testHexEncodingIsLowercaseAndZeroPadded() {
+        let data = Data([0x00, 0x0f, 0xab, 0xff, 0x10])
+        XCTAssertEqual(data.apnsHexToken, "000fabff10",
+                       "two lowercase hex digits per byte, including a leading zero")
+    }
+
+    func testEmptyTokenIsEmptyString() {
+        XCTAssertEqual(Data().apnsHexToken, "")
+    }
+
+    func testRealisticTokenLengthRoundTrips() {
+        // A 32-byte APNs token encodes to exactly 64 hex characters, all lowercase hex.
+        let bytes = (0..<32).map { UInt8($0) }
+        let hex = Data(bytes).apnsHexToken
+        XCTAssertEqual(hex.count, 64)
+        XCTAssertTrue(hex.allSatisfy { "0123456789abcdef".contains($0) })
+        XCTAssertTrue(hex.hasPrefix("000102030405"), "byte order is preserved")
+    }
+}
