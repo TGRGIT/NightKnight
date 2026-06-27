@@ -29,7 +29,9 @@ use nightknight_core::import::{parse_glucose_csv, DateOrder};
 use nightknight_core::timeutil;
 use nightknight_core::trend::{self, Direction};
 use nightknight_core::units::GlucoseUnit;
-use nightknight_storage::{Collection, ConnectorCredential, DeviceToken, DocQuery, Storage, StoredDoc};
+use nightknight_storage::{
+    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Storage, StoredDoc,
+};
 
 use super::{ApiError, ApiRequest, ApiResponse, ApiService, EdgeIdentity, Principal};
 use crate::hashing::{legacy_hash, token_hash};
@@ -301,9 +303,12 @@ impl<S: Storage> ApiService<S> {
     /// my history actually import, and what does each day look like?".
     ///
     /// Two tiers, by design, so it scales to thousands of days:
-    /// * **Every** local day that has ≥1 sgv reading is listed with its reading `count`
-    ///   and first/last reading time, from the cheap indexed [`Storage::daily_counts`]
-    ///   aggregation (no document bodies loaded).
+    /// * **Every** local day that has ≥1 sgv reading is listed with its reading `count`,
+    ///   first/last reading time, and an `expectedPerDay` derived from *that day's own*
+    ///   cadence (see [`day_expected_per_day`]), from the cheap indexed
+    ///   [`Storage::daily_counts`] aggregation (no document bodies loaded). Per-day
+    ///   expectation is what keeps a complete day from a slower-sensor era from rendering
+    ///   as under-covered against a faster recent cadence.
     /// * The most recent [`MAX_DAYS_STATS_POINTS`] readings additionally get a per-day
     ///   glucose summary (mean, TIR, uGMI/GMI, CV, min/max). Older days outside that
     ///   window carry the count only — the UI shows that honestly.
@@ -356,19 +361,26 @@ impl<S: Storage> ApiService<S> {
         let days: Vec<Value> = counts
             .iter()
             .map(|d| {
+                let day_readings = by_day.get(&d.day_index);
+                // Coverage is judged against THIS day's own sampling cadence, not one
+                // global rate — so a genuinely complete day from a slower-sensor era (e.g.
+                // 5-min, n≈288) isn't mislabelled under-covered against a faster recent
+                // cadence (e.g. 1-min, ≈1440/day). The web client divides `n` by this.
+                let expected = day_expected_per_day(d, day_readings, cadence_ms, tz);
                 let mut obj = json!({
                     "date": timeutil::date_string_from_day_number(d.day_index),
                     "dayIndex": d.day_index,
                     "n": d.n,
                     "firstMs": d.first_ms,
                     "lastMs": d.last_ms,
+                    "expectedPerDay": expected,
                 });
                 // Decorate with a glucose summary, but ONLY when the whole day is in the
                 // loaded window — the day straddling the 30k cap is partially loaded, and
                 // computing its mean/TIR from that partial sample (while `n` shows the full
                 // count) would mislead. Completeness is "loaded readings == authoritative
                 // count"; an incomplete day falls back to count-only, like older days.
-                if let Some(rs) = by_day.get(&d.day_index) {
+                if let Some(rs) = day_readings {
                     if rs.len() as i64 == d.n {
                         if let Value::Object(m) = &mut obj {
                             let s = GlucoseSummary::compute(rs, &t);
@@ -410,6 +422,8 @@ impl<S: Storage> ApiService<S> {
                 "firstDay": counts.last().map(|d| timeutil::date_string_from_day_number(d.day_index)),
                 "lastDay": counts.first().map(|d| timeutil::date_string_from_day_number(d.day_index)),
                 "cadenceMs": cadence_ms,
+                // Global default cadence (most recent batch). Each day also carries its own
+                // `expectedPerDay`; this top-level value is the client's fallback only.
                 "expectedPerDay": expected_per_day,
                 "statsWindowReadings": readings.len(),
                 "statsCapped": stats_capped,
@@ -796,6 +810,35 @@ fn infer_cadence_ms(readings: &[GlucoseReading], tz: i64) -> i64 {
     gaps[gaps.len() / 2].clamp(60_000, 60 * 60_000)
 }
 
+/// Expected readings for **one local day**, measured against that day's *own* sampling
+/// cadence rather than a single global rate. This is what stops a genuinely complete day
+/// from a slower-sensor era (e.g. 5-min Dexcom, n≈288) from being mislabelled
+/// under-covered against a faster recent cadence (e.g. 1-min LibreLinkUp, ≈1440/day).
+///
+/// When the day's full readings are loaded we take their robust within-day median gap
+/// (via [`infer_cadence_ms`], whose ~2 h gap filter ignores mid-day outages so a real
+/// sensor dropout still shows as *reduced* coverage). For count-only days outside the
+/// stats window we estimate the cadence from the day's own span, `(last-first)/(n-1)`; a
+/// lone reading has no interval to measure and falls back to the global cadence.
+fn day_expected_per_day(
+    d: &DayCount,
+    day_readings: Option<&Vec<GlucoseReading>>,
+    fallback_cadence_ms: i64,
+    tz: i64,
+) -> i64 {
+    let cadence_ms = match day_readings {
+        // Full day loaded: robust median of within-day gaps.
+        Some(rs) if rs.len() as i64 == d.n && rs.len() >= 2 => infer_cadence_ms(rs, tz),
+        // Count-only (or partially loaded) day: estimate from the day's span. Clamped to
+        // the same sane [1 min, 1 h] range `infer_cadence_ms` uses.
+        _ if d.n >= 2 && d.last_ms > d.first_ms => {
+            ((d.last_ms - d.first_ms) / (d.n - 1)).clamp(60_000, 60 * 60_000)
+        }
+        _ => fallback_cadence_ms,
+    };
+    (timeutil::DAY_MS as f64 / cadence_ms as f64).round() as i64
+}
+
 /// The headline scalar metrics (mean, SD, CV and the A1c estimates), computed
 /// **time-weighted** so dense bursts / non-uniform sampling don't bias the average,
 /// falling back to the count-based `summary` when there aren't enough valid intervals to
@@ -945,4 +988,69 @@ fn token_json(t: &DeviceToken) -> Value {
         "lastUsedAt": t.last_used_at,
         "revoked": t.revoked,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nightknight_core::units::GlucoseValue;
+
+    /// Midnight UTC on a fixed, stable day so day-number bucketing is deterministic.
+    const BASE: i64 = 19_500 * timeutil::DAY_MS;
+
+    fn reading(ms: i64) -> GlucoseReading {
+        GlucoseReading::new(ms, GlucoseValue::from_mgdl(120.0).unwrap())
+    }
+
+    fn day_count(day_index: i64, n: i64, first_ms: i64, last_ms: i64) -> DayCount {
+        DayCount { day_index, n, first_ms, last_ms }
+    }
+
+    /// A complete day whose readings are fully loaded is judged against ITS OWN cadence
+    /// (here 5-min → ~288), not the faster global one passed as the fallback.
+    #[test]
+    fn loaded_day_uses_its_own_median_cadence() {
+        let readings: Vec<GlucoseReading> =
+            (0..288).map(|i| reading(BASE + i * 5 * 60_000)).collect();
+        let d = day_count(19_500, 288, BASE, BASE + 287 * 5 * 60_000);
+        // Global fallback is a fast 1-minute cadence (≈1440/day); the per-day value must
+        // ignore it and reflect this day's real 5-minute cadence.
+        let expected = day_expected_per_day(&d, Some(&readings), 60_000, 0);
+        assert_eq!(expected, 288, "5-min day expects ~288, not the 1-min global 1440");
+    }
+
+    /// A real mid-day outage must REDUCE coverage, not be absorbed into a slower inferred
+    /// cadence: the >2 h gap is excluded when inferring cadence, so the expectation stays
+    /// at the full-day 288 and a half-empty day reads as under-covered.
+    #[test]
+    fn loaded_day_outage_reduces_coverage_not_cadence() {
+        // 12 h of 5-min data, a 6 h outage, then a short resume.
+        let mut readings: Vec<GlucoseReading> =
+            (0..144).map(|i| reading(BASE + i * 5 * 60_000)).collect();
+        let resume = BASE + 18 * 3_600_000;
+        readings.extend((0..36).map(|i| reading(resume + i * 5 * 60_000)));
+        let n = readings.len() as i64;
+        let d = day_count(19_500, n, readings[0].date_ms, readings[readings.len() - 1].date_ms);
+        let expected = day_expected_per_day(&d, Some(&readings), 60_000, 0);
+        assert_eq!(expected, 288, "the outage must not inflate the inferred cadence");
+        assert!((n as f64 / expected as f64) < 0.75, "a half-empty day reads as under-covered");
+    }
+
+    /// Count-only days (outside the loaded stats window) estimate cadence from their own
+    /// span, so an old 5-min day still expects ~288 even when the global cadence is faster.
+    #[test]
+    fn count_only_day_estimates_cadence_from_span() {
+        let d = day_count(10_000, 288, BASE, BASE + 287 * 5 * 60_000);
+        let expected = day_expected_per_day(&d, None, 60_000, 0);
+        assert_eq!(expected, 288, "span-based estimate recovers the 5-min cadence");
+    }
+
+    /// A lone reading has no interval to measure and falls back to the global cadence.
+    #[test]
+    fn single_reading_day_falls_back_to_global_cadence() {
+        let d = day_count(10_001, 1, BASE, BASE);
+        // Global 10-min cadence → 144 expected.
+        let expected = day_expected_per_day(&d, None, 10 * 60_000, 0);
+        assert_eq!(expected, 144);
+    }
 }
