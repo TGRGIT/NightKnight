@@ -55,6 +55,22 @@ pub fn ymd_hms_milli_to_ms(
     (((days * 24 + hour) * 60 + min) * 60 + sec) * 1000 + milli
 }
 
+/// Normalise a numeric epoch that may be in **seconds** to epoch **milliseconds**.
+///
+/// A 10-digit value (`1_000_000_000..=9_999_999_999`) is almost certainly
+/// seconds-since-epoch sent where milliseconds were expected — a common uploader bug
+/// (read as seconds it spans 2001-09-09 to 2286-11-20) — so it is scaled up by 1000.
+/// Anything else is returned unchanged: genuine ms timestamps are ~13 digits and far
+/// larger, and smaller values are too garbled to rescue. Already-ms values pass
+/// through untouched, so the storage and validation layers agree on the same instant.
+pub fn normalize_epoch_ms(n: i64) -> i64 {
+    if (1_000_000_000..=9_999_999_999).contains(&n) {
+        n * 1000
+    } else {
+        n
+    }
+}
+
 /// Parse an ISO-8601 timestamp into epoch milliseconds (UTC).
 ///
 /// Accepts `YYYY-MM-DDTHH:MM:SS` with an optional `.fff` fraction and an optional
@@ -225,6 +241,18 @@ mod tests {
         assert_eq!(parse_iso8601_ms("not a date"), None);
         assert_eq!(parse_iso8601_ms("2023-13-01T00:00:00Z"), None); // month 13
         assert_eq!(parse_iso8601_ms("2023-01-01"), None); // no time
+    }
+
+    /// A 10-digit seconds epoch is scaled to ms; a real ms epoch and an out-of-band
+    /// (too-small) value pass through unchanged. This is the single source of the
+    /// seconds-vs-ms heuristic shared by storage and validation.
+    #[test]
+    fn normalize_epoch_ms_scales_only_seconds() {
+        assert_eq!(normalize_epoch_ms(1_699_999_999), 1_699_999_999_000); // 10-digit s → ms
+        assert_eq!(normalize_epoch_ms(1_699_999_999_000), 1_699_999_999_000); // ms unchanged
+        assert_eq!(normalize_epoch_ms(999), 999); // too small to be seconds → unchanged
+        assert_eq!(normalize_epoch_ms(9_999_999_999), 9_999_999_999_000); // top of seconds band
+        assert_eq!(normalize_epoch_ms(10_000_000_000), 10_000_000_000); // 11-digit → unchanged
     }
 
     /// Local minute-of-day shifts correctly with the UTC offset and wraps across

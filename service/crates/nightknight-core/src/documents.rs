@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::timeutil::normalize_epoch_ms;
 use crate::trend::Direction;
 use crate::units::{GlucoseUnit, GlucoseValue};
 
@@ -125,7 +126,11 @@ impl Entry {
     /// Validate the entry against clinical and structural rules. `now_ms` is the
     /// current time (passed in because core does no I/O / clock access).
     pub fn validate(&self, now_ms: i64) -> Result<(), DocumentError> {
-        check_timestamp(self.date, now_ms)?;
+        // A `date` sent in seconds (a common uploader bug) is rescaled to ms before the
+        // plausibility check, matching how storage derives `mills` — otherwise a valid
+        // reading would be dropped here yet stored at the right time. The year-2000
+        // floor still rejects genuinely garbled or pre-2000 timestamps after rescaling.
+        check_timestamp(normalize_epoch_ms(self.date), now_ms)?;
         // An SGV/MBG record must carry a plausible glucose value.
         if matches!(self.entry_type.as_str(), "sgv" | "mbg") {
             let g = self
@@ -293,13 +298,29 @@ mod tests {
         assert_eq!(e.validate(NOW), Err(DocumentError::Missing { field: "sgv" }));
     }
 
-    /// A timestamp in seconds (mistaken for ms) lands before year 2000 and is
-    /// rejected — a classic uploader bug that would scatter points to 1970.
+    /// A 10-digit `date` in *seconds* (a classic uploader bug) is rescaled to ms and
+    /// accepted at the right time — matching how storage derives `mills`, so a valid
+    /// reading is no longer dropped here only to be stored elsewhere. Genuinely garbage
+    /// timestamps still fail: a value too small to be seconds-since-epoch, and a real
+    /// pre-2000 millisecond clock bug, both stay rejected by the year-2000 floor.
     #[test]
-    fn seconds_timestamp_mistaken_for_ms_is_rejected() {
+    fn seconds_timestamp_is_rescaled_then_validated() {
+        // 1_699_999_999 s → 1_699_999_999_000 ms (2023-11-14), within range → accepted.
         let mut e = sample_sgv();
         e.date = 1_699_999_999; // seconds, not ms
-        assert!(matches!(e.validate(NOW), Err(DocumentError::ImplausibleTimestamp(_))));
+        e.validate(NOW).unwrap();
+
+        // A 3-digit value is too small to be seconds-since-epoch; left as-is and
+        // rejected as pre-2000.
+        let mut tiny = sample_sgv();
+        tiny.date = 999;
+        assert!(matches!(tiny.validate(NOW), Err(DocumentError::ImplausibleTimestamp(_))));
+
+        // A genuine pre-2000 *millisecond* timestamp (1999-01-01) is a clock bug, not a
+        // unit mismatch — outside the seconds band, so it's left unchanged and rejected.
+        let mut pre_2000 = sample_sgv();
+        pre_2000.date = 915_148_800_000; // 1999-01-01T00:00:00Z in ms
+        assert!(matches!(pre_2000.validate(NOW), Err(DocumentError::ImplausibleTimestamp(_))));
     }
 
     /// A negative insulin dose is rejected — protects any downstream IOB maths.
