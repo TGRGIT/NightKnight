@@ -195,6 +195,31 @@ async fn fetch_groups(team: &str, cookie: &str) -> Vec<String> {
     }
 }
 
+/// Bridges the `log` facade — which the shared API crate uses for things like APNs send
+/// outcomes — to the Workers console, so those records appear in `wrangler tail` and the
+/// Cloudflare observability logs alongside the worker's own `console_log!` lines.
+struct ConsoleLogger;
+
+impl log::Log for ConsoleLogger {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        console_log!("[{}] {}", record.level(), record.args());
+    }
+    fn flush(&self) {}
+}
+
+static CONSOLE_LOGGER: ConsoleLogger = ConsoleLogger;
+
+/// Install the `log` → console bridge once per isolate. Idempotent: `set_logger` errors if a
+/// logger is already set (a reused isolate across cron ticks), which we deliberately ignore.
+fn init_logging() {
+    if log::set_logger(&CONSOLE_LOGGER).is_ok() {
+        log::set_max_level(log::LevelFilter::Info);
+    }
+}
+
 /// Cron-triggered CGM sync. Three schedules (see wrangler.toml `[triggers]`):
 /// `* * * * *` (every minute → latest readings), `0 * * * *` (hourly → up to a week
 /// of trailing history), and `0 0 * * *` (daily → all available history). Each runs
@@ -202,6 +227,7 @@ async fn fetch_groups(team: &str, cookie: &str) -> Vec<String> {
 /// always capped by what each vendor exposes (Dexcom ≤24h/288; LibreLinkUp graph).
 #[event(scheduled)]
 async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    init_logging();
     let service = match build_service(&env) {
         Ok(s) => s,
         Err(e) => {

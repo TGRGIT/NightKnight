@@ -27,3 +27,4 @@ worker = { workspace = true }
 nightknight-store-d1 = { path = "../nightknight-store-d1" }
 nightknight-connectors = { workspace = true }
 nightknight-crypto = { workspace = true }
+log = { workspace = true }

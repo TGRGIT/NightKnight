@@ -68,6 +68,10 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Lightweight logging facade. The shared API crate emits records through it (e.g. APNs
+# send outcomes); each runtime installs a backend — the container via `tracing-subscriber`
+# (which captures `log` records), the wasm worker via a console bridge.
+log = "0.4"
 # Cloudflare Workers (wasm only). `d1` = D1 database bindings. Version-locked to the
 # installed worker-build toolchain.
 worker = { version = "0.8", features = ["d1"] }

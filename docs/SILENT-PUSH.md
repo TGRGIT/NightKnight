@@ -428,7 +428,8 @@ real-device check). Tick them as you complete the rollout.
 | ES256 JWT + request builder + response classify | `service/crates/nightknight-apns/` (unit-tested) |
 | `push_tokens` table + storage trait methods | `nightknight-storage` (`sql.rs`, `model.rs`, `lib.rs`), both stores |
 | `POST`/`DELETE /api/v4/push/register` | `nightknight-api/src/v4.rs` |
-| Push trigger on fresh sync + prune-on-410 | `nightknight-api/src/lib.rs` (`push_new_readings`, `sync_connectors`) |
+| Push trigger on fresh sync + prune-on-410 + per-tick outcome logging | `nightknight-api/src/lib.rs` (`push_new_readings`, `sync_connectors`) |
+| `log` → runtime bridge (console / `tracing`) | `nightknight-worker/src/lib.rs` (`ConsoleLogger`), `nightknight-server` (`tracing-subscriber` captures `log`) |
 | Worker / container config wiring | `nightknight-worker/src/lib.rs` (+ `wrangler.toml`), `nightknight-server/src/main.rs` |
 | iOS register + receive | `ios/NightKnight/NightKnightApp.swift`, `ios/Shared/APIClient.swift` |
 
@@ -506,14 +507,35 @@ then verify on a device. Each step is independently reversible.
 - Dead tokens self-prune on `410 Unregistered`, so the table stays clean.
 - Battery/again-rate is bounded: pushes are coalesced to one per user per sync tick,
   `apns-priority: 5`, `apns-expiration: 0`, and `apns-collapse-id: glucose`.
-- If APNs auth ever breaks (rotated key, wrong Key/Team ID), pushes fail `403` and are
-  dropped silently — the complementary refresh paths keep data flowing while you fix it.
+- If APNs auth ever breaks (rotated key, wrong Key/Team ID), pushes fail `403`; the failure
+  is **logged** (see below) and the complementary refresh paths keep data flowing while you
+  fix it.
+
+### What the logs show (is APNs working?)
+
+Every sync tick that wakes at least one phone emits a one-line summary through the `log`
+facade — on the container via `tracing` (level `info`, controlled by `NK_LOG`), on the
+Worker via the console (`wrangler tail` / observability logs). The device token appears only
+as a short prefix and the provider JWT is never logged.
+
+| When | Level | Line | Means |
+|---|---|---|---|
+| Container start, secrets present | info | `APNs silent push enabled` | config loaded; push is armed |
+| A tick pushed to ≥1 device | info | `apns: silent push to 1 user(s), 2 device(s) — 2 delivered, 0 pruned (410), 0 failed` | **working** — `delivered` is the count APNs accepted |
+| A device is gone | info (in summary) + warn | `apns: send failed status=410 outcome=Unregistered env=sandbox token=abcd1234… reason=Unregistered` | token pruned automatically; normal churn |
+| Bad/expired provider auth | warn | `apns: send failed status=403 … reason=ExpiredProviderToken` | wrong Key ID / Team ID / clock skew — fix config |
+| Wrong env or bad token | warn | `apns: send failed status=400 … reason=BadDeviceToken` | token minted for the other host; re-register |
+| `.p8` won't sign | warn | `apns: provider token signing failed (…); silent push disabled this tick` | malformed `APNS_KEY_P8` — push is off until fixed |
+
+So the **positive signal you're looking for is the `info` summary with a non-zero
+`delivered`**. No summary at all means either push isn't configured (no `APNS_*` secrets), no
+user gained a *fresh* reading this tick (freshness-gated — the backfill never fires one), or
+no device is registered (`POST /api/v4/push/register` hasn't landed a row yet). A `warn` line
+names the exact APNs `reason` to fix.
 
 ### Future work (intentionally out of scope here)
 - Push on **direct uploads** (`/api/v1|v3/entries`) — needs an HTTP transport threaded
   into the request path; the follower/connector path covers the primary use case.
-- Structured **APNs response logging** at the runtime layer (the API crate is
-  transport/log-agnostic today; outcomes drive pruning but aren't logged per-send).
 - Wire **`APIClient.unregisterPush`** into a real iOS sign-out / connection-reset action.
   The endpoint and client method exist; the app has no sign-out flow yet, so today a removed
   device is pruned reactively on the next `410` rather than proactively.

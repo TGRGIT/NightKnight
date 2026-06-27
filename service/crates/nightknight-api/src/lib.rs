@@ -666,22 +666,38 @@ impl<S: Storage> ApiService<S> {
     }
 
     /// Send a silent push to every device registered by each user in `users`, so their
-    /// phone wakes and fetches the fresh reading. Entirely best-effort: returns `()`, logs
-    /// nothing (the API layer is transport/log-agnostic), and a failed send never disturbs
-    /// the caller. On `410 Unregistered` the dead token is pruned so we stop sending into
-    /// the void. A no-op when APNs isn't configured or `users` is empty.
+    /// phone wakes and fetches the fresh reading. Entirely best-effort: a failed send never
+    /// disturbs the caller. On `410 Unregistered` the dead token is pruned so we stop sending
+    /// into the void. A no-op when APNs isn't configured or `users` is empty.
+    ///
+    /// Outcomes are emitted through the `log` facade so the runtime (the Worker's console,
+    /// the container's `tracing`) surfaces whether push is actually working: one `info`
+    /// summary per tick (`apns: silent push to N user(s) …`), a `warn` per failed send
+    /// carrying the HTTP status and APNs `reason`, and a `warn` if the provider token can't
+    /// be signed. The JWT is never logged and the device token only as a short prefix.
     async fn push_new_readings(&self, http: Http<'_>, users: &BTreeSet<String>, now_ms: i64) {
         let Some(cfg) = self.apns.as_ref() else { return };
         if users.is_empty() {
             return;
         }
-        // One provider token covers every push this tick (cached across ticks too).
-        let Ok(jwt) = nightknight_apns::cached_provider_token(cfg, now_ms / 1000) else {
-            return;
+        // One provider token covers every push this tick (cached across ticks too). A
+        // signing failure is a configuration problem (bad/missing `.p8`, Key ID, Team ID),
+        // not a per-device one, so log it once and skip the whole tick.
+        let jwt = match nightknight_apns::cached_provider_token(cfg, now_ms / 1000) {
+            Ok(jwt) => jwt,
+            Err(e) => {
+                log::warn!(
+                    "apns: provider token signing failed ({e}); silent push disabled this \
+                     tick — check APNS_KEY_P8 / APNS_KEY_ID / APNS_TEAM_ID"
+                );
+                return;
+            }
         };
+        let (mut attempted, mut delivered, mut pruned, mut failed) = (0u32, 0u32, 0u32, 0u32);
         for user_id in users {
             let Ok(tokens) = self.storage.list_push_tokens(user_id).await else { continue };
             for t in tokens {
+                attempted += 1;
                 let env = nightknight_apns::ApnsEnv::parse(&t.environment);
                 let req = HttpReq {
                     method: "POST",
@@ -690,12 +706,54 @@ impl<S: Storage> ApiService<S> {
                     body: Some(nightknight_apns::SILENT_PUSH_BODY.as_bytes().to_vec()),
                     follow_redirects: true,
                 };
-                if let Ok(resp) = http.send(req).await {
-                    if nightknight_apns::classify(resp.status).should_prune() {
-                        let _ = self.storage.delete_push_token(user_id, &t.token).await;
+                match http.send(req).await {
+                    Ok(resp) => {
+                        let outcome = nightknight_apns::classify(resp.status);
+                        if let nightknight_apns::SendOutcome::Delivered = outcome {
+                            delivered += 1;
+                            continue;
+                        }
+                        // A 410 prunes the dead token; everything else is left in place so a
+                        // transient failure (5xx, rate-limit) is retried next tick.
+                        if outcome.should_prune() {
+                            pruned += 1;
+                            let _ = self.storage.delete_push_token(user_id, &t.token).await;
+                        } else {
+                            failed += 1;
+                        }
+                        log::warn!(
+                            "apns: send failed status={} outcome={:?} env={} token={}…{}",
+                            resp.status,
+                            outcome,
+                            t.environment,
+                            token_prefix(&t.token),
+                            apns_reason(&resp.body)
+                                .map(|r| format!(" reason={r}"))
+                                .unwrap_or_default(),
+                        );
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        log::warn!(
+                            "apns: send transport error env={} token={}…: {e}",
+                            t.environment,
+                            token_prefix(&t.token),
+                        );
                     }
                 }
             }
+        }
+        if attempted > 0 {
+            log::info!(
+                "apns: silent push to {} user(s), {attempted} device(s) — {delivered} delivered, \
+                 {pruned} pruned (410), {failed} failed",
+                users.len(),
+            );
+        } else {
+            log::debug!(
+                "apns: {} user(s) had fresh data but no registered devices",
+                users.len()
+            );
         }
     }
 
@@ -792,4 +850,21 @@ fn cred_field(v: &Value, key: &str) -> Result<String, ApiError> {
         .and_then(|x| x.as_str())
         .map(str::to_string)
         .ok_or_else(|| ApiError::Internal(format!("credential missing '{key}'")))
+}
+
+/// The first 8 characters of a device token — enough to correlate APNs log lines for one
+/// device without recording the whole token. APNs device tokens aren't secrets, but the
+/// prefix keeps the logs terse and avoids parroting full per-device identifiers.
+fn token_prefix(token: &str) -> &str {
+    &token[..token.len().min(8)]
+}
+
+/// Pull APNs' machine-readable failure `reason` out of a JSON error body, if present
+/// (`BadDeviceToken`, `ExpiredProviderToken`, `TopicDisallowed`, …) — the single most
+/// useful field for diagnosing a failed push. Best-effort: a non-JSON or empty body
+/// (e.g. a 200, or a bare 5xx) yields `None`.
+fn apns_reason(body: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(str::to_string))
 }
