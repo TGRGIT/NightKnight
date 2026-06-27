@@ -57,11 +57,10 @@ pub fn derive_identifier(c: Collection, doc: &Value) -> String {
 /// then ISO strings, finally falling back to `now_ms`.
 pub fn extract_mills(doc: &Value, now_ms: i64) -> i64 {
     if let Some(n) = num_field(doc, "date") {
-        // Heuristic: a `date` in seconds (10 digits) rather than ms — scale it up.
-        if (1_000_000_000..=9_999_999_999).contains(&n) {
-            return n * 1000;
-        }
-        return n;
+        // A `date` in seconds (10 digits) rather than ms is rescaled by the same shared
+        // heuristic validation uses, so the stored `mills` and the accept/reject
+        // decision agree on the instant.
+        return timeutil::normalize_epoch_ms(n);
     }
     if let Some(n) = num_field(doc, "mills") {
         return n;
