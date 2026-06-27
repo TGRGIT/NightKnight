@@ -111,10 +111,30 @@ impl<S: Storage> ApiService<S> {
             Value::Array(items) => items,
             other => vec![other],
         };
+        // Resilient, per-item ingest — matching the connector path ([`ingest_resilient`]):
+        // a single invalid reading (out-of-range glucose, future/old timestamp, malformed
+        // body) must NOT abort the batch and discard every good reading after it. A backfill
+        // upload from xDrip+/Loop/Trio can carry the odd dirty row, and fail-fast here used
+        // to silently truncate the whole import at the first bad record.
         let mut stored = Vec::with_capacity(items.len());
+        let mut first_err: Option<ApiError> = None;
         for item in items {
-            let outcome = self.store_document(collection, item, principal, now_ms).await?;
-            stored.push(enrich(outcome.doc(), false));
+            match self.store_document(collection, item, principal, now_ms).await {
+                Ok(outcome) => stored.push(enrich(outcome.doc(), false)),
+                Err(e) => {
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
+                }
+            }
+        }
+        // If nothing stored, surface the error (a single bad doc still gets its 400, and an
+        // all-bad batch reports why); otherwise return the readings that did land, in the
+        // legacy bare-array shape clients expect.
+        if stored.is_empty() {
+            if let Some(e) = first_err {
+                return Err(e);
+            }
         }
         Ok(ApiResponse::json(200, &stored))
     }
