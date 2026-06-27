@@ -456,8 +456,12 @@ async function refreshData() {
   } catch (e) { if (!/unauthorized|forbidden/.test(String(e))) console.error(e); }
 }
 
+// Coverage against the day's OWN expected reading count when the server provides it
+// (`day.expectedPerDay`), falling back to the global rate for older servers. Per-day
+// expectation stops a complete day from a slower-sensor era reading as under-covered.
 function coverageFrac(day, expectedPerDay) {
-  return Math.min(1, day.n / Math.max(1, expectedPerDay));
+  const expected = (day && day.expectedPerDay) || expectedPerDay;
+  return Math.min(1, day.n / Math.max(1, expected));
 }
 
 function renderData(d) {
@@ -467,7 +471,7 @@ function renderData(d) {
   const cadMin = Math.max(1, Math.round((d.cadenceMs || 300000) / 60000));
   $("#data-note").textContent = (d.statsCapped
     ? `Per-day glucose stats cover the most recent ${(d.statsWindowReadings || 0).toLocaleString()} readings; older days list their reading count only. `
-    : "") + `Coverage assumes about ${d.expectedPerDay} readings/day (≈${cadMin}-minute cadence inferred from your data). Not a medical device.`;
+    : "") + `Coverage is measured against each day's own sensor cadence (most recently ≈${cadMin}-minute), so days from a different-cadence era aren't shown as under-covered. Not a medical device.`;
 }
 
 function renderDataSummary(d) {

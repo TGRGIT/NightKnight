@@ -350,6 +350,51 @@ async fn days_view_lists_coverage_and_recent_stats() {
     assert!(b["windowStats"]["uGmiPercent"].is_number());
 }
 
+/// REGRESSION (issue #17 follow-up, PR #28): per-day coverage must be judged against
+/// **each day's own** sensor cadence, not one global rate. A genuinely complete day on a
+/// slower sensor (5-min, n≈288) imported alongside a faster recent era (1-min, ≈1440/day)
+/// used to render at ~20% coverage (288/1440) — lightest band, dragging down the average —
+/// even though the day was fully covered. It must now expect ~288 and read ~100%.
+#[tokio::test]
+async fn days_view_coverage_is_per_day_not_a_global_cadence() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+
+    // An older full day on a 5-minute sensor: 288 readings across one UTC day.
+    let old_base = 19_670 * DAY_MS;
+    let mut entries: Vec<Value> = (0..288)
+        .map(|i| json!({ "type": "sgv", "date": old_base + i * 5 * 60_000, "sgv": 120, "device": "dex" }))
+        .collect();
+    // A recent day on a 1-minute sensor, dense enough that the *global* inferred cadence is
+    // 1-min (≈1440/day) — the value the old code wrongly applied to every day.
+    let new_base = 19_675 * DAY_MS;
+    entries.extend((0..400).map(|i| {
+        json!({ "type": "sgv", "date": new_base + i * 60_000, "sgv": 120, "device": "libre" })
+    }));
+    svc.handle(request("POST", "/api/v1/entries", &[], json!(entries)), NOW, edge.clone()).await;
+
+    let b = body_json(
+        &svc.handle(request("GET", "/api/v4/days?tzOffset=0", &[], Value::Null), NOW, edge).await,
+    );
+    // The global cadence is the fast (recent) 1-minute rate — the trap the old code fell in.
+    assert_eq!(b["cadenceMs"], 60_000, "global cadence inferred as the recent 1-min era");
+    assert_eq!(b["expectedPerDay"], 1440, "global expectation is the fast 1-min rate");
+
+    let days = b["days"].as_array().unwrap();
+    let old_day = days.iter().find(|d| d["n"] == 288).expect("the 5-min day is listed");
+    let new_day = days.iter().find(|d| d["n"] == 400).expect("the 1-min day is listed");
+
+    // The old day carries its OWN expectation (~288), so it reads as fully covered — not
+    // the ~20% it showed when divided by the global 1440.
+    assert_eq!(old_day["expectedPerDay"], 288, "5-min day expects ~288, not the global 1440");
+    let old_cov = old_day["n"].as_f64().unwrap() / old_day["expectedPerDay"].as_f64().unwrap();
+    assert!(old_cov >= 0.95, "a complete 5-min day reads ~100% covered, got {old_cov}");
+
+    // The recent day keeps the 1-min expectation (a partial day reads as partial coverage).
+    assert_eq!(new_day["expectedPerDay"], 1440, "1-min day keeps its own fast expectation");
+}
+
 /// REGRESSION (validation finding #3): "% time active" must use the device's actual
 /// cadence, not a hardcoded 5 minutes. A flawless 14-day FreeStyle Libre (15-min historic
 /// cadence) used to read ~33% active and "limited data"; it must now read ~100% / sufficient.
