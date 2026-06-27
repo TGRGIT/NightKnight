@@ -84,7 +84,12 @@ impl ApnsEnv {
 /// The APNs provider configuration: the downloaded `.p8` auth key plus the identifiers
 /// that name it and the app. The key is a **secret** (held in a Worker secret /
 /// container env var); the rest are public identifiers.
-#[derive(Clone, Debug)]
+///
+/// `Debug` is implemented by hand to **redact `key_p8`** — the derive would print the
+/// private key in plaintext the moment anything `{:?}`-formats the config (a stray
+/// `debug!`, a panic message, an enclosing `#[derive(Debug)]`). The identifiers are not
+/// secret, so they're shown.
+#[derive(Clone)]
 pub struct ApnsConfig {
     /// The full PEM of the APNs `.p8` auth key (`-----BEGIN PRIVATE KEY----- …`).
     pub key_p8: String,
@@ -98,11 +103,27 @@ pub struct ApnsConfig {
     pub default_env: ApnsEnv,
 }
 
+impl std::fmt::Debug for ApnsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApnsConfig")
+            .field("key_p8", &"<redacted>")
+            .field("key_id", &self.key_id)
+            .field("team_id", &self.team_id)
+            .field("bundle_id", &self.bundle_id)
+            .field("default_env", &self.default_env)
+            .finish()
+    }
+}
+
 impl ApnsConfig {
     /// Build a config from raw string parts, returning `None` unless the three required
     /// secrets (key PEM, key id, team id) are all present and non-empty — so a partial
     /// configuration disables push rather than failing later at send time. `bundle_id`
     /// falls back to [`DEFAULT_BUNDLE_ID`]; `default_env` to sandbox.
+    ///
+    /// The key PEM is normalised with [`normalize_pem`], so a single-line value carrying
+    /// literal `\n` escapes — the only practical way to put a multi-line PEM in a Docker
+    /// Compose `.env` / env var — is accepted alongside a real multi-line PEM.
     pub fn from_parts(
         key_p8: Option<String>,
         key_id: Option<String>,
@@ -111,7 +132,7 @@ impl ApnsConfig {
         default_env: Option<String>,
     ) -> Option<ApnsConfig> {
         let nonempty = |s: Option<String>| s.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
-        let key_p8 = nonempty(key_p8)?;
+        let key_p8 = normalize_pem(&nonempty(key_p8)?);
         let key_id = nonempty(key_id)?;
         let team_id = nonempty(team_id)?;
         Some(ApnsConfig {
@@ -122,6 +143,15 @@ impl ApnsConfig {
             default_env: default_env.map(|e| ApnsEnv::parse(&e)).unwrap_or(ApnsEnv::Sandbox),
         })
     }
+}
+
+/// Turn the literal two-character escape `\n` into a real newline. A `.p8` PEM never
+/// contains a literal backslash-n (it's base64 + `-----` lines separated by real
+/// newlines), so this is a no-op for a correctly multi-line PEM (e.g. one pasted into
+/// `wrangler secret put`) and only rescues the single-line `\n`-escaped form that a
+/// Docker Compose `.env` value forces. Also normalises `\r\n` escapes.
+fn normalize_pem(s: &str) -> String {
+    s.replace("\\r\\n", "\n").replace("\\n", "\n")
 }
 
 /// Errors from this crate. Only key parsing can fail — everything else is pure string
@@ -400,5 +430,36 @@ nohMe+5Ung2D+0iRphHJkTEAN8j5Tr6H/MBVZRlUTEYkn+wYRxPPW3kR\n\
         .expect("complete config");
         assert_eq!(cfg.bundle_id, DEFAULT_BUNDLE_ID, "default bundle id");
         assert_eq!(cfg.default_env, ApnsEnv::Production);
+    }
+
+    /// REGRESSION: a `.p8` provided as a single-line value with literal `\n` escapes — the
+    /// only practical way to set a multi-line PEM in a Docker Compose `.env` — must still
+    /// produce a signable key. Without un-escaping, `from_pkcs8_pem` rejects it and every
+    /// push silently no-ops on the container path.
+    #[test]
+    fn from_parts_accepts_a_backslash_n_escaped_pem() {
+        let escaped = TEST_P8.replace('\n', "\\n"); // what Compose passes through verbatim
+        assert!(escaped.contains("\\n") && !escaped.contains('\n'), "single-line escaped form");
+        let cfg = ApnsConfig::from_parts(
+            Some(escaped),
+            Some("ABC1234DEF".into()),
+            Some("XYZ9876WUV".into()),
+            None,
+            None,
+        )
+        .expect("config builds");
+        assert!(cfg.key_p8.contains('\n'), "escapes were turned into real newlines");
+        // And it actually signs (proves the PEM parses end-to-end).
+        provider_token(&cfg, 1_700_000_000).expect("escaped-PEM key still signs");
+    }
+
+    /// SECURITY: the `Debug` impl must never print the private key.
+    #[test]
+    fn debug_redacts_the_private_key() {
+        let dbg = format!("{:?}", test_cfg());
+        assert!(dbg.contains("<redacted>"), "key is redacted");
+        assert!(!dbg.contains("BEGIN PRIVATE KEY"), "no PEM in Debug output");
+        assert!(!dbg.contains("MIGHAgEA"), "no key bytes in Debug output");
+        assert!(dbg.contains("ABC1234DEF"), "non-secret identifiers still shown");
     }
 }

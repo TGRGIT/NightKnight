@@ -100,6 +100,12 @@ The container server (`nightknight-server`) reads the same values from env vars
 (`APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_DEFAULT_ENV`); it can
 send pushes too and is handy for local testing (see *Testing*).
 
+> **Container PEM newlines.** The `.p8` is multi-line. In a Docker Compose `.env` value
+> (which Compose passes through verbatim — it does *not* expand escapes), put the PEM on one
+> line with the newlines written as literal `\n`; the server un-escapes them. A real
+> multi-line value (e.g. via a Docker secret / file, or `wrangler secret put` on the Worker)
+> works unchanged.
+
 ---
 
 ## Server implementation
@@ -382,7 +388,10 @@ Hosts: `https://api.push.apple.com` (production) · `https://api.sandbox.push.ap
 - APNs device tokens aren't secrets but are **per-user**: only ever send to tokens owned by the
   reading's user (`list_push_tokens(user_id)`), enforced by the same row-isolation as
   everything else. The registration endpoint writes only to the caller's rows.
-- Prune on `410 Unregistered` and on explicit sign-out (`DELETE /api/v4/push/register`).
+- Tokens are pruned automatically on `410 Unregistered` (the live path today). A
+  client-initiated `DELETE /api/v4/push/register` is also available for sign-out / token
+  change; the iOS app exposes `APIClient.unregisterPush` but does not yet call it (it has no
+  explicit sign-out flow), so client-side pruning is wired but not invoked — see *Future work*.
 - A silent push carries **no** glucose data in the payload (just `content-available`), so even
   if a push were misrouted it leaks nothing — the app fetches the actual reading over the
   authenticated, Access-gated API.
@@ -505,6 +514,9 @@ then verify on a device. Each step is independently reversible.
   into the request path; the follower/connector path covers the primary use case.
 - Structured **APNs response logging** at the runtime layer (the API crate is
   transport/log-agnostic today; outcomes drive pruning but aren't logged per-send).
+- Wire **`APIClient.unregisterPush`** into a real iOS sign-out / connection-reset action.
+  The endpoint and client method exist; the app has no sign-out flow yet, so today a removed
+  device is pruned reactively on the next `410` rather than proactively.
 
 ---
 

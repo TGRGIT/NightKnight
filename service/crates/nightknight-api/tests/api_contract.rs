@@ -1367,9 +1367,13 @@ impl nightknight_connectors::HttpClient for MockCloudAndApns {
 
 /// Register a specific APNs token for a user (the iOS app's POST).
 async fn register_push_token(svc: &ApiService<SqlStore>, email: &str, token: &str) {
+    register_push_token_env(svc, email, token, "sandbox").await;
+}
+
+async fn register_push_token_env(svc: &ApiService<SqlStore>, email: &str, token: &str, env: &str) {
     svc.handle(
         request("POST", "/api/v4/push/register", &[],
-            json!({ "token": token, "environment": "sandbox" })),
+            json!({ "token": token, "environment": env })),
         NOW, Some(human(email)),
     ).await;
 }
@@ -1451,6 +1455,50 @@ async fn stale_reading_does_not_push() {
     let n = svc.sync_connectors(&mock, 60, NOW).await.unwrap();
     assert_eq!(n, 1, "the (old) reading is still ingested");
     assert!(mock.apns_calls().is_empty(), "a stale reading must not trigger a wake-up");
+}
+
+/// The freshness gate is the load-bearing backfill-safety line (`now_ms - t <= 15 min`).
+/// This pins BOTH the 15-minute constant and the inclusive `<=` comparator at the exact
+/// boundary — a unit slip (s vs ms) or a flipped operator would still pass the coarse
+/// 1-min/30-min tests above, but not this one. (A fresh user is needed each time, so use a
+/// separate in-memory store per probe.)
+#[tokio::test]
+async fn freshness_gate_pushes_at_the_window_edge_not_past_it() {
+    async fn pushes_at(age_ms: i64) -> bool {
+        let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+        store.migrate().await.unwrap();
+        let svc = ApiService::new(store)
+            .with_connector_key(Some([42u8; 32]))
+            .with_apns(Some(test_apns()));
+        setup_user_with_connector_and_push(&svc, "edge@cooney.be").await;
+        let mock = MockCloudAndApns::new(NOW - age_ms, 200);
+        svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+        !mock.apns_calls().is_empty()
+    }
+    assert!(pushes_at(15 * 60_000).await, "exactly at the 15-min edge → push (inclusive)");
+    assert!(!pushes_at(15 * 60_000 + 1).await, "one ms past the edge → no push");
+}
+
+/// A `production`-environment token must be sent to the PRODUCTION APNs host, end-to-end
+/// through the real send loop (not just `device_url` in isolation) — proving the loop reads
+/// each token's own `environment`, so a TestFlight/App Store device isn't sent to sandbox
+/// (which would be a hard `BadDeviceToken`).
+#[tokio::test]
+async fn production_token_is_sent_to_the_production_host() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    add_dexcom(&svc, "member@cooney.be").await;
+    register_push_token_env(&svc, "member@cooney.be", &fake_apns_token(), "production").await;
+
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    let calls = mock.apns_calls();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].url.starts_with("https://api.push.apple.com/3/device/"),
+            "production token → production host, not sandbox: {}", calls[0].url);
 }
 
 /// When APNs reports `410 Unregistered`, the dead token is pruned so we stop sending into
