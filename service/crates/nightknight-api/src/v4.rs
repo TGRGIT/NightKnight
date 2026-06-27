@@ -29,7 +29,9 @@ use nightknight_core::import::{parse_glucose_csv, DateOrder};
 use nightknight_core::timeutil;
 use nightknight_core::trend::{self, Direction};
 use nightknight_core::units::GlucoseUnit;
-use nightknight_storage::{Collection, ConnectorCredential, DeviceToken, DocQuery, Storage, StoredDoc};
+use nightknight_storage::{
+    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Storage, StoredDoc,
+};
 
 use super::{ApiError, ApiRequest, ApiResponse, ApiService, EdgeIdentity, Principal};
 use crate::hashing::{legacy_hash, token_hash};
@@ -54,13 +56,21 @@ const LAG_TOLERANCE_MS: i64 = 10 * 60_000;
 const CONGA_HOURS: f64 = 2.0;
 /// How many of the most recent episodes the analytics payload lists for the UI feed.
 const RECENT_EPISODES: usize = 8;
-/// How many recent readings the `/days` view loads to compute per-day glucose stats
-/// (mean / TIR / uGMI / min-max). The day *list* — every local day that has data, with
-/// its reading count — always comes from the cheap `daily_counts` aggregation regardless
-/// of this cap, so coverage stays complete across thousands of days; only the richer
-/// per-day glucose summary is bounded, to keep memory/CPU sane on the Worker. Kept at the
-/// same ceiling as `MAX_ANALYTICS_POINTS` (20k), which is proven to load fine from D1.
+/// How many readings the `/days` view loads **per batch** when computing per-day glucose
+/// stats (mean / TIR / uGMI / min-max). The day *list* — every local day that has data,
+/// with its reading count — always comes from the cheap `daily_counts` aggregation
+/// regardless of this cap, so coverage stays complete across thousands of days; only the
+/// richer per-day glucose summary is loaded in batches. Kept at the same ceiling as
+/// `MAX_ANALYTICS_POINTS` (20k), which is proven to load fine from D1.
 const MAX_DAYS_STATS_POINTS: i64 = 20_000;
+/// How many `MAX_DAYS_STATS_POINTS`-sized batches `/days` will load to decorate days,
+/// newest first. The per-day summary walks history in **day-aligned** batches and drops
+/// each batch's readings before loading the next, so peak memory stays at one batch while
+/// coverage scales to the whole history. A flat reading cap used to load only the newest
+/// ~20k readings — with dense 1-minute data that is barely two weeks, so every older day
+/// showed a count with no average. This budget (12 × 20k = 240k readings) covers years of
+/// 5-minute data, or ~5 months of 1-minute data, before any day falls back to count-only.
+const MAX_DAYS_STATS_BATCHES: usize = 12;
 
 impl<S: Storage> ApiService<S> {
     pub(crate) async fn route_v4(
@@ -304,9 +314,12 @@ impl<S: Storage> ApiService<S> {
     /// * **Every** local day that has ≥1 sgv reading is listed with its reading `count`
     ///   and first/last reading time, from the cheap indexed [`Storage::daily_counts`]
     ///   aggregation (no document bodies loaded).
-    /// * The most recent [`MAX_DAYS_STATS_POINTS`] readings additionally get a per-day
-    ///   glucose summary (mean, TIR, uGMI/GMI, CV, min/max). Older days outside that
-    ///   window carry the count only — the UI shows that honestly.
+    /// * Days additionally get a per-day glucose summary (mean, TIR, uGMI/GMI, CV,
+    ///   min/max), computed by walking history newest-first in **day-aligned batches** of
+    ///   up to [`MAX_DAYS_STATS_POINTS`] readings (see [`collect_day_glucose_stats`]). The
+    ///   walk drops each batch's readings before loading the next, so peak memory stays at
+    ///   one batch while coverage scales to the whole history (bounded by
+    ///   [`MAX_DAYS_STATS_BATCHES`]); only days beyond that budget fall back to count-only.
     ///
     /// `?tzOffset=` (minutes east of UTC) sets the local day boundary so days line up
     /// with the caller's calendar.
@@ -325,31 +338,21 @@ impl<S: Storage> ApiService<S> {
             .daily_counts(Collection::Entries, &principal.user.id, "sgv", tz_ms)
             .await?;
 
-        // 2) Recent readings → per-day glucose summaries (bounded by the cap above).
-        let docs = self
-            .storage
-            .search_documents(
-                Collection::Entries,
+        // 2) Per-day glucose summaries, loaded in day-aligned batches across the full
+        //    history (newest first) so dense data doesn't clip older days to count-only.
+        let t = TirThresholds::default();
+        let stats = self
+            .collect_day_glucose_stats(
                 &principal.user.id,
-                &DocQuery::new().doc_type("sgv").limit(MAX_DAYS_STATS_POINTS),
+                &counts,
+                tz,
+                MAX_DAYS_STATS_POINTS,
+                MAX_DAYS_STATS_BATCHES,
             )
             .await?;
-        let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
-        let stats_capped = readings.len() as i64 >= MAX_DAYS_STATS_POINTS;
 
-        // Bucket the loaded readings by local day-number (matches the SQL day bucket).
-        let mut by_day: std::collections::HashMap<i64, Vec<GlucoseReading>> =
-            std::collections::HashMap::new();
-        for r in &readings {
-            by_day
-                .entry(timeutil::day_number(r.date_ms, tz))
-                .or_default()
-                .push(*r);
-        }
-
-        let t = TirThresholds::default();
         let total_readings: i64 = counts.iter().map(|d| d.n).sum();
-        let cadence_ms = infer_cadence_ms(&readings, tz);
+        let cadence_ms = stats.cadence_ms;
         let (tw_gap, _) = gap_caps(cadence_ms);
         let expected_per_day = (timeutil::DAY_MS as f64 / cadence_ms as f64).round() as i64;
 
@@ -363,43 +366,26 @@ impl<S: Storage> ApiService<S> {
                     "firstMs": d.first_ms,
                     "lastMs": d.last_ms,
                 });
-                // Decorate with a glucose summary, but ONLY when the whole day is in the
-                // loaded window — the day straddling the 30k cap is partially loaded, and
-                // computing its mean/TIR from that partial sample (while `n` shows the full
-                // count) would mislead. Completeness is "loaded readings == authoritative
-                // count"; an incomplete day falls back to count-only, like older days.
-                if let Some(rs) = by_day.get(&d.day_index) {
-                    if rs.len() as i64 == d.n {
-                        if let Value::Object(m) = &mut obj {
-                            let s = GlucoseSummary::compute(rs, &t);
-                            // Time-weighted mean / A1c (count fallback), consistent with
-                            // /analytics; min/max and TIR stay count-based.
-                            let hd = headline(&s, rs, tw_gap);
-                            let (min, max) = rs.iter().fold(
-                                (f64::INFINITY, f64::NEG_INFINITY),
-                                |acc, r| {
-                                    let v = r.value.mgdl();
-                                    (acc.0.min(v), acc.1.max(v))
-                                },
-                            );
-                            m.insert("meanMgdl".into(), json!(hd.mean));
-                            m.insert("minMgdl".into(), json!(min));
-                            m.insert("maxMgdl".into(), json!(max));
-                            m.insert("uGmiPercent".into(), json!(hd.ugmi));
-                            m.insert("gmiPercent".into(), json!(hd.gmi));
-                            m.insert("cvPercent".into(), json!(hd.cv));
-                            m.insert("timeInRange".into(), tir_json(&s.tir));
-                        }
-                    }
+                // Attach the per-day glucose summary for every day the batched walk fully
+                // loaded. Days beyond the batch budget (oldest history) carry the count
+                // only — the UI shows that honestly via `statsCapped`.
+                if let (Some(s), Value::Object(m)) = (stats.by_day.get(&d.day_index), &mut obj) {
+                    m.insert("meanMgdl".into(), json!(s.mean));
+                    m.insert("minMgdl".into(), json!(s.min));
+                    m.insert("maxMgdl".into(), json!(s.max));
+                    m.insert("uGmiPercent".into(), json!(s.ugmi));
+                    m.insert("gmiPercent".into(), json!(s.gmi));
+                    m.insert("cvPercent".into(), json!(s.cv));
+                    m.insert("timeInRange".into(), tir_json(&s.tir));
                 }
                 obj
             })
             .collect();
 
-        // Headline stats over the loaded window (the UI labels these as "recent"),
+        // Headline stats over the most recent batch (the UI labels these "recent"),
         // time-weighted for the same non-uniform-sampling robustness as /analytics.
-        let w = GlucoseSummary::compute(&readings, &t);
-        let wh = headline(&w, &readings, tw_gap);
+        let w = GlucoseSummary::compute(&stats.recent_readings, &t);
+        let wh = headline(&w, &stats.recent_readings, tw_gap);
 
         Ok(ApiResponse::json(
             200,
@@ -411,8 +397,8 @@ impl<S: Storage> ApiService<S> {
                 "lastDay": counts.first().map(|d| timeutil::date_string_from_day_number(d.day_index)),
                 "cadenceMs": cadence_ms,
                 "expectedPerDay": expected_per_day,
-                "statsWindowReadings": readings.len(),
-                "statsCapped": stats_capped,
+                "statsWindowReadings": stats.loaded,
+                "statsCapped": stats.capped,
                 "windowStats": {
                     "n": w.n,
                     "meanMgdl": wh.mean,
@@ -425,6 +411,123 @@ impl<S: Storage> ApiService<S> {
                 "days": days,
             }),
         ))
+    }
+
+    /// Walk a user's sgv history newest-first in **day-aligned batches**, computing a
+    /// per-day glucose summary for every day that fits inside the batch budget. Returns the
+    /// per-day decorations, the most-recent batch's readings (for the "recent" window
+    /// headline + cadence), how many readings were loaded, and whether the budget capped
+    /// older days to count-only.
+    ///
+    /// Why batches rather than one capped load: a single `LIMIT 20_000` query returns only
+    /// the newest ~20k readings, which at a 1-minute cadence is barely two weeks — so every
+    /// older day showed a reading count with no average. Each batch here groups *whole
+    /// days* (using the indexed first/last-ms bounds from `daily_counts`, so a day is never
+    /// split across batches) and is dropped before the next loads, keeping peak memory at
+    /// one batch while coverage extends across the whole history.
+    ///
+    /// `counts` must be the [`Storage::daily_counts`] result (one entry per day with data,
+    /// **newest day first**). `tz` is minutes east of UTC; `page_size` bounds readings per
+    /// batch; `max_batches` bounds total work.
+    async fn collect_day_glucose_stats(
+        &self,
+        user_id: &str,
+        counts: &[DayCount],
+        tz: i64,
+        page_size: i64,
+        max_batches: usize,
+    ) -> Result<DayGlucoseStats, ApiError> {
+        let t = TirThresholds::default();
+        let mut by_day: std::collections::HashMap<i64, DayGlucose> = std::collections::HashMap::new();
+        let mut recent_readings: Vec<GlucoseReading> = Vec::new();
+        let mut loaded: i64 = 0;
+        let mut capped = false;
+        // Cadence/gap caps are inferred once from the most recent batch (representative of
+        // the device) and reused for every day's time-weighted headline, matching the old
+        // single-window behaviour. Defaults until the first batch is loaded.
+        let mut cadence_ms = analytics::DEFAULT_CADENCE_MS;
+        let mut tw_gap = DEFAULT_MAX_GAP_MS;
+
+        let mut i = 0usize;
+        let mut batches = 0usize;
+        while i < counts.len() {
+            if batches >= max_batches {
+                capped = true;
+                break;
+            }
+            // Build a day-aligned batch: consecutive days (newest first) whose summed
+            // reading count fits one page, always taking at least one day.
+            let start = i;
+            let mut sum = 0i64;
+            while i < counts.len() {
+                let n = counts[i].n;
+                if i > start && sum + n > page_size {
+                    break;
+                }
+                sum += n;
+                i += 1;
+                if sum >= page_size {
+                    break;
+                }
+            }
+            let batch = &counts[start..i];
+            // A single day bigger than one page can't be fully loaded within the per-batch
+            // bound; leave it count-only (honest) rather than decorate from a partial slice.
+            if batch.len() == 1 && batch[0].n > page_size {
+                capped = true;
+                continue;
+            }
+
+            let newest = &batch[0]; // counts is newest-day-first
+            let oldest = &batch[batch.len() - 1];
+            let docs = self
+                .storage
+                .search_documents(
+                    Collection::Entries,
+                    user_id,
+                    &DocQuery::new()
+                        .doc_type("sgv")
+                        .date_gte(oldest.first_ms)
+                        .date_lte(newest.last_ms)
+                        .limit(sum),
+                )
+                .await?;
+            batches += 1;
+            loaded += docs.len() as i64;
+            let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
+
+            // The first (most recent) batch sets the cadence used for every day's headline,
+            // and is the "recent" window the summary tiles report.
+            if batches == 1 {
+                cadence_ms = infer_cadence_ms(&readings, tz);
+                tw_gap = gap_caps(cadence_ms).0;
+            }
+
+            // Group this batch's readings by local day and decorate each fully-loaded day.
+            let mut grouped: std::collections::HashMap<i64, Vec<GlucoseReading>> =
+                std::collections::HashMap::new();
+            for r in &readings {
+                grouped.entry(timeutil::day_number(r.date_ms, tz)).or_default().push(*r);
+            }
+            for d in batch {
+                if let Some(rs) = grouped.get(&d.day_index) {
+                    // Decorate only when the whole day loaded (loaded == authoritative
+                    // count) — a partial day's mean/TIR alongside the full `n` would mislead.
+                    if rs.len() as i64 == d.n {
+                        by_day.insert(d.day_index, DayGlucose::compute(rs, &t, tw_gap));
+                    }
+                }
+            }
+
+            if batches == 1 {
+                recent_readings = readings;
+            }
+        }
+        if i < counts.len() {
+            capped = true;
+        }
+
+        Ok(DayGlucoseStats { by_day, recent_readings, loaded, capped, cadence_ms })
     }
 
     /// Ambulatory Glucose Profile: the 5/25/50/75/95 percentile bands of glucose by
@@ -754,6 +857,57 @@ fn req_field(v: &Value, key: &str) -> Result<String, ApiError> {
         .ok_or_else(|| ApiError::BadRequest(format!("missing '{key}'")))
 }
 
+/// One day's glucose summary for the Data view (the per-day decoration). The mean / A1c
+/// estimates / CV are time-weighted (count fallback), consistent with `/analytics`;
+/// min/max and TIR stay count-based.
+struct DayGlucose {
+    mean: Option<f64>,
+    min: f64,
+    max: f64,
+    ugmi: Option<f64>,
+    gmi: Option<f64>,
+    cv: Option<f64>,
+    tir: TimeInRange,
+}
+
+impl DayGlucose {
+    /// Summarise one day's readings. `readings` must be non-empty (the caller only
+    /// decorates days that loaded ≥ 1 reading).
+    fn compute(readings: &[GlucoseReading], t: &TirThresholds, tw_gap: i64) -> DayGlucose {
+        let s = GlucoseSummary::compute(readings, t);
+        let hd = headline(&s, readings, tw_gap);
+        let (min, max) = readings.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |acc, r| {
+            let v = r.value.mgdl();
+            (acc.0.min(v), acc.1.max(v))
+        });
+        DayGlucose {
+            mean: hd.mean,
+            min,
+            max,
+            ugmi: hd.ugmi,
+            gmi: hd.gmi,
+            cv: hd.cv,
+            tir: s.tir,
+        }
+    }
+}
+
+/// Result of [`ApiService::collect_day_glucose_stats`]: per-day decorations plus the
+/// metadata `/days` reports about the (batched) stats window.
+struct DayGlucoseStats {
+    /// Per-day glucose summary, keyed by local day-number. Only days fully loaded within
+    /// the batch budget appear; the rest are count-only.
+    by_day: std::collections::HashMap<i64, DayGlucose>,
+    /// The most recent batch's readings, for the "recent window" headline + cadence.
+    recent_readings: Vec<GlucoseReading>,
+    /// Total readings loaded across all batches (the `statsWindowReadings` figure).
+    loaded: i64,
+    /// True if older days were left count-only because the batch budget was reached.
+    capped: bool,
+    /// Sampling cadence inferred from the most recent batch.
+    cadence_ms: i64,
+}
+
 /// Build a [`GlucoseReading`] from a stored entry document, if it carries a value.
 fn reading_from_doc(d: &StoredDoc) -> Option<GlucoseReading> {
     let entry: Entry = serde_json::from_value(d.doc.clone()).ok()?;
@@ -945,4 +1099,93 @@ fn token_json(t: &DeviceToken) -> Value {
         "lastUsedAt": t.last_used_at,
         "revoked": t.revoked,
     })
+}
+
+#[cfg(test)]
+mod days_stats_tests {
+    //! Unit tests for the batched per-day stats walk that backs `/api/v4/days`. They drive
+    //! [`ApiService::collect_day_glucose_stats`] directly with a small page size so the
+    //! batching/coverage behaviour is exercised without ingesting tens of thousands of rows.
+
+    use crate::ApiService;
+    use nightknight_storage::{Collection, Storage};
+    use nightknight_store_sql::SqlStore;
+    use serde_json::json;
+
+    const NOW: i64 = 1_700_000_000_000;
+    const DAY_MS: i64 = 86_400_000;
+
+    /// Build a service with `values.len()` consecutive local (UTC) days of data, 3 readings
+    /// each; `values[k]` is the constant glucose for day `k` (0 = newest). Returns the
+    /// service and the stored (namespaced) user id.
+    async fn svc_with_days(values: &[i64]) -> (ApiService<SqlStore>, String) {
+        let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+        store.migrate().await.unwrap();
+        let svc = ApiService::new(store);
+        let mut entries = Vec::new();
+        for (k, &v) in values.iter().enumerate() {
+            for j in 0..3i64 {
+                let date = NOW - (k as i64) * DAY_MS - j * 60_000;
+                entries.push(json!({ "type": "sgv", "date": date, "sgv": v, "device": "t" }));
+            }
+        }
+        svc.ingest_entries("alice@cooney.be", entries, NOW).await.unwrap();
+        // ingest keys the user in the service namespace (see `tenant_subject`).
+        let uid = svc
+            .storage()
+            .get_user_by_subject("service:alice@cooney.be")
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        (svc, uid)
+    }
+
+    async fn counts(svc: &ApiService<SqlStore>, uid: &str) -> Vec<nightknight_storage::DayCount> {
+        svc.storage().daily_counts(Collection::Entries, uid, "sgv", 0).await.unwrap()
+    }
+
+    /// The headline symptom of issue #17: with dense data, a flat reading cap left older
+    /// days with no average. The batched walk decorates EVERY day, not just the newest —
+    /// here with a page size that forces one day per batch.
+    #[tokio::test]
+    async fn decorates_every_day_across_multiple_batches() {
+        let (svc, uid) = svc_with_days(&[120, 90, 200, 60]).await;
+        let counts = counts(&svc, &uid).await;
+        assert_eq!(counts.len(), 4, "four days have data");
+
+        let stats = svc.collect_day_glucose_stats(&uid, &counts, 0, 4, 10).await.unwrap();
+        assert_eq!(stats.by_day.len(), 4, "all four days get a per-day summary, not just the newest");
+        assert!(!stats.capped, "the batch budget was not exhausted");
+        assert_eq!(stats.loaded, 12, "every reading was loaded across the batches");
+        // Each day's mean reflects its OWN readings, not a blended window.
+        assert_eq!(stats.by_day.get(&counts[0].day_index).unwrap().mean.unwrap().round(), 120.0);
+        assert_eq!(stats.by_day.get(&counts[3].day_index).unwrap().mean.unwrap().round(), 60.0);
+    }
+
+    /// A batch spans several days when their combined readings fit one page — and every day
+    /// it covers is decorated (no day is split across the date-range query boundary).
+    #[tokio::test]
+    async fn batches_span_multiple_days_when_they_fit() {
+        let (svc, uid) = svc_with_days(&[120, 90, 200, 60]).await;
+        let counts = counts(&svc, &uid).await;
+        // page_size 8 fits two days (6 readings) per batch → 2 batches cover all 4 days.
+        let stats = svc.collect_day_glucose_stats(&uid, &counts, 0, 8, 10).await.unwrap();
+        assert_eq!(stats.by_day.len(), 4, "a multi-day batch decorates every day it covers");
+        assert!(!stats.capped);
+    }
+
+    /// When the batch budget is exhausted, older days fall back to count-only and the result
+    /// is flagged `capped` — the honest "stats cover the recent window" behaviour.
+    #[tokio::test]
+    async fn budget_caps_older_days_to_count_only() {
+        let (svc, uid) = svc_with_days(&[120, 90, 200, 60]).await;
+        let counts = counts(&svc, &uid).await;
+        // 2 batches allowed, 1 day each → 2 newest days decorated, 2 oldest count-only.
+        let stats = svc.collect_day_glucose_stats(&uid, &counts, 0, 4, 2).await.unwrap();
+        assert_eq!(stats.by_day.len(), 2, "only days within the batch budget are decorated");
+        assert!(stats.capped, "remaining older days are reported as capped");
+        assert!(stats.by_day.contains_key(&counts[0].day_index), "newest day decorated");
+        assert!(!stats.by_day.contains_key(&counts[3].day_index), "oldest day is count-only");
+    }
 }

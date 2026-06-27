@@ -36,7 +36,28 @@ Most of this roadmap now ships. The pure maths lives in
 | Time-of-day patterns (overnight/morning/afternoon/evening) | ✅ shipped |
 | Advanced variability — J-index, MAGE, CONGA(n), MODD | ✅ shipped |
 | Research-based trend arrows (first-party + least-squares fallback + stale guard) | ✅ shipped |
+| Per-day Data view (`/api/v4/days`) — coverage + per-day summary across the **whole** history | ✅ shipped |
 | Day-of-week patterns; printable AGP one-pager; CSV/JSON export | ⏳ follow-up |
+
+### Data view per-day stats — coverage & gap handling
+
+`GET /api/v4/days` answers "did my history import, and what does each day look like?".
+Every local day with ≥ 1 reading is always listed with its count (from the cheap indexed
+`daily_counts` aggregation), and each day additionally gets a per-day glucose summary
+(mean, TIR, uGMI/GMI, CV, min/max).
+
+Those per-day summaries are computed by walking history **newest-first in day-aligned
+batches** of up to `MAX_DAYS_STATS_POINTS` readings (`MAX_DAYS_STATS_BATCHES` batches max),
+dropping each batch before loading the next. This keeps peak memory at one batch while the
+coverage scales to the whole history — a flat "newest 20 000 readings" cap previously left
+every day older than ~2 weeks (at a 1-minute cadence) with a count but no average. Only
+days beyond the batch budget fall back to count-only, and that is surfaced honestly via
+`statsCapped` / `statsWindowReadings`.
+
+Gap handling is cadence-aware throughout: the sampling cadence is inferred from the data
+(`infer_cadence_ms`), and the time-weighting / episode-break gap caps scale to it (a longer
+gap is treated as a sensor outage and accrues no time), so a day's mean isn't biased by a
+warm-up gap and a sparse device isn't mislabelled "limited".
 
 Timezone for time-of-day analytics is handled by a `tzOffset` query parameter the
 clients pass (minutes east of UTC); a stored per-user timezone is a future refinement.
