@@ -973,6 +973,432 @@ async fn nightscout_backfill_walks_full_history() {
     assert_eq!(body_json(&entries).as_array().unwrap().len(), 2500, "whole history imported");
 }
 
+/// A throwaway P-256 PKCS#8 key for exercising the APNs send path. It authenticates
+/// nothing real (no Apple-registered Key/Team ID), but it lets `provider_token` produce a
+/// genuine signed JWT so the silent-push request is built exactly as in production.
+const TEST_APNS_P8: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+UX1vSS9hu87cb+j\n\
+8IYJh/1gPjxMFJ++fcBqWz3VPeyhRANCAAQmIzIwzHseC+ITSgkQp2hZohMI9Jr3\n\
+nohMe+5Ung2D+0iRphHJkTEAN8j5Tr6H/MBVZRlUTEYkn+wYRxPPW3kR\n\
+-----END PRIVATE KEY-----\n";
+
+fn test_apns() -> nightknight_api::ApnsConfig {
+    nightknight_api::ApnsConfig {
+        key_p8: TEST_APNS_P8.to_string(),
+        key_id: "ABC1234DEF".to_string(),
+        team_id: "XYZ9876WUV".to_string(),
+        bundle_id: "be.cooney.nightknight.NightKnight".to_string(),
+        default_env: nightknight_api::ApnsEnv::Sandbox,
+    }
+}
+
+/// 64-hex-char values shaped like APNs device tokens (distinct per device/user).
+fn fake_apns_token() -> String {
+    "ab".repeat(32)
+}
+fn apns_token_a() -> String {
+    "a1".repeat(32)
+}
+fn apns_token_b() -> String {
+    "b2".repeat(32)
+}
+
+/// SCENARIO: the iOS follower registers its APNs device token so the server can wake it.
+/// The app authenticates with a **read-only** device token (it only follows), so the
+/// registration endpoint must accept `entries:read` — and the write must be isolated to
+/// the caller, idempotent across the app's relaunch re-POSTs, and reject junk tokens.
+#[tokio::test]
+async fn push_register_is_follower_scoped_idempotent_and_isolated() {
+    let svc = service().await;
+
+    // Alice mints a read-only follower token (the iOS app's credential) and uses it.
+    let mk = svc
+        .handle(
+            request("POST", "/api/v4/tokens", &[], json!({ "scopes": ["api:entries:read"] })),
+            NOW,
+            Some(human("alice@cooney.be")),
+        )
+        .await;
+    let raw = body_json(&mk)["token"].as_str().unwrap().to_string();
+    let auth = format!("Bearer {raw}");
+    let token = fake_apns_token();
+
+    // Register via the read-only token (no edge identity) — entries:read is enough.
+    let reg = svc
+        .handle(
+            request("POST", "/api/v4/push/register", &[("authorization", &auth)],
+                json!({ "token": token, "environment": "sandbox" })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(reg.status, 200, "a read-only follower token may register for push");
+    assert_eq!(body_json(&reg)["ok"], true);
+
+    // Re-registering the same token (every app launch) stays idempotent — one row.
+    let again = svc
+        .handle(
+            request("POST", "/api/v4/push/register", &[("authorization", &auth)],
+                json!({ "token": token, "environment": "production" })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(again.status, 200);
+    let stored = svc.storage().list_push_tokens(
+        &svc.storage().get_user_by_subject("human:alice@cooney.be").await.unwrap().unwrap().id,
+    ).await.unwrap();
+    assert_eq!(stored.len(), 1, "re-register updates, never duplicates");
+    assert_eq!(stored[0].environment, "production", "environment update applied");
+
+    // A malformed (non-hex) token is rejected before it can reach APNs.
+    let bad = svc
+        .handle(
+            request("POST", "/api/v4/push/register", &[("authorization", &auth)],
+                json!({ "token": "not-a-hex-token!!", "environment": "sandbox" })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(bad.status, 400, "a non-hex token is refused");
+
+    // Unregister removes it; a second unregister is a 404 (nothing to remove).
+    let del = svc
+        .handle(
+            request("DELETE", "/api/v4/push/register", &[("authorization", &auth)],
+                json!({ "token": token })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(del.status, 204);
+    let del2 = svc
+        .handle(
+            request("DELETE", "/api/v4/push/register", &[("authorization", &auth)],
+                json!({ "token": token })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(del2.status, 404, "unregistering an absent token is a no-op 404");
+}
+
+/// SECURITY: an unauthenticated request can neither register nor read push tokens.
+#[tokio::test]
+async fn push_register_requires_authentication() {
+    let svc = service().await;
+    let resp = svc
+        .handle(
+            request("POST", "/api/v4/push/register", &[],
+                json!({ "token": fake_apns_token(), "environment": "sandbox" })),
+            NOW,
+            None,
+        )
+        .await;
+    assert_eq!(resp.status, 401, "no credential, no registration");
+}
+
+/// A mock that plays a Dexcom cloud AND a Nightscout source (so a sync can ingest a
+/// reading for either connector type) AND APNs (so we can observe the silent push). It
+/// records every APNs request for assertions. `dexcom_reading_ms` / `nightscout_reading_ms`
+/// let two different users (one per connector) be given independently fresh-or-stale data
+/// in a single `sync_connectors` run.
+struct MockCloudAndApns {
+    dexcom_reading_ms: Option<i64>,
+    nightscout_reading_ms: Option<i64>,
+    apns_status: u16,
+    apns_calls: std::sync::Mutex<Vec<MockApnsCall>>,
+}
+
+#[derive(Clone)]
+struct MockApnsCall {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+impl MockCloudAndApns {
+    /// A Dexcom-only mock (the common single-user case).
+    fn new(reading_ms: i64, apns_status: u16) -> Self {
+        MockCloudAndApns {
+            dexcom_reading_ms: Some(reading_ms),
+            nightscout_reading_ms: None,
+            apns_status,
+            apns_calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+    /// Also serve a Nightscout source a reading at `ms` (for a second, different user).
+    fn with_nightscout(mut self, ms: i64) -> Self {
+        self.nightscout_reading_ms = Some(ms);
+        self
+    }
+    fn apns_calls(&self) -> Vec<MockApnsCall> {
+        self.apns_calls.lock().unwrap().clone()
+    }
+    /// The device token each recorded push was addressed to (from the per-device URL).
+    fn pushed_tokens(&self) -> Vec<String> {
+        self.apns_calls()
+            .iter()
+            .map(|c| c.url.rsplit('/').next().unwrap_or_default().to_string())
+            .collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl nightknight_connectors::HttpClient for MockCloudAndApns {
+    async fn send(
+        &self,
+        req: nightknight_connectors::HttpReq,
+    ) -> Result<nightknight_connectors::HttpResp, nightknight_connectors::ConnectorError> {
+        if req.url.contains("push.apple.com") {
+            self.apns_calls.lock().unwrap().push(MockApnsCall {
+                url: req.url.clone(),
+                headers: req.headers.clone(),
+                body: req.body.as_ref().map(|b| String::from_utf8_lossy(b).to_string()).unwrap_or_default(),
+            });
+            return Ok(nightknight_connectors::HttpResp { status: self.apns_status, body: Vec::new() });
+        }
+        // Nightscout entries endpoint (recent pull + cursored backfill both hit it).
+        if req.url.contains("/entries") {
+            let body = match self.nightscout_reading_ms {
+                Some(ms) => format!(
+                    r#"[{{"type":"sgv","date":{ms},"sgv":120,"device":"ns"}}]"#
+                ).into_bytes(),
+                None => b"[]".to_vec(),
+            };
+            return Ok(nightknight_connectors::HttpResp { status: 200, body });
+        }
+        let body: Vec<u8> = if req.url.contains("AuthenticatePublisherAccount") {
+            br#""account-id-123""#.to_vec()
+        } else if req.url.contains("LoginPublisherAccountById") {
+            br#""session-id-456""#.to_vec()
+        } else if req.url.contains("ReadPublisherLatestGlucoseValues") {
+            match self.dexcom_reading_ms {
+                Some(ms) => format!(r#"[{{"WT":"Date({ms})","Value":132,"Trend":"Flat"}}]"#).into_bytes(),
+                None => b"[]".to_vec(),
+            }
+        } else {
+            b"[]".to_vec()
+        };
+        Ok(nightknight_connectors::HttpResp { status: 200, body })
+    }
+}
+
+/// Register a specific APNs token for a user (the iOS app's POST).
+async fn register_push_token(svc: &ApiService<SqlStore>, email: &str, token: &str) {
+    svc.handle(
+        request("POST", "/api/v4/push/register", &[],
+            json!({ "token": token, "environment": "sandbox" })),
+        NOW, Some(human(email)),
+    ).await;
+}
+
+/// Give a user a Dexcom connector.
+async fn add_dexcom(svc: &ApiService<SqlStore>, email: &str) {
+    svc.handle(
+        request("PUT", "/api/v4/connectors/dexcom", &[],
+            json!({ "username": "u@x", "password": "s3cret", "region": "us" })),
+        NOW, Some(human(email)),
+    ).await;
+}
+
+/// Give a user a Nightscout source connector.
+async fn add_nightscout(svc: &ApiService<SqlStore>, email: &str) {
+    svc.handle(
+        request("PUT", "/api/v4/connectors/nightscout", &[],
+            json!({ "url": "https://ns.example.com", "secret": "s" })),
+        NOW, Some(human(email)),
+    ).await;
+}
+
+async fn user_id(svc: &ApiService<SqlStore>, email: &str) -> String {
+    svc.storage().get_user_by_subject(&format!("human:{email}")).await.unwrap().unwrap().id
+}
+
+/// Add a Dexcom connector + register a push token for one user, returning that user's id.
+async fn setup_user_with_connector_and_push(svc: &ApiService<SqlStore>, email: &str) -> String {
+    add_dexcom(svc, email).await;
+    register_push_token(svc, email, &fake_apns_token()).await;
+    user_id(svc, email).await
+}
+
+/// SCENARIO (the heart of issue #13): a connector sync ingests a **fresh** reading, and
+/// the server sends a correctly-formed silent push to the user's registered device. This
+/// is what makes the phone wake and refresh without being foregrounded.
+#[tokio::test]
+async fn fresh_connector_reading_sends_a_well_formed_silent_push() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    setup_user_with_connector_and_push(&svc, "member@cooney.be").await;
+
+    // A reading from one minute ago → fresh → must push.
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200);
+    let n = svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(n, 1, "one reading ingested");
+
+    let calls = mock.apns_calls();
+    assert_eq!(calls.len(), 1, "exactly one silent push for the one device");
+    let call = &calls[0];
+    assert!(call.url.starts_with("https://api.sandbox.push.apple.com/3/device/"),
+            "sandbox token → sandbox host, per-device path: {}", call.url);
+    assert!(call.url.ends_with(&fake_apns_token()));
+    let header = |k: &str| call.headers.iter().find(|(h, _)| h == k).map(|(_, v)| v.as_str());
+    assert_eq!(header("apns-push-type"), Some("background"), "silent push type");
+    assert_eq!(header("apns-priority"), Some("5"), "background priority");
+    assert_eq!(header("apns-topic"), Some("be.cooney.nightknight.NightKnight"));
+    assert!(header("authorization").unwrap().starts_with("bearer "), "bearer provider JWT");
+    let body: Value = serde_json::from_str(&call.body).unwrap();
+    assert_eq!(body["aps"]["content-available"], 1, "silent payload, no alert");
+}
+
+/// A one-time history backfill (or any back-dated import) must NOT wake the phone — a
+/// silent push means "fresh data now", and a stale reading fails the freshness window.
+#[tokio::test]
+async fn stale_reading_does_not_push() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    setup_user_with_connector_and_push(&svc, "member@cooney.be").await;
+
+    // A reading from 30 minutes ago → outside the 15-minute freshness window → no push.
+    let mock = MockCloudAndApns::new(NOW - 30 * 60_000, 200);
+    let n = svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(n, 1, "the (old) reading is still ingested");
+    assert!(mock.apns_calls().is_empty(), "a stale reading must not trigger a wake-up");
+}
+
+/// When APNs reports `410 Unregistered`, the dead token is pruned so we stop sending into
+/// the void — APNs is the source of truth for token validity.
+#[tokio::test]
+async fn unregistered_device_token_is_pruned_on_410() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    let user_id = setup_user_with_connector_and_push(&svc, "member@cooney.be").await;
+    assert_eq!(svc.storage().list_push_tokens(&user_id).await.unwrap().len(), 1);
+
+    // APNs says the device is gone → the push is attempted, then the token is removed.
+    let mock = MockCloudAndApns::new(NOW - 60_000, 410);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(mock.apns_calls().len(), 1, "the push was attempted");
+    assert!(svc.storage().list_push_tokens(&user_id).await.unwrap().is_empty(),
+            "a 410 Unregistered prunes the dead token");
+}
+
+/// SECURITY (the spec's central claim): in one sync run, a push goes ONLY to the device of
+/// the user who got fresh data — never to another user's device. Here user A (Dexcom) gets
+/// a fresh reading and user B (Nightscout) gets a stale one; exactly one push must fire, to
+/// A's token, proving both the per-user freshness gate (`to_notify`) and that the send loop
+/// reads each user's *own* tokens (`list_push_tokens(user_id)`), never broadcasting.
+#[tokio::test]
+async fn push_is_isolated_to_the_user_with_fresh_data() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+
+    // User A: Dexcom + token A. User B: Nightscout + token B (a different device).
+    add_dexcom(&svc, "alice@cooney.be").await;
+    register_push_token(&svc, "alice@cooney.be", &apns_token_a()).await;
+    add_nightscout(&svc, "bob@cooney.be").await;
+    register_push_token(&svc, "bob@cooney.be", &apns_token_b()).await;
+
+    // A's reading is fresh (1 min); B's is stale (30 min) → only A should be woken.
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200).with_nightscout(NOW - 30 * 60_000);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+
+    let pushed = mock.pushed_tokens();
+    assert_eq!(pushed, vec![apns_token_a()],
+               "exactly one push, to the fresh user's device — never the other user's token");
+}
+
+/// A user with several devices is woken on all of them: `push_new_readings` fans out to
+/// every token `list_push_tokens` returns. Two registered devices → two pushes, one each.
+#[tokio::test]
+async fn push_fans_out_to_all_of_a_users_devices() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    add_dexcom(&svc, "member@cooney.be").await;
+    register_push_token(&svc, "member@cooney.be", &apns_token_a()).await;
+    register_push_token(&svc, "member@cooney.be", &apns_token_b()).await;
+
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+
+    let mut pushed = mock.pushed_tokens();
+    pushed.sort();
+    assert_eq!(pushed, vec![apns_token_a(), apns_token_b()],
+               "both of the user's devices are woken, exactly once each");
+}
+
+/// A user with TWO connectors that both bring in fresh data this tick is woken just ONCE,
+/// not once per connector — `sync_connectors` coalesces per user via the `to_notify` set.
+#[tokio::test]
+async fn multiple_fresh_connectors_coalesce_to_one_push_per_user() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    // One user, one device, but BOTH a Dexcom and a Nightscout connector, each fresh.
+    add_dexcom(&svc, "member@cooney.be").await;
+    add_nightscout(&svc, "member@cooney.be").await;
+    register_push_token(&svc, "member@cooney.be", &fake_apns_token()).await;
+
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200).with_nightscout(NOW - 90_000);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(mock.apns_calls().len(), 1,
+               "two fresh connectors for one user coalesce into a single wake-up");
+}
+
+/// The per-minute cron re-fetches the same recent reading every tick. A reading that's
+/// already stored creates nothing (dedup), so `newest_created_ms` is None and NO second
+/// push fires — the phone is woken once per genuinely-new reading, not every minute.
+#[tokio::test]
+async fn resyncing_the_same_reading_does_not_push_again() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store)
+        .with_connector_key(Some([42u8; 32]))
+        .with_apns(Some(test_apns()));
+    setup_user_with_connector_and_push(&svc, "member@cooney.be").await;
+
+    // First tick: the reading is new → one push.
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(mock.apns_calls().len(), 1, "first sight of the reading wakes the phone");
+
+    // Second tick: the same reading is re-fetched → deduped, nothing created → no push.
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert_eq!(mock.apns_calls().len(), 1, "a re-seen reading must not wake the phone again");
+}
+
+/// With no APNs configured, registration still records tokens (so they're ready when a
+/// key is added) but a sync sends nothing — push is simply disabled, not broken.
+#[tokio::test]
+async fn no_apns_config_means_no_push_but_registration_still_works() {
+    let store = SqlStore::connect("sqlite::memory:").await.unwrap();
+    store.migrate().await.unwrap();
+    let svc = ApiService::new(store).with_connector_key(Some([42u8; 32])); // no .with_apns
+    let user_id = setup_user_with_connector_and_push(&svc, "member@cooney.be").await;
+    assert_eq!(svc.storage().list_push_tokens(&user_id).await.unwrap().len(), 1,
+               "token is stored even before a key is configured");
+    let mock = MockCloudAndApns::new(NOW - 60_000, 200);
+    svc.sync_connectors(&mock, 60, NOW).await.unwrap();
+    assert!(mock.apns_calls().is_empty(), "no APNs key → no push attempted");
+}
+
 /// Local SHA-1 hex helper (mirrors what a legacy uploader computes over the secret).
 fn sha1_hex(s: &str) -> String {
     use sha1::{Digest, Sha1};

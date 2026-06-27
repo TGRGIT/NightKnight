@@ -15,9 +15,10 @@ use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
 
 use nightknight_storage::{
-    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param, sql,
-    stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential, DayCount, DeviceToken,
-    DocQuery, Result, StoredDoc, Storage, StorageError, User, WriteOutcome,
+    connector_credential_from_cols, day_count_from_cols, device_token_from_cols, model::Param,
+    push_token_from_cols, sql, stored_doc_from_cols, user_from_cols, Collection, ConnectorCredential,
+    DayCount, DeviceToken, DocQuery, PushToken, Result, StoredDoc, Storage, StorageError, User,
+    WriteOutcome,
 };
 
 /// A SQL-backed store over a sqlx `Any` pool (SQLite or Postgres).
@@ -201,6 +202,16 @@ fn row_to_token(row: &AnyRow) -> Result<DeviceToken> {
         row.try_get(7).map_err(backend_err)?,
         row.try_get(8).map_err(backend_err)?,
     )
+}
+
+fn row_to_push_token(row: &AnyRow) -> Result<PushToken> {
+    Ok(push_token_from_cols(
+        row.try_get(0).map_err(backend_err)?,
+        row.try_get(1).map_err(backend_err)?,
+        row.try_get(2).map_err(backend_err)?,
+        row.try_get(3).map_err(backend_err)?,
+        row.try_get(4).map_err(backend_err)?,
+    ))
 }
 
 #[async_trait]
@@ -406,6 +417,22 @@ impl Storage for SqlStore {
         let (sql, params) = sql::update_connector_sync(user_id, provider, last_sync_at, last_status);
         self.execute(&sql, params).await?;
         Ok(())
+    }
+
+    async fn upsert_push_token(&self, token: &PushToken) -> Result<()> {
+        let (sql, params) = sql::upsert_push_token(token);
+        self.execute(&sql, params).await?;
+        Ok(())
+    }
+
+    async fn list_push_tokens(&self, user_id: &str) -> Result<Vec<PushToken>> {
+        let (sql, params) = sql::list_push_tokens(user_id);
+        self.fetch_all(&sql, params).await?.iter().map(row_to_push_token).collect()
+    }
+
+    async fn delete_push_token(&self, user_id: &str, token: &str) -> Result<bool> {
+        let (sql, params) = sql::delete_push_token(user_id, token);
+        Ok(self.execute(&sql, params).await? > 0)
     }
 }
 

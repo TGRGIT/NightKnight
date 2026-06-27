@@ -49,6 +49,18 @@ struct APIClient {
         return decoded
     }
 
+    /// Send a small JSON body and only check the status (no decoded result). Used by the
+    /// push-registration endpoints, which return just `{ "ok": true }` / 204.
+    private func sendJSON(method: String, path: String, body: [String: String]) async throws {
+        var req = try makeRequest(path: path)
+        req.httpMethod = method
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw APIError.decode }
+        guard (200..<300).contains(http.statusCode) else { throw APIError.http(http.statusCode) }
+    }
+
     // MARK: - Endpoints
 
     /// The device's UTC offset in minutes (east of UTC), for localising time-of-day
@@ -126,6 +138,21 @@ struct APIClient {
             episodes: episodes)
     }
 
+    /// Register this device's APNs token so the server can send silent pushes that wake
+    /// the app to refresh. Idempotent server-side, so it's safe to call on every launch
+    /// (and whenever iOS rotates the token). `environment` is `"sandbox"` for a
+    /// development build, `"production"` for TestFlight / App Store.
+    func registerPush(token: String, environment: String) async throws {
+        try await sendJSON(method: "POST", path: "/api/v4/push/register",
+                           body: ["token": token, "environment": environment])
+    }
+
+    /// Unregister this device's APNs token (sign-out / token change).
+    func unregisterPush(token: String) async throws {
+        try await sendJSON(method: "DELETE", path: "/api/v4/push/register",
+                           body: ["token": token])
+    }
+
     func agp(days: Int) async throws -> [AgpBin] {
         #if DEBUG
         if Demo.isEnabled { return Demo.agp(days: days) }
@@ -166,4 +193,13 @@ struct APIClient {
     private struct EpisodesDTO: Decodable { let low, veryLow, high, veryHigh: EpStatDTO; let recent: [RecentEpDTO] }
     private struct AgpDTO: Decodable { let bins: [AgpBinDTO] }
     private struct AgpBinDTO: Decodable { let minuteOfDay: Int; let n: Int; let p05: Double?; let p25: Double?; let p50: Double?; let p75: Double?; let p95: Double? }
+}
+
+extension Data {
+    /// Lowercase hex encoding of these bytes — the wire format APNs and the server use for
+    /// a device token (`didRegisterForRemoteNotificationsWithDeviceToken` hands over raw
+    /// `Data`). Must be lowercase, two hex digits per byte, no separators.
+    var apnsHexToken: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
 }

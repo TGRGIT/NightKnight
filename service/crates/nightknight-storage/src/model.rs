@@ -225,6 +225,25 @@ pub struct ConnectorCredential {
     pub last_status: Option<String>,
 }
 
+/// An APNs device token registered for **silent push** background refresh. One row per
+/// (user, device-token). The APNs token is not itself a secret — it only identifies a
+/// device to APNs — but it is scoped to its owner so a push for user A can never be sent
+/// to user B's device (the same per-row isolation every other collection uses).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushToken {
+    /// Owning user — every push lookup is scoped by this.
+    pub user_id: String,
+    /// The hex APNs device token (the per-device endpoint APNs addresses).
+    pub token: String,
+    /// `"sandbox"` | `"production"` — which APNs host the token is valid against. A token
+    /// minted by a development build only works against the sandbox host.
+    pub environment: String,
+    /// The app bundle id the token was registered for (the APNs topic).
+    pub bundle_id: String,
+    /// When the registration was last refreshed (epoch ms).
+    pub updated_at: i64,
+}
+
 /// A bound query parameter. Backends bind these positionally against `?` placeholders.
 /// Booleans are represented as `Int(0|1)`. NULLs are **typed** (`Null` = text, `IntNull`
 /// = integer) because Postgres rejects a text-NULL bound to a bigint column (SQLite

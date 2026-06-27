@@ -2,7 +2,9 @@
 
 Status: Early development / Alpha
 Known issues: 
-- Alarms / background refresh don't work
+- Background refresh needs APNs silent push configured to be timely — see
+  [docs/SILENT-PUSH.md](docs/SILENT-PUSH.md) (until then it falls back to the OS's
+  best-effort `BGAppRefreshTask`)
 - Ambulatory glucose is broken
 - Import testing
 

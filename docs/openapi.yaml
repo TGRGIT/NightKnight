@@ -820,6 +820,61 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v4/push/register:
+    post:
+      tags: [v4]
+      operationId: v4PushRegister
+      summary: Register an APNs device token for silent-push background refresh
+      description: |
+        Records this device's APNs token, scoped to the calling user, so the server can
+        send a silent push (background notification) when fresh readings arrive — waking
+        the iOS app to refresh. Idempotent: the app re-POSTs on every launch and whenever
+        iOS rotates the token, which updates the single row.
+
+        Requires only `api:entries:read` — the follower permission the iOS app's read-only
+        device token already holds; the write only ever touches the caller's own rows. See
+        `docs/SILENT-PUSH.md`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushRegisterInput" }
+      responses:
+        "200":
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean, example: true } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [v4]
+      operationId: v4PushUnregister
+      summary: Unregister an APNs device token
+      description: |
+        Removes one of the caller's registered device tokens (on sign-out / token change).
+        Requires `api:entries:read`; scoped to the caller, so it can never remove another
+        user's token. Dead tokens are also pruned automatically on `410 Unregistered` from
+        APNs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, description: The hex APNs device token to remove. }
+      responses:
+        "204": { description: Unregistered. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 # ===========================================================================
 # Components
 # ===========================================================================
@@ -1304,6 +1359,26 @@ components:
         email: { type: string, format: email }
         password: { type: string }
         enabled: { type: boolean, default: true }
+
+    PushRegisterInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: >-
+            The hex APNs device token from
+            `didRegisterForRemoteNotificationsWithDeviceToken` (lowercase hex, no
+            separators).
+          example: "740f4707bebcf74f9b7c25d48e3358945f6aa01da5ddb387462c7eaf61bb78ad"
+        environment:
+          type: string
+          enum: [sandbox, production]
+          default: sandbox
+          description: >-
+            Which APNs environment minted the token. A development build (sandbox) only
+            works against the sandbox host; TestFlight / App Store (production) against the
+            production host. Anything other than `production` is treated as sandbox.
 
     # ---- v1 status -------------------------------------------------------
     V1Status:

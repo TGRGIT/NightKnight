@@ -97,8 +97,8 @@ APNS_DEFAULT_ENV = "sandbox"
 ```
 
 The container server (`nightknight-server`) reads the same values from env vars
-(`APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`); it can send pushes too and is
-handy for local testing (see *Testing*).
+(`APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_DEFAULT_ENV`); it can
+send pushes too and is handy for local testing (see *Testing*).
 
 ---
 
@@ -391,19 +391,120 @@ Hosts: `https://api.push.apple.com` (production) · `https://api.sandbox.push.ap
 
 ## Implementation checklist
 
+The **code** is implemented (see *Implementation status* below); the remaining unchecked
+boxes are one-time **operator** actions done outside the repo (Apple portal, secrets, a
+real-device check). Tick them as you complete the rollout.
+
 - [ ] Apple: enable Push Notifications for the App ID; create the APNs `.p8` key; note Key ID,
       Team ID, Bundle ID.
-- [ ] Worker: `wrangler secret put APNS_KEY_P8 / APNS_KEY_ID / APNS_TEAM_ID`; add
-      `APNS_BUNDLE_ID` + `APNS_DEFAULT_ENV` vars.
-- [ ] Storage: `push_tokens` table + `upsert_push_token` / `list_push_tokens` /
-      `delete_push_token` in both stores.
-- [ ] API: `POST`/`DELETE /api/v4/push/register` (header-auth, per-user).
-- [ ] Worker: ES256 JWT signer (`p256`) with ~50-min cache; `send_push(token, env)`; trigger
-      after `imported > 0` (coalesced, skip the bulk Nightscout backfill).
-- [ ] iOS: `UIApplicationDelegateAdaptor` → register, send token to server, handle the silent
-      push by calling `BackgroundRefresh.refreshNow()` + `completion(.newData)`.
-- [ ] Verify on a real device against the deployed Worker; log APNs status; prune on 410.
-- [ ] Keep `BGAppRefreshTask` + HealthKit delivery as complements; push is best-effort.
+- [ ] Worker: `wrangler secret put APNS_KEY_P8 / APNS_KEY_ID / APNS_TEAM_ID` (the
+      `APNS_BUNDLE_ID` + `APNS_DEFAULT_ENV` vars already ship in `wrangler.toml`).
+- [x] Storage: `push_tokens` table + `upsert_push_token` / `list_push_tokens` /
+      `delete_push_token` in both stores (+ contract test).
+- [x] API: `POST`/`DELETE /api/v4/push/register` (header-auth, per-user).
+- [x] APNs: ES256 JWT signer (`p256`) with ~50-min cache; silent-push request builder;
+      response classification — the `nightknight-apns` crate, with unit tests.
+- [x] Trigger: after a connector sync ingests a **fresh** reading (`push_new_readings` in
+      `sync_connectors`), coalesced to one push per user, freshness-gated so the one-time
+      Nightscout backfill never fires a wake-up. Prune on `410 Unregistered`.
+- [x] iOS: `AppDelegate` registers for remote notifications, POSTs the token, and handles
+      the silent push by calling `BackgroundRefresh.refreshNow()` + `completion(.newData)`.
+- [ ] Verify on a real device against the deployed Worker; prune on 410 (automatic).
+- [x] Keep `BGAppRefreshTask` + HealthKit delivery as complements; push is best-effort.
+
+### Implementation status (where the code lives)
+
+| Piece | Location |
+|---|---|
+| ES256 JWT + request builder + response classify | `service/crates/nightknight-apns/` (unit-tested) |
+| `push_tokens` table + storage trait methods | `nightknight-storage` (`sql.rs`, `model.rs`, `lib.rs`), both stores |
+| `POST`/`DELETE /api/v4/push/register` | `nightknight-api/src/v4.rs` |
+| Push trigger on fresh sync + prune-on-410 | `nightknight-api/src/lib.rs` (`push_new_readings`, `sync_connectors`) |
+| Worker / container config wiring | `nightknight-worker/src/lib.rs` (+ `wrangler.toml`), `nightknight-server/src/main.rs` |
+| iOS register + receive | `ios/NightKnight/NightKnightApp.swift`, `ios/Shared/APIClient.swift` |
+
+A few decisions worth flagging, where the implementation refines this guide:
+
+- **Registration requires `entries:read`, not `settings:update`.** The iOS app is a
+  *follower* that authenticates with a read-only device token; "register the device I'm
+  reading on" is part of following, and the write only ever touches the caller's own rows.
+  Requiring a settings/tokens-admin scope (as the sketch above showed) would lock the real
+  client out.
+- **Trigger is freshness-gated, not just `imported > 0`.** A push fires only when a sync
+  creates a reading newer than 15 minutes, so the cursored Nightscout history backfill —
+  which legitimately creates thousands of *old* rows per tick — never wakes the phone.
+- **The push trigger lives in the connector sync** (`sync_connectors`), which is the
+  follower data path and already has an HTTP transport in hand. Direct uploads
+  (`POST /api/v1|v3/entries`) do **not** currently emit a push — see *Future work*.
+
+---
+
+## Rollout plan
+
+Ship the code first (it's inert until APNs secrets exist), then turn push on out of band,
+then verify on a device. Each step is independently reversible.
+
+### 0. Pre-flight (in this PR)
+- Code merged; `cargo test --workspace` green; the worker builds for `wasm32`. Push is
+  **disabled** automatically because no `APNS_*` secrets are set yet — `/push/register`
+  still records tokens, so devices that update will be ready the moment push is enabled.
+
+### 1. Apple setup (one-time, ~15 min)
+- App ID → enable **Push Notifications**. In Xcode, the **Push Notifications** capability
+  on the `NightKnight` target (`aps-environment` is already in the entitlements).
+- Create an **APNs Auth Key** (Keys → +, check *Apple Push Notifications service*),
+  download the `.p8` **once**, note its **Key ID**, your **Team ID**, and the bundle id
+  (`be.cooney.nightknight.NightKnight`).
+
+### 2. Configure the server (no user impact)
+- Worker:
+  ```sh
+  cd service/crates/nightknight-worker
+  wrangler secret put APNS_KEY_P8     # paste the full PEM
+  wrangler secret put APNS_KEY_ID
+  wrangler secret put APNS_TEAM_ID
+  wrangler deploy
+  ```
+  (`APNS_BUNDLE_ID` / `APNS_DEFAULT_ENV` already in `wrangler.toml`; start with
+  `APNS_DEFAULT_ENV = "sandbox"`.)
+- Container: set `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` (and optionally
+  `APNS_BUNDLE_ID` / `APNS_DEFAULT_ENV`) in the env; it logs `APNs silent push enabled` at
+  start. The container's `reqwest` speaks HTTP/2, so it can also drive APNs in local
+  end-to-end tests (`wrangler dev` cannot — see *Testing*).
+
+### 3. Verify on a real device (sandbox first)
+- Install a **debug** build on a device (mints a *sandbox* token). Launch it → confirm a
+  row in `push_tokens` for your user (`environment = "sandbox"`).
+- Ingest a reading server-side (let the connector sync run, or upload one). Within
+  seconds-to-a-minute the app should wake; the widget refreshes. Use the manual
+  `curl --http2` probe in *Testing* to isolate APNs if it doesn't.
+- Watch the Worker observability logs / container logs for the sync.
+
+### 4. Production
+- Ship via TestFlight / App Store (mints *production* tokens; the device reports
+  `environment = "production"`, which the server honours per-token regardless of
+  `APNS_DEFAULT_ENV`). Re-verify on a TestFlight build.
+- One key serves both sandbox and production, so no key change is needed between steps.
+
+### Rollback
+- **Instant kill switch:** delete any one APNs secret (e.g. `wrangler secret delete
+  APNS_KEY_P8`) and redeploy — `ApnsConfig::from_parts` returns `None`, push goes silent,
+  and `BGAppRefreshTask` + HealthKit delivery keep working. No client update required.
+- The `push_tokens` rows are harmless when push is off; no migration to undo (the table is
+  created idempotently and simply sits unused).
+
+### Monitoring & health
+- Dead tokens self-prune on `410 Unregistered`, so the table stays clean.
+- Battery/again-rate is bounded: pushes are coalesced to one per user per sync tick,
+  `apns-priority: 5`, `apns-expiration: 0`, and `apns-collapse-id: glucose`.
+- If APNs auth ever breaks (rotated key, wrong Key/Team ID), pushes fail `403` and are
+  dropped silently — the complementary refresh paths keep data flowing while you fix it.
+
+### Future work (intentionally out of scope here)
+- Push on **direct uploads** (`/api/v1|v3/entries`) — needs an HTTP transport threaded
+  into the request path; the follower/connector path covers the primary use case.
+- Structured **APNs response logging** at the runtime layer (the API crate is
+  transport/log-agnostic today; outcomes drive pruning but aren't logged per-send).
 
 ---
 

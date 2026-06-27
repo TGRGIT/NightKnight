@@ -44,23 +44,70 @@ struct NightKnightApp: App {
         // stuck on a stale/blank entry from a throttled background refresh.
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { BackgroundRefresh.schedule() }
-            else if phase == .active { WidgetCenter.shared.reloadAllTimelines() }
+            else if phase == .active {
+                WidgetCenter.shared.reloadAllTimelines()
+                // Re-register for silent push on foreground too, so a token that rotated
+                // (or a connection configured) while we were backgrounded still reaches the
+                // server. Cheap — iOS returns the cached token fast — and only POSTs once
+                // we're configured (the callback guards on it).
+                if Settings.shared.isConfigured {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
         }
     }
 }
 
-/// Minimal app delegate whose sole job is to set the notification-center delegate, so
-/// glucose alarms are shown while the app is in the foreground. Without a delegate that
-/// returns presentation options, iOS silently drops any notification posted while the app
-/// is frontmost — which is exactly when the dashboard's poll loop evaluates alarms, so
-/// out-of-range alerts never appeared while the user was looking at the app.
+/// The app delegate handles the two UIKit callbacks SwiftUI doesn't surface: foreground
+/// notification presentation (so glucose alarms show while the app is frontmost — iOS
+/// otherwise drops them, which is exactly when the dashboard's poll loop raises them) and
+/// the remote-notification lifecycle for **silent push** background refresh (register the
+/// APNs token, and handle the incoming background push by refreshing).
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Silent pushes (content-available, no alert) need NO user-permission prompt — only
+        // user-visible alerts do. So register for remote notifications unconditionally on
+        // every launch (cheap; iOS returns the cached token fast and re-fires the callback
+        // if it rotated), which keeps the app's "don't prompt on launch" rule intact while
+        // letting the server wake us for new data.
+        application.registerForRemoteNotifications()
         return true
+    }
+
+    /// iOS delivered (or rotated) our APNs device token → report it to the server, scoped
+    /// to the authenticated user, so silent pushes can be addressed to this device.
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        Task { await PushRegistration.send(apnsToken: deviceToken.apnsHexToken) }
+    }
+
+    /// There is no APNs in the Simulator, and some dev setups lack the entitlement — log,
+    /// never crash. (Background refresh still falls back to `BGAppRefreshTask` + Health.)
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NSLog("NightKnight: remote notification registration failed: \(error.localizedDescription)")
+    }
+
+    /// A silent push landed. We have ~30s of background runtime: pull the latest reading,
+    /// mirror it to Health, evaluate alarms, and reload the widget timelines — then tell
+    /// iOS we got new data (so it keeps granting us background wake-ups).
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task { @MainActor in
+            await BackgroundRefresh.refreshNow()
+            completionHandler(.newData)
+        }
     }
 
     /// Present alarms (banner + sound + Notification Center entry) even in the foreground.
@@ -72,14 +119,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 }
 
-/// Background data refresh for a follower app. The system grants app-refresh slots
-/// roughly every 15–30 minutes (it learns your usage); each slot pulls the latest
-/// reading, mirrors it to Health, evaluates alarms, and — crucially — reloads the
-/// widget timelines, since a widget can't poll on its own. We always reschedule so the
-/// chain never breaks. For minute-fresh updates a server-side **silent push** (APNs) is
-/// the next step — the `aps-environment` entitlement and `remote-notification` background
-/// mode are already in place; it needs the Worker to send a background push when a new
-/// reading lands. Full implementation guide: `docs/SILENT-PUSH.md`.
+/// Reports this device's APNs token to the server so it can send silent pushes. The token
+/// arrives from `didRegisterForRemoteNotificationsWithDeviceToken`; we only register when
+/// the app is actually configured (server URL + device token present).
+enum PushRegistration {
+    static func send(apnsToken: String) async {
+        let settings = Settings.shared
+        guard settings.isConfigured else { return }
+        // A development build (Xcode / direct install, `aps-environment=development`) mints
+        // a *sandbox* APNs token; a TestFlight / App Store build mints a *production* one.
+        // The server keys the APNs host off this, so the value must match the build.
+        #if DEBUG
+        let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
+        try? await APIClient(settings: settings).registerPush(token: apnsToken, environment: environment)
+    }
+}
+
+/// Background data refresh for a follower app, driven by three complementary triggers:
+/// the **silent push** (APNs) the server sends when a new reading lands (the timely,
+/// primary path — see `AppDelegate` and `docs/SILENT-PUSH.md`), the opportunistic
+/// `BGAppRefreshTask` slot the system grants every 15–30 min, and a HealthKit
+/// background-delivery wake-up when a vendor app writes glucose. Each runs `refreshNow`:
+/// pull the latest reading, mirror it to Health, evaluate alarms, and — crucially —
+/// reload the widget timelines, since a widget can't poll on its own. The app-refresh
+/// task always reschedules so that chain never breaks.
 enum BackgroundRefresh {
     /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
     static let taskId = "be.cooney.nightknight.refresh"

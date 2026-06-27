@@ -26,8 +26,8 @@ pub mod sql;
 use serde_json::Value;
 
 pub use model::{
-    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Param, StoredDoc, User,
-    WriteOutcome,
+    Collection, ConnectorCredential, DayCount, DeviceToken, DocQuery, Param, PushToken, StoredDoc,
+    User, WriteOutcome,
 };
 
 /// A storage failure. Backends map their native errors into these variants so the
@@ -151,6 +151,15 @@ pub trait Storage {
         last_sync_at: i64,
         last_status: &str,
     ) -> Result<()>;
+
+    // ----- push tokens -----------------------------------------------------
+
+    /// Register or refresh a user's APNs device token (idempotent on `(user_id, token)`).
+    async fn upsert_push_token(&self, token: &PushToken) -> Result<()>;
+    /// Every device token a user has registered (the push send list).
+    async fn list_push_tokens(&self, user_id: &str) -> Result<Vec<PushToken>>;
+    /// Remove one of a user's device tokens; returns whether a row was deleted.
+    async fn delete_push_token(&self, user_id: &str, token: &str) -> Result<bool>;
 }
 
 /// Build a [`StoredDoc`] from already-extracted column values. Backends call this so
@@ -238,6 +247,23 @@ pub fn day_count_from_cols(day_index: i64, n: i64, first_ms: i64, last_ms: i64) 
         n,
         first_ms,
         last_ms,
+    }
+}
+
+/// Build a [`PushToken`] from extracted column values (in `PUSH_COLS` order).
+pub fn push_token_from_cols(
+    user_id: String,
+    token: String,
+    environment: String,
+    bundle_id: String,
+    updated_at: i64,
+) -> PushToken {
+    PushToken {
+        user_id,
+        token,
+        environment,
+        bundle_id,
+        updated_at,
     }
 }
 

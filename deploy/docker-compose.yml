@@ -31,6 +31,12 @@ services:
       NK_AUTH_HEADER: ${NK_AUTH_HEADER:-x-auth-request-email}
       NK_BIND: 0.0.0.0:8787
       NK_LOG: ${NK_LOG:-info}
+      # Optional silent push (APNs) — leave unset to disable (see docs/SILENT-PUSH.md).
+      APNS_KEY_P8: ${APNS_KEY_P8:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
+      APNS_DEFAULT_ENV: ${APNS_DEFAULT_ENV:-}
     ports:
       - "${NK_PORT:-8787}:8787"
     depends_on:

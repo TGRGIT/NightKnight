@@ -11,6 +11,7 @@ resolver = "2"
 members = [
     "service/crates/nightknight-core",
     "service/crates/nightknight-crypto",
+    "service/crates/nightknight-apns",
     "service/crates/nightknight-storage",
     "service/crates/nightknight-store-sql",
     "service/crates/nightknight-auth",
@@ -38,6 +39,10 @@ base64 = "0.22"
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 getrandom = "0.2"
 rsa = "0.9"
+# ES256 (ECDSA P-256) for signing APNs provider JWTs. Pure-Rust RustCrypto, deterministic
+# (RFC6979 — no RNG), so it cross-compiles to wasm32 for the Worker. `pem` parses the
+# downloaded `.p8` auth key.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pem"] }
 # "oid" gives Sha256 the AssociatedOid needed for the RS256 DigestInfo prefix.
 sha2 = { version = "0.10", features = ["oid"] }
 sha1 = "0.10"
@@ -45,6 +50,7 @@ uuid = { version = "1", features = ["v4"] }
 # Internal crates
 nightknight-core = { path = "service/crates/nightknight-core" }
 nightknight-crypto = { path = "service/crates/nightknight-crypto" }
+nightknight-apns = { path = "service/crates/nightknight-apns" }
 nightknight-storage = { path = "service/crates/nightknight-storage" }
 nightknight-auth = { path = "service/crates/nightknight-auth" }
 nightknight-api = { path = "service/crates/nightknight-api" }

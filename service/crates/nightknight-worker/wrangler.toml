@@ -61,3 +61,17 @@ CF_TEAM_DOMAIN = "cooney"
 # addition to the Cloudflare Access edge policy). Service tokens / device tokens
 # (the API-key path) are exempt. Leave unset to disable the in-app group check.
 CF_REQUIRED_GROUP = "night_knight_users"
+
+# Silent push (APNs) for background refresh — see docs/SILENT-PUSH.md.
+# The .p8 auth key and its identifiers are SECRETS, set them out of band:
+#   wrangler secret put APNS_KEY_P8     (paste the full PEM, incl. BEGIN/END lines)
+#   wrangler secret put APNS_KEY_ID     (10-char Key ID)
+#   wrangler secret put APNS_TEAM_ID    (10-char Team ID)
+# Until all three are set, push is disabled (registration still records tokens).
+#
+# Non-secret defaults below. APNS_BUNDLE_ID is the APNs topic (the app's bundle id).
+# APNS_DEFAULT_ENV is the fallback for tokens that don't report one: "sandbox" while
+# the build is aps-environment=development (Xcode debug / direct install); "production"
+# for TestFlight / App Store. The per-token environment always wins over this default.
+APNS_BUNDLE_ID = "be.cooney.nightknight.NightKnight"
+APNS_DEFAULT_ENV = "sandbox"

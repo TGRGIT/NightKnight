@@ -16,6 +16,7 @@ nightknight-storage = { workspace = true }
 nightknight-auth = { workspace = true }
 nightknight-connectors = { workspace = true }
 nightknight-crypto = { workspace = true }
+nightknight-apns = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
