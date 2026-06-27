@@ -6,6 +6,9 @@ struct NightKnightWatchApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        #if DEBUG
+        Demo.applyToSettings()
+        #endif
         // Receive server URL + token from the paired iPhone over WatchConnectivity.
         WatchSyncManager.shared.start()
     }

@@ -20,6 +20,32 @@ the open API that Nightscout established; see [Acknowledgements](#acknowledgemen
 > NightKnight is a personal-health project. It is **not** a medical device. Do not
 > use it as the sole basis for treatment decisions.
 
+## Screenshots
+
+### iOS App
+
+| Dashboard (mg/dL) | Dashboard (mmol/L) | Statistical Analysis |
+|---|---|---|
+| ![Dashboard mg/dL](marketing/appstore/screenshots/iphone-6.9/01-dashboard.png) | ![Dashboard mmol/L](marketing/appstore/screenshots/iphone-6.9/02-dashboard-mmol.png) | ![Analysis overview](marketing/appstore/screenshots/iphone-6.9/03-analysis-overview.png) |
+
+| AGP | Episodes & Variability | Settings |
+|---|---|---|
+| ![AGP](marketing/appstore/screenshots/iphone-6.9/04-analysis-agp.png) | ![Episodes](marketing/appstore/screenshots/iphone-6.9/05-analysis-episodes.png) | ![Settings](marketing/appstore/screenshots/iphone-6.9/06-settings.png) |
+
+### Web UI
+
+| Dashboard | Statistical Analysis |
+|---|---|
+| ![Web dashboard](marketing/appstore/screenshots/web/01-dashboard.png) | ![Web analysis](marketing/appstore/screenshots/web/02-analysis.png) |
+
+### Apple Watch
+
+| Series 11 — mg/dL | Series 11 — mmol/L | Ultra 3 — mg/dL | Ultra 3 — mmol/L |
+|---|---|---|---|
+| ![Watch Series 11 mg/dL](marketing/appstore/screenshots/watch-series11/01-dashboard-mgdl.png) | ![Watch Series 11 mmol/L](marketing/appstore/screenshots/watch-series11/02-dashboard-mmol.png) | ![Watch Ultra 3 mg/dL](marketing/appstore/screenshots/watch-ultra3/01-dashboard-mgdl.png) | ![Watch Ultra 3 mmol/L](marketing/appstore/screenshots/watch-ultra3/02-dashboard-mmol.png) |
+
+> Full-resolution App Store assets (iOS, iPad, Watch) are in [`marketing/appstore/screenshots/`](marketing/appstore/screenshots/).
+
 ## What it is
 
 - **One Rust core, two runtimes.** All domain, storage, auth, and API logic lives in
