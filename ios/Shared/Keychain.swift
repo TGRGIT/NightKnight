@@ -25,4 +25,18 @@ enum Keychain {
         else { return "" }
         return s
     }
+
+    /// Delete these accounts from the app's default Keychain group. Used to purge credentials
+    /// an older build stored here once they've been migrated to the App Group, and on
+    /// disconnect — so a cleared credential can never be resurrected from a stale Keychain copy.
+    /// A missing item is not an error (the delete is a no-op).
+    static func delete(_ keys: [String]) {
+        for key in keys {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: key,
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+    }
 }

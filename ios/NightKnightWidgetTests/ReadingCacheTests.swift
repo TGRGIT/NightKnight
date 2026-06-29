@@ -32,4 +32,38 @@ final class ReadingCacheTests: XCTestCase {
         let entry = Provider.entry(for: nil, unit: .mgdl)
         XCTAssertNil(entry.value)
     }
+
+    // MARK: - reading() resolution (the "stale after delete" fix)
+
+    private var fresh: CurrentReading {
+        CurrentReading(date: .now, value: GlucoseValue(mgdl: 140), trend: .singleUp, trendLabel: "")
+    }
+    private var cached: CurrentReading {
+        CurrentReading(date: .now, value: GlucoseValue(mgdl: 95), trend: .flat, trendLabel: "")
+    }
+
+    func testReadingPrefersFreshFetch() {
+        XCTAssertEqual(Provider.reading(fetched: fresh, cached: cached, isConfigured: true)?.value.mgdl, 140)
+    }
+
+    func testReadingFallsBackToCacheOnTransientFailure() {
+        XCTAssertEqual(Provider.reading(fetched: nil, cached: cached, isConfigured: true)?.value.mgdl, 95,
+                       "a configured widget keeps the last reading through a transient failure")
+    }
+
+    /// The core of the "credentials cached even when deleted" UX fix: once the account is
+    /// removed (not configured), the widget must NOT keep showing the cached glucose.
+    func testReadingShowsNothingWhenNotConfigured() {
+        XCTAssertNil(Provider.reading(fetched: nil, cached: cached, isConfigured: false),
+                     "a disconnected widget must drop to -- rather than show stale glucose")
+    }
+
+    // MARK: - ReadingCache.clear
+
+    func testClearRemovesCachedReading() {
+        ReadingCache.save(CurrentReading(date: .now, value: GlucoseValue(mgdl: 88), trend: .flat, trendLabel: ""))
+        XCTAssertNotNil(ReadingCache.load(), "precondition: something is cached")
+        ReadingCache.clear()
+        XCTAssertNil(ReadingCache.load())
+    }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import WatchConnectivity
+import WidgetKit
 
 /// Receives the connection config (server URL, device token, unit) from the paired
 /// iPhone via WatchConnectivity and stores it in the watch's `Settings`. watchOS and
@@ -27,10 +28,15 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         DispatchQueue.main.async {
             let settings = Settings.shared
             if let url = ctx["baseURL"] as? String, !url.isEmpty { settings.baseURL = url }
-            if let token = ctx["token"] as? String, !token.isEmpty { settings.deviceToken = token }
+            // Apply the token even when it's empty: the phone sends "" to sign the watch out
+            // when the user disconnects, and dropping it here would strand a deleted token.
+            if let token = ctx["token"] as? String { settings.deviceToken = token }
             if let unit = ctx["unit"] as? String, let parsed = GlucoseUnit(rawValue: unit) {
                 settings.preferredUnit = parsed
             }
+            // The phone can't reach the watch's complication; reload it here so a changed or
+            // cleared token takes effect now, not on the complication's next ~5-min timeline.
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 }
