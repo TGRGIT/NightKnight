@@ -10,6 +10,11 @@ struct NightKnightApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Move any credentials an older build left in the Keychain into the shared App Group
+        // (and purge the Keychain copies) before anything reads Settings. One-time, app-only —
+        // the widget/watch never migrate; they only read the App Group.
+        LegacyCredentialMigration.run()
+        Settings.shared.reloadFromStore()
         #if DEBUG
         // Screenshot/preview mode: seed display preferences before any view loads.
         Demo.applyToSettings()
@@ -84,7 +89,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        Task { await PushRegistration.send(apnsToken: deviceToken.apnsHexToken) }
+        let hex = deviceToken.apnsHexToken
+        // Remember the token so "Disconnect" can unregister it from the server.
+        Settings.shared.apnsToken = hex
+        Task { await PushRegistration.send(apnsToken: hex) }
     }
 
     /// There is no APNs in the Simulator, and some dev setups lack the entitlement — log,

@@ -21,13 +21,22 @@ struct WatchProvider: AppIntentTimelineProvider {
         WatchEntry(date: .now, value: GlucoseValue(mgdl: 110), trend: .flat, unit: Settings.shared.preferredUnit)
     }
     func snapshot(for configuration: WatchConfigIntent, in context: Context) async -> WatchEntry {
-        await load()
+        // Show the sample in the gallery preview rather than "--" before the watch is configured.
+        if context.isPreview { return placeholder(in: context) }
+        return await load()
     }
     func timeline(for configuration: WatchConfigIntent, in context: Context) async -> Timeline<WatchEntry> {
         Timeline(entries: [await load()], policy: .after(.now.addingTimeInterval(300)))
     }
     private func load() async -> WatchEntry {
-        let settings = Settings.shared
+        // A fresh snapshot read straight from the App Group: picks up a token the user just
+        // edited/cleared on the phone (synced here via WatchConnectivity) without mutating the
+        // shared singleton from this background fetch.
+        let settings = Settings.current()
+        guard settings.isConfigured else {
+            // Account removed: show "--", not a stale cached reading from the old account.
+            return WatchEntry(date: .now, value: nil, trend: .none, unit: settings.preferredUnit)
+        }
         let fetched = try? await APIClient(settings: settings).current()
         if let fetched { ReadingCache.save(fetched) }
         // Fall back to the last cached reading so a transient failure or CGM gap doesn't

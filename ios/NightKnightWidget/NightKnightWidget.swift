@@ -28,7 +28,10 @@ struct Provider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: ConfigIntent, in context: Context) async -> GlucoseEntry {
-        await load()
+        // The add-widget gallery renders its representative preview via snapshot() with
+        // isPreview == true; show the sample curve, not "--", even before the app is configured.
+        if context.isPreview { return placeholder(in: context) }
+        return await load()
     }
 
     func timeline(for configuration: ConfigIntent, in context: Context) async -> Timeline<GlucoseEntry> {
@@ -41,18 +44,33 @@ struct Provider: AppIntentTimelineProvider {
     }
 
     private func load() async -> GlucoseEntry {
-        let settings = Settings.shared
+        // A fresh snapshot read straight from the App Group, so we pick up credentials the app
+        // changed since this (reused) extension process last ran — including a token the user
+        // just cleared — without mutating the shared singleton from this background fetch.
+        let settings = Settings.current()
+        guard settings.isConfigured else {
+            // Account removed: show "--", not the last cached reading from the old account.
+            return GlucoseEntry(date: .now, value: nil, trend: .none, unit: settings.preferredUnit)
+        }
         let client = APIClient(settings: settings)
         async let curTask = client.current()
         async let entTask = client.entries(hours: 4)
         let fetched = (try? await curTask) ?? nil
         if let fetched { ReadingCache.save(fetched) }
-        // Fall back to the last cached reading so a transient failure or CGM gap doesn't
-        // blank the widget to "--" until the next (budget-throttled) refresh.
-        let current = fetched ?? ReadingCache.load()
         let readings = (try? await entTask) ?? []
+        // Fall back to the last cached reading so a transient failure or CGM gap doesn't blank
+        // the widget to "--" until the next (budget-throttled) refresh.
+        let current = Self.reading(fetched: fetched, cached: ReadingCache.load(), isConfigured: true)
         return GlucoseEntry(date: .now, value: current?.value, trend: current?.trend ?? .none,
                             unit: settings.preferredUnit, readings: readings, readingDate: current?.date)
+    }
+
+    /// Decide which reading the widget should show. A fresh fetch wins; on a transient failure
+    /// the last cached reading keeps the widget warm — but only while still configured, so a
+    /// removed account drops to "--" instead of stale glucose. Pure, so it's unit-tested.
+    static func reading(fetched: CurrentReading?, cached: CurrentReading?, isConfigured: Bool) -> CurrentReading? {
+        guard isConfigured else { return nil }
+        return fetched ?? cached
     }
 
     /// Build a timeline entry from a single reading (a fresh fetch, else the cache),

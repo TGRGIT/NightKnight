@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var connStatus: String?
     @State private var connOK = false
     @State private var isTesting = false
+    @State private var showDisconnectConfirm = false
     /// Notification permission, so we can warn when alarms are on but iOS won't deliver.
     @State private var notifStatus: UNAuthorizationStatus = .notDetermined
 
@@ -34,6 +35,10 @@ struct SettingsView: View {
                     if let connStatus {
                         Text(connStatus).font(.caption)
                             .foregroundStyle(connOK ? Color.green : Color.nkAccent)
+                    }
+                    // Only offered once there's a credential to remove.
+                    if !token.isEmpty || !cfId.isEmpty || !cfSecret.isEmpty {
+                        Button("Disconnect", role: .destructive) { showDisconnectConfirm = true }
                     }
                 }
                 Section(header: Text("Cloudflare Access (optional)"),
@@ -83,7 +88,32 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task { notifStatus = await AlarmManager.shared.authorizationStatus() }
+            .confirmationDialog("Disconnect from server?", isPresented: $showDisconnectConfirm, titleVisibility: .visible) {
+                Button("Disconnect", role: .destructive) { disconnect() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Removes your device token and Cloudflare Access credentials from this iPhone, its widgets, and your Apple Watch.")
+            }
         }
+    }
+
+    /// Remove the stored credentials everywhere: unregister this device's push token from the
+    /// server (while we're still authenticated), clear the credentials and cached reading in the
+    /// shared store, purge any legacy Keychain copies, mirror the cleared token to the Watch, and
+    /// reload the widget/complication so they drop to "--" right away.
+    private func disconnect() {
+        // Unregister push first, from an immutable snapshot of the *current* credentials, so the
+        // clear below can't pull them out from under the in-flight request.
+        let apns = settings.apnsToken
+        if !apns.isEmpty {
+            let client = APIClient(settings: Settings.current())
+            Task { try? await client.unregisterPush(token: apns) }
+        }
+        settings.clearCredentials()
+        token = ""; cfId = ""; cfSecret = ""
+        connStatus = nil; connOK = false
+        PhoneSyncManager.shared.pushConfig()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// The target value rendered in the user's display unit (e.g. "70 mg/dL" / "3.9 mmol/L").

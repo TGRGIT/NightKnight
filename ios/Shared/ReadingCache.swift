@@ -29,6 +29,15 @@ enum ReadingCache {
             trendLabel: trend.label)
     }
 
+    /// Drop the cached reading. Called on disconnect so a widget/complication can't keep
+    /// showing the last glucose value from an account that's just been removed.
+    static func clear() {
+        let d = defaults
+        d.removeObject(forKey: Key.mgdl)
+        d.removeObject(forKey: Key.trend)
+        d.removeObject(forKey: Key.date)
+    }
+
     private enum Key {
         static let mgdl = "cache.mgdl", trend = "cache.trend", date = "cache.date"
     }
