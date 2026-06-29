@@ -74,4 +74,4 @@ CF_REQUIRED_GROUP = "night_knight_users"
 # the build is aps-environment=development (Xcode debug / direct install); "production"
 # for TestFlight / App Store. The per-token environment always wins over this default.
 APNS_BUNDLE_ID = "be.cooney.nightknight.NightKnight"
-APNS_DEFAULT_ENV = "sandbox"
+APNS_DEFAULT_ENV = "production"
