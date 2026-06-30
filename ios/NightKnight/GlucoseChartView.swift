@@ -161,26 +161,31 @@ struct AGPChartView: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else {
                 Chart {
+                    // Each band needs its OWN `series:`. Two range AreaMarks with no series
+                    // collapse into one default series, and Swift Charts then renders them as
+                    // a single corrupted area that bleeds down to the baseline. Distinct series
+                    // keep them as two clean, independent overlapping envelopes.
                     ForEach(pts) { b in
                         AreaMark(
                             x: .value("Time", b.minuteOfDay),
                             yStart: .value("p05", conv(b.p05 ?? b.p50!)),
-                            yEnd: .value("p95", conv(b.p95 ?? b.p50!))
+                            yEnd: .value("p95", conv(b.p95 ?? b.p50!)),
+                            series: .value("Band", "5–95")
                         )
                         .foregroundStyle(Color.nkInRange.opacity(0.13))
-                        // Monotone (shape-preserving), NOT catmullRom: the percentile
-                        // edges (esp. p95/p05) still vary bin-to-bin even after the
-                        // server's smoothing, and catmullRom overshoots those into
-                        // spikes. Monotone never exceeds the data points — clean clinical
-                        // envelopes. (Smoother than the web's straight L-segment bands, but
-                        // shape-preserving, so the edges never bulge past the percentiles.)
+                        // Monotone (shape-preserving), NOT catmullRom: the percentile edges
+                        // still vary bin-to-bin even after the server's smoothing, and
+                        // catmullRom overshoots those into spikes. Monotone never exceeds the
+                        // data points — clean clinical envelopes (smoother than the web's
+                        // straight L-segments, but still shape-preserving).
                         .interpolationMethod(.monotone)
                     }
                     ForEach(pts) { b in
                         AreaMark(
                             x: .value("Time", b.minuteOfDay),
                             yStart: .value("p25", conv(b.p25 ?? b.p50!)),
-                            yEnd: .value("p75", conv(b.p75 ?? b.p50!))
+                            yEnd: .value("p75", conv(b.p75 ?? b.p50!)),
+                            series: .value("Band", "25–75")
                         )
                         .foregroundStyle(Color.nkInRange.opacity(0.28))
                         .interpolationMethod(.monotone)
