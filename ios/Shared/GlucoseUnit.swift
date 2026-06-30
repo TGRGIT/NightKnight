@@ -32,7 +32,7 @@ struct GlucoseValue: Hashable, Sendable {
 }
 
 /// Clinical glucose band (ADA/ATTD consensus thresholds, mg/dL).
-enum GlucoseBand: Sendable {
+enum GlucoseBand: Sendable, Equatable {
     case veryLow, low, inRange, high, veryHigh
 
     static func of(mgdl: Double) -> GlucoseBand {

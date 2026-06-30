@@ -22,16 +22,29 @@ final class CarPlayGlanceTests: XCTestCase {
     func testInRangeReadingRowsMgdl() {
         let items = CarPlayGlance.items(for: reading(112, .flat, minutesAgo: 3), unit: .mgdl, now: now)
         XCTAssertEqual(items.count, 3, "glance is three short rows — value, trend, freshness")
-        XCTAssertEqual(items[0], .init(title: "112 mg/dL", detail: "In range"))
-        XCTAssertEqual(items[1], .init(title: "Steady →", detail: "Trend"))
-        XCTAssertEqual(items[2], .init(title: "3 min ago", detail: "Updated"))
+        XCTAssertEqual(items[0], .init(title: "112 mg/dL", detail: "In range",
+                                       symbol: "circle.fill", tint: .level(.inRange)))
+        XCTAssertEqual(items[1], .init(title: "Steady", detail: "Trend",
+                                       symbol: "arrow.right", tint: .level(.inRange)))
+        XCTAssertEqual(items[2], .init(title: "3 min ago", detail: "Updated",
+                                       symbol: "clock", tint: .muted))
     }
 
     func testValueIsShownInThePreferredUnit() {
         // 90 mg/dL ÷ 18.0156 ≈ 5.0 mmol/L (one decimal), the conventional mmol precision.
         let items = CarPlayGlance.items(for: reading(90, .fortyFiveUp), unit: .mmol, now: now)
         XCTAssertEqual(items[0].title, "5.0 mmol/L")
-        XCTAssertEqual(items[1].title, "Rising slowly ↗")
+        XCTAssertEqual(items[1].title, "Rising slowly", "the label carries the trend; the icon carries direction")
+        XCTAssertEqual(items[1].symbol, "arrow.up.right")
+    }
+
+    func testValueAndTrendAreColouredByLevel() {
+        // A low reading paints the value *and* trend rows red, so the glance reads as one
+        // status colour; freshness stays muted.
+        let items = CarPlayGlance.items(for: reading(60, .singleDown), unit: .mgdl, now: now)
+        XCTAssertEqual(items[0].tint, .level(.low))
+        XCTAssertEqual(items[1].tint, .level(.low))
+        XCTAssertEqual(items[2].tint, .muted)
     }
 
     func testLevelStatusReflectsBands() {
@@ -44,15 +57,17 @@ final class CarPlayGlanceTests: XCTestCase {
 
     func testUnknownTrendShowsPlaceholderNotArrow() {
         let items = CarPlayGlance.items(for: reading(120, .none), unit: .mgdl, now: now)
-        XCTAssertEqual(items[1], .init(title: "--", detail: "Trend"),
-                       "a missing trend should not render a stray arrow glyph")
+        XCTAssertEqual(items[1].title, "—", "a missing trend reads as a dash, not a direction")
+        XCTAssertEqual(items[1].symbol, "minus",
+                       "a missing trend should not render a stray arrow icon")
     }
 
     // MARK: - No data
 
     func testNoReadingShowsGuidanceRow() {
         let items = CarPlayGlance.items(for: nil, unit: .mgdl, now: now)
-        XCTAssertEqual(items, [.init(title: "No glucose data", detail: "Open NightKnight on your phone")],
+        XCTAssertEqual(items, [.init(title: "No glucose data", detail: "Open NightKnight on your phone",
+                                     symbol: "exclamationmark.triangle.fill", tint: .accent)],
                        "an unconfigured / empty state must guide, never blank")
     }
 
