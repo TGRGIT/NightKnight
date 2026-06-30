@@ -136,6 +136,22 @@ struct AGPChartView: View {
         unit == .mgdl ? mgdl : mgdl / GlucoseUnit.mgdlPerMmol
     }
 
+    /// A tight y-domain framing the data, mirroring the web's renderAgp (chart.js):
+    ///   yMin = max(40, floor((min(p05, low) − 8) / 10) · 10)
+    ///   yMax = ceil((max(p95, high) + 10) / 10) · 10
+    /// Without this, Swift Charts anchors the AreaMarks' baseline at 0 and auto-scales
+    /// to ~0…200, squashing the bands into the top of the plot. We "nice" in mg/dL so the
+    /// rounding lands on the same numbers as the web, then conv() to display units last.
+    private func yDomain(for pts: [AgpBin]) -> ClosedRange<Double> {
+        // Mirror exactly what the AreaMarks plot (`p05 ?? p50`, `p95 ?? p50`) so the
+        // domain can never clip a band edge. `pts` is pre-filtered to p50 != nil.
+        let lo = pts.map { $0.p05 ?? $0.p50! }.min() ?? lowMgdl
+        let hi = pts.map { $0.p95 ?? $0.p50! }.max() ?? highMgdl
+        let yMin = max(40, floor((min(lo, lowMgdl) - 8) / 10) * 10)
+        let yMax = ceil((max(hi, highMgdl) + 10) / 10) * 10
+        return conv(yMin)...conv(yMax)
+    }
+
     var body: some View {
         let pts = bins.filter { $0.n > 0 && $0.p50 != nil }
         Group {
@@ -156,7 +172,8 @@ struct AGPChartView: View {
                         // edges (esp. p95/p05) still vary bin-to-bin even after the
                         // server's smoothing, and catmullRom overshoots those into
                         // spikes. Monotone never exceeds the data points — clean clinical
-                        // envelopes, matching the web's straight-segment AGP bands.
+                        // envelopes. (Smoother than the web's straight L-segment bands, but
+                        // shape-preserving, so the edges never bulge past the percentiles.)
                         .interpolationMethod(.monotone)
                     }
                     ForEach(pts) { b in
@@ -192,6 +209,7 @@ struct AGPChartView: View {
                         }
                     }
                 }
+                .chartYScale(domain: yDomain(for: pts))
                 .chartYAxis { AxisMarks(position: .leading) }
                 .frame(height: 220)
             }
