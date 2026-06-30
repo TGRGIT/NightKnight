@@ -94,13 +94,26 @@ struct Provider: AppIntentTimelineProvider {
     func recommendations() -> [AppIntentRecommendation<ConfigIntent>] { [] }
 }
 
-private func bandColor(_ mgdl: Double) -> Color {
-    switch GlucoseBand.of(mgdl: mgdl) {
-    case .veryLow, .veryHigh: return .red
-    case .low, .high: return .orange
-    case .inRange: return .green
+/// Band colours for the glance, matching the CarPlay/widget design (vivid on the dark
+/// `nkInk` tile): a bright text/number colour plus a slightly deeper sparkline line.
+enum GlanceColors {
+    static func text(_ mgdl: Double) -> Color {
+        switch GlucoseBand.of(mgdl: mgdl) {
+        case .veryLow, .veryHigh: return Color(red: 1.0, green: 0.373, blue: 0.392)   // #FF5F64
+        case .low, .high:         return Color(red: 0.949, green: 0.718, blue: 0.322)  // #F2B752
+        case .inRange:            return Color(red: 0.275, green: 0.835, blue: 0.518)  // #46D584
+        }
+    }
+    static func line(_ mgdl: Double) -> Color {
+        switch GlucoseBand.of(mgdl: mgdl) {
+        case .veryLow, .veryHigh: return Color(red: 0.898, green: 0.282, blue: 0.302)  // #E5484D
+        case .low, .high:         return Color(red: 0.878, green: 0.635, blue: 0.235)  // #E0A23C
+        case .inRange:            return Color(red: 0.184, green: 0.745, blue: 0.416)  // #2FBE6A
+        }
     }
 }
+
+private func bandColor(_ mgdl: Double) -> Color { GlanceColors.text(mgdl) }
 
 /// A minimal, dependency-free sparkline of recent readings. Deliberately understated —
 /// a thin line over a gradient that fades out toward the top, so a value placed in the
@@ -173,7 +186,9 @@ struct NightKnightWidgetContent: View {
     let entry: GlucoseEntry
 
     private var text: String { entry.value?.display(in: entry.unit) ?? "--" }
-    private var color: Color { entry.value.map { bandColor($0.mgdl) } ?? .secondary }
+    private var color: Color { entry.value.map { GlanceColors.text($0.mgdl) } ?? .secondary }
+    private var lineColor: Color { entry.value.map { GlanceColors.line($0.mgdl) } ?? .secondary }
+    private var statusLabel: String? { entry.value.map { GlucoseBand.of(mgdl: $0.mgdl).label } }
 
     var body: some View {
         switch family {
@@ -198,31 +213,48 @@ struct NightKnightWidgetContent: View {
                     .frame(maxWidth: .infinity, maxHeight: 34)
             }
 
-        default: // .systemSmall
+        default: // .systemSmall — the CarPlay / home-screen glance (design "Layout A").
             ZStack(alignment: .topLeading) {
-                // Keep the trendline in the lower band so the big value always sits over
-                // a clean area — readability first, the trend reads as a calm backdrop.
-                TrendSparkline(readings: entry.readings, lineColor: color)
-                    .padding(.top, 46)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                // Filled band-coloured sparkline as a calm backdrop in the lower band, so
+                // the big value always sits over a clean area (readability first).
+                TrendSparkline(readings: entry.readings, lineColor: lineColor)
+                    .padding(.top, 58)
+                VStack(alignment: .leading, spacing: 0) {
+                    // Hero: the value + trend arrow, band-coloured and bold.
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
                         Text(text)
-                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .font(.system(size: 50, weight: .heavy, design: .rounded))
                             .foregroundStyle(color)
-                            .minimumScaleFactor(0.7).lineLimit(1)
-                        Text(entry.trend.glyph).font(.title3).foregroundStyle(color)
+                            .minimumScaleFactor(0.5).lineLimit(1)
+                        Text(entry.trend.glyph)
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(color)
                     }
-                    Text(entry.unit.label).font(.caption2).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    HStack(spacing: 4) {
+                    // Unit · trend wording (e.g. "mg/dL  Steady").
+                    HStack(spacing: 6) {
+                        Text(entry.unit.label).font(.caption2).foregroundStyle(.secondary)
                         if entry.trend != .none {
-                            Text(entry.trend.label).font(.caption2).fontWeight(.semibold).foregroundStyle(color)
+                            Text(entry.trend.label)
+                                .font(.caption2).fontWeight(.bold).foregroundStyle(color)
                                 .lineLimit(1).minimumScaleFactor(0.8)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    // Footer: status (dot + label) and reading freshness.
+                    HStack(spacing: 5) {
+                        if let statusLabel {
+                            Circle().fill(color).frame(width: 7, height: 7)
+                            Text(statusLabel)
+                                .font(.caption2).fontWeight(.bold)
+                                .lineLimit(1).minimumScaleFactor(0.7)
                         }
                         Spacer(minLength: 0)
                         if let d = entry.readingDate {
-                            Text(d, style: .relative).font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            // Coarse "2 min ago" (no jittery seconds) — calmer for a glance and
+                            // matches the design. Refreshes with the widget timeline (~5 min).
+                            Text(d, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                                .lineLimit(1).minimumScaleFactor(0.7)
                         }
                     }
                 }
@@ -236,13 +268,29 @@ struct NightKnightWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: GlucoseEntry
 
-    var body: some View { NightKnightWidgetContent(family: family, entry: entry) }
+    var body: some View {
+        NightKnightWidgetContent(family: family, entry: entry)
+            .containerBackground(for: .widget) { background }
+    }
+
+    /// The dark brand tile (#0B0E12 = `nkInk`) behind the home-screen / CarPlay
+    /// `systemSmall` glance, so the vivid band colours read with the contrast the design
+    /// intends. Lock-screen accessory families are tinted monochrome by the system, so they
+    /// stay transparent. (Avoids naming `.systemSmall`, which doesn't exist on watchOS.)
+    @ViewBuilder private var background: some View {
+        switch family {
+        case .accessoryCircular, .accessoryInline, .accessoryRectangular:
+            Color.clear
+        default:
+            Color(red: 0.043, green: 0.055, blue: 0.071)
+        }
+    }
 }
 
 struct NightKnightWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "NightKnightWidget", intent: ConfigIntent.self, provider: Provider()) { entry in
-            NightKnightWidgetView(entry: entry).containerBackground(.fill.tertiary, for: .widget)
+            NightKnightWidgetView(entry: entry)
         }
         .configurationDisplayName("NightKnight Glucose")
         .description("Your latest glucose reading and trend, over a recent trendline.")

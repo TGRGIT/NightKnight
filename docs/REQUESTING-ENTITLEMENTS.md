@@ -198,60 +198,27 @@ gets `CPInformationTemplate`, `CPListTemplate`, `CPGridTemplate`, `CPPointOfInte
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
 ```
 
-**b. Add `ios/NightKnight/CarPlaySceneDelegate.swift`** — it reuses the existing
-`APIClient`, `Settings`, `ReadingCache`, `GlucoseValue`/`GlucoseBand` and `CurrentReading`,
-so there's no new data layer:
+**b. The scene + a pure formatter (shipped).** Two files, reusing the existing
+`APIClient` / `Settings` / `ReadingCache` data layer — no new data layer:
 
-```swift
-import CarPlay
+- **`ios/NightKnight/CarPlaySceneDelegate.swift`** — `CPTemplateApplicationSceneDelegate`.
+  In `didConnect` it builds a `CPInformationTemplate(title: "Glucose", layout: .leading)`,
+  paints it **synchronously from `ReadingCache`** (so the head unit never shows an empty
+  frame, and the connect handler never waits on the network → no watchdog kill), sets it as
+  the root, then starts a ~60 s refresh `Task` that re-fetches and updates `template.items`.
+  **The class is `@MainActor`** — CarPlay calls scene-delegate methods on the main thread and
+  every template object must be created/mutated there; isolating the type keeps all of it on
+  the main actor and lets the refresh `Task` inherit it. (A non-isolated version froze the
+  head unit on connect — fixed by `@MainActor`.)
+- **`ios/NightKnight/CarPlayGlance.swift`** — `CarPlayGlance.items(for:unit:now:)`, a **pure,
+  CarPlay-free** formatter returning `[CarPlayGlance.Item]` (title/detail). The scene delegate
+  maps each into a `CPInformationItem`. Keeping the formatting pure makes it hostlessly
+  unit-testable (target **`NightKnightCarPlayTests`**, 7 tests covering bands, units, trend,
+  freshness phrasing, and the no-data guidance row), mirroring `NightKnightWidgetTests`.
 
-final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
-    private var interfaceController: CPInterfaceController?
-    private var refreshTask: Task<Void, Never>?
-
-    func templateApplicationScene(_ scene: CPTemplateApplicationScene,
-                                  didConnect interfaceController: CPInterfaceController) {
-        self.interfaceController = interfaceController
-        let template = CPInformationTemplate(title: "Glucose", layout: .leading,
-                                             items: [], actions: [])
-        interfaceController.setRootTemplate(template, animated: false, completion: nil)
-        startRefreshing(template)
-    }
-
-    func templateApplicationScene(_ scene: CPTemplateApplicationScene,
-                                  didDisconnect interfaceController: CPInterfaceController) {
-        refreshTask?.cancel()
-        self.interfaceController = nil
-    }
-
-    /// Glanceable only: current value, status, trend, age. Refreshes on CGM cadence.
-    private func startRefreshing(_ template: CPInformationTemplate) {
-        refreshTask?.cancel()
-        refreshTask = Task { @MainActor in
-            while !Task.isCancelled {
-                let reading = (try? await APIClient(settings: .shared).current())
-                    ?? ReadingCache.load()            // warm fallback the app/widget keep fresh
-                template.items = items(for: reading)
-                try? await Task.sleep(for: .seconds(60))
-            }
-        }
-    }
-
-    private func items(for reading: CurrentReading?) -> [CPInformationItem] {
-        guard let r = reading else {
-            return [CPInformationItem(title: "Glucose", detail: "Open NightKnight on your phone")]
-        }
-        let unit = Settings.shared.preferredUnit
-        let band = GlucoseBand.of(mgdl: r.value.mgdl)
-        let age = Int(Date().timeIntervalSince(r.date) / 60)
-        return [
-            CPInformationItem(title: "\(r.value.display(in: unit)) \(unit.label)", detail: band.label),
-            CPInformationItem(title: "Trend", detail: "\(r.trend.glyph)  \(r.trendLabel)"),
-            CPInformationItem(title: "Updated", detail: age <= 0 ? "just now" : "\(age) min ago"),
-        ]
-    }
-}
-```
+The glance is three value-forward rows — `110 mg/dL` / In range, `Rising slowly ↗` / Trend,
+`1 min ago` / Updated — degrading to a "No glucose data · Open NightKnight on your phone" row
+when unconfigured.
 
 **c. Keep it glanceable.** Large value, trend, age — no scrolling charts, no input that
 needs attention; this is what review judges. The 24h chart, AGP and episodes stay
@@ -260,12 +227,71 @@ keep `ReadingCache` warm and the app schedules background refreshes (`Background
 `NightKnightApp.swift`). For out-of-range alerting in the car, present a brief
 `CPAlertTemplate` from the existing `AlarmManager` evaluation rather than anything to read.
 
-### 6. Test in the CarPlay Simulator
+### 6. Test in the CarPlay Simulator (verified recipe + gotchas)
 
-Run on an iOS Simulator, then **Xcode → Open Developer Tool → Simulator**, and in the
-Simulator menu **I/O → External Displays → CarPlay**. Your `CPInformationTemplate` renders;
-`-NKDemo` populates it without a server. Then test on a real head unit once the device
-profile carries the entitlement.
+Run on an iOS Simulator, then in the Simulator menu **I/O → External Displays → CarPlay** to
+open the head-unit window. Tap the NightKnight icon on the CarPlay home screen; the
+`CPInformationTemplate` glance renders. The hard-won details, in order:
+
+1. **The entitlement must be embedded, which means the build must be SIGNED.** The usual
+   `CODE_SIGNING_ALLOWED=NO` build strips entitlements, so CarPlay never sees
+   `carplay-driving-task` and **the app won't appear on the CarPlay home screen at all**.
+   Build with ad-hoc simulator signing instead:
+   ```sh
+   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+     -project NightKnight.xcodeproj -scheme NightKnight -destination "id=<sim-udid>" \
+     CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+     CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="" build
+   ```
+   (On the simulator the entitlement lands in the `*-Simulated.xcent`, which the sim reads at
+   runtime — so `codesign -d --entitlements` shows an *empty* signature; that's expected, not
+   a failure. Verify via the `…app-Simulated.xcent` in DerivedData.)
+2. **Cold-launch is the reliable path.** Connecting a CarPlay scene to an *already-running*
+   app (and an unstable just-connected head-unit session — `carkitd` logs a connect/disconnect
+   storm) failed/flapped. Reboot the device for a clean session, **terminate the app**, then
+   tap the icon so CarPlay cold-launches it. `templateApplicationScene(_:didConnect:)` then
+   fires cleanly (`os.Logger` subsystem `be.cooney.nightknight`, category `carplay`).
+3. **Capture headlessly** — the CarPlay window is a *secondary display*, so the Simulator does
+   **not** deliver injected/synthetic mouse clicks to it (only the main device window). Tap it
+   with a real click, but capture the result without the GUI:
+   ```sh
+   xcrun simctl io <sim-udid> screenshot --display CarPlay out.png   # also: --display CarPlay for recordVideo
+   xcrun simctl io <sim-udid> enumerate | grep -A3 CarPlay           # confirms the CarPlay screen exists
+   ```
+4. **Data without the prod server:** point the app at a local mock
+   (`MOCK_MODE=true NK_AUTH_MODE=none NK_BIND=127.0.0.1:8799 nightknight-server`) and persist
+   the config into the App Group so the cold-launched CarPlay process reads it — launch once
+   with `SIMCTL_CHILD_NK_BASE_URL=http://127.0.0.1:8799 SIMCTL_CHILD_NK_TOKEN=dummy
+   xcrun simctl launch --terminate-running-process <udid> be.cooney.nightknight.NightKnight`
+   (the env override's `didSet` writes both keys to the App Group). `-NKDemo` also populates the
+   glance but persists a dead `example.com` host, so the live fetch falls back to the cache.
+
+Then test on a real head unit once the device profile carries the entitlement.
+
+### 6b. CarPlay widget (iOS 26) — the rich glance
+
+CarPlay *template* apps can't draw custom UI (a Driving Task app gets text templates only),
+so the big-number-over-sparkline design can't be the in-car **app** screen. It **can** be a
+**CarPlay widget**: since **iOS 26**, CarPlay shows a `.systemSmall` WidgetKit widget **in
+full colour** on the CarPlay dashboard, and "a small widget automatically appears in CarPlay
+with no changes required" — opt *out* (not in) with `.disfavoredLocations([.carPlay], for:
+[.systemSmall])`. (Apple: *Adding StandBy and CarPlay support to your widget*.)
+
+So the existing `NightKnightWidget` (`.systemSmall`) **is** the CarPlay widget — we just made
+it carry the design. `NightKnightWidget/NightKnightWidget.swift`:
+- `systemSmall` renders the design's "Layout A": a big band-coloured value + trend glyph,
+  `unit · trend`, a filled band-coloured sparkline, and a `● status / N min ago` footer.
+- `GlanceColors` holds the design's vivid dark-theme band palette (text + line). The
+  `systemSmall` container background is the dark brand tile (`#0B0E12`) so the colours read;
+  accessory (Lock Screen) families stay transparent (system-tinted).
+- We do **not** disfavour CarPlay (glucose is an ideal in-car glance). No entitlement or
+  Info.plist change is needed — the widget just appears where iOS 26 CarPlay supports it.
+
+The same widget now serves the home screen and CarPlay. Verified by rasterising the real
+`NightKnightWidgetContent` per state (`NightKnightWidgetTests` writes PNGs to
+`ios/build/widget-renders/`) and by running on an iOS 26 sim with CarPlay connected. NOTE: the
+widget tile sits on the CarPlay **dashboard** page; the simulator delivers no synthetic taps to
+the CarPlay window, so navigating there to screenshot the live tile needs a real click.
 
 ### 7. App Review notes (the build that adds CarPlay)
 
@@ -277,15 +303,14 @@ profile carries the entitlement.
 
 ### Checklist
 
-- [ ] Request submitted at developer.apple.com/contact/carplay (category: Driving Task)
-- [ ] Mockup attached (glanceable value + trend + age)
-- [ ] Entitlement granted on the developer account
-- [ ] CarPlay capability enabled on the App ID; profiles regenerated
-- [ ] `com.apple.developer.carplay-driving-task: true` added in `project.yml`
-- [ ] `UIApplicationSceneManifest` + `CarPlaySceneDelegate` added; `xcodegen generate`
-- [ ] `CarPlaySceneDelegate.swift` renders a `CPInformationTemplate` glance
-- [ ] Verified in the CarPlay Simulator (with `-NKDemo`)
-- [ ] App Review notes mention the CarPlay screen + grant date
+- [x] Request submitted at developer.apple.com/contact/carplay (category: Driving Task)
+- [x] Entitlement granted on the developer account
+- [x] `com.apple.developer.carplay-driving-task: true` added in `project.yml`
+- [x] `UIApplicationSceneManifest` (CarPlay role only) + `CarPlaySceneDelegate` added; `xcodegen generate`
+- [x] `CarPlaySceneDelegate.swift` renders a `CPInformationTemplate` glance (pure `CarPlayGlance` + `NightKnightCarPlayTests`)
+- [x] Verified in the CarPlay Simulator (ad-hoc-signed build, cold-launch, live mock data)
+- [ ] CarPlay capability enabled on the App ID; profiles regenerated (real-device step, after signing setup)
+- [ ] App Review notes mention the CarPlay screen + grant date (at submission time)
 
 ---
 

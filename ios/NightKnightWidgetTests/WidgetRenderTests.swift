@@ -32,48 +32,71 @@ final class WidgetRenderTests: XCTestCase {
         let entry: GlucoseEntry
     }
 
-    private func entry(_ mgdl: Double?, _ trend: TrendDirection = .flat) -> GlucoseEntry {
+    private func entry(_ mgdl: Double?, _ trend: TrendDirection = .flat,
+                       readings: [GlucoseReading] = Provider.sample) -> GlucoseEntry {
         GlucoseEntry(date: .now,
                      value: mgdl.map { GlucoseValue(mgdl: $0) },
                      trend: trend,
-                     unit: .mgdl)
+                     unit: .mgdl,
+                     readings: readings,
+                     readingDate: mgdl == nil ? nil : Date.now.addingTimeInterval(-120))
     }
 
     private var scenarios: [Scenario] {
         // Approx point sizes of the real containers on iPhone 16.
         [
-            Scenario(name: "systemSmall-inRange", family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(110, .flat)),
-            Scenario(name: "systemSmall-high",    family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(240, .singleUp)),
-            Scenario(name: "systemSmall-noData",  family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(nil, .none)),
+            Scenario(name: "systemSmall-inRange", family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(113, .flat)),
+            Scenario(name: "systemSmall-low",     family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(66, .fortyFiveDown)),
+            Scenario(name: "systemSmall-high",    family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(262, .singleUp)),
+            Scenario(name: "systemSmall-noData",  family: .systemSmall, size: .init(width: 158, height: 158), entry: entry(nil, .none, readings: [])),
             Scenario(name: "accessoryCircular",   family: .accessoryCircular, size: .init(width: 72, height: 72), entry: entry(96, .fortyFiveDown)),
             Scenario(name: "accessoryInline",     family: .accessoryInline, size: .init(width: 200, height: 24), entry: entry(110, .flat)),
             Scenario(name: "accessoryRectangular", family: .accessoryRectangular, size: .init(width: 160, height: 72), entry: entry(180, .flat)),
         ]
     }
 
+    /// The widget's real per-family container background (mirrors `NightKnightWidgetView`):
+    /// the dark brand tile behind `systemSmall`, transparent for tinted accessory families.
+    private func background(for family: WidgetFamily) -> Color {
+        switch family {
+        case .accessoryCircular, .accessoryInline, .accessoryRectangular: return .clear
+        default: return Color(red: 0.043, green: 0.055, blue: 0.071)
+        }
+    }
+
     func testEveryFamilyRendersNonBlank() throws {
         var failures: [String] = []
         for s in scenarios {
-            let view = NightKnightWidgetContent(family: s.family, entry: s.entry)
+            let content = NightKnightWidgetContent(family: s.family, entry: s.entry)
                 .frame(width: s.size.width, height: s.size.height)
 
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            guard let cg = renderer.cgImage else {
+            // Assertion render: CLEAR backdrop, so the pixel count reflects *content* only —
+            // a blank/"renders nothing" view shows up as ~0 drawn pixels (the bug this guards).
+            let bare = ImageRenderer(content: content)
+            bare.scale = 2
+            guard let cgBare = bare.cgImage else {
                 failures.append("\(s.name): ImageRenderer produced no image")
                 continue
             }
-            write(cg, name: s.name)
-
-            let drawn = nonTransparentPixels(cg)
-            let total = cg.width * cg.height
-            // A real render of text/arrows covers a meaningful fraction of pixels.
-            // "Renders nothing" shows up as ~0 drawn pixels.
+            let drawn = nonTransparentPixels(cgBare)
+            let total = cgBare.width * cgBare.height
             if drawn < 30 {
                 failures.append("\(s.name): only \(drawn)/\(total) non-transparent pixels — looks blank")
             } else {
-                print("✅ \(s.name): \(drawn)/\(total) pixels drawn")
+                print("✅ \(s.name): \(drawn)/\(total) content pixels drawn")
             }
+
+            // Inspection render: inset by WidgetKit's default content margin and drawn on the
+            // real family background, so the PNG looks like the actual widget (the design
+            // check). The margin is applied here only — the live widget gets it from the system.
+            let margin: CGFloat = s.family == .systemSmall ? 14 : 0
+            let preview = NightKnightWidgetContent(family: s.family, entry: s.entry)
+                .padding(margin)
+                .frame(width: s.size.width, height: s.size.height)
+                .background(background(for: s.family))
+            let p = ImageRenderer(content: preview)
+            p.scale = 3
+            if let cg = p.cgImage { write(cg, name: s.name) }
         }
         XCTAssertTrue(failures.isEmpty, "Widget rendered blank:\n" + failures.joined(separator: "\n"))
         print("ℹ️ Rendered PNGs written to \(Self.outDir.path)")
