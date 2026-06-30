@@ -6,6 +6,11 @@ import os
 /// value, level status, trend, and reading age — no charts, no scrolling, no interaction
 /// needed while driving. It just displays and refreshes on the CGM cadence.
 ///
+/// We use a `CPListTemplate` (not the text-only information template) so each row can carry
+/// a colour-coded leading icon — a band-tinted dot on the value, a trend arrow, a clock —
+/// giving the screen the app's green / amber / red status colour at a glance. CarPlay
+/// renders the (template-config'd, `.alwaysOriginal`-tinted) SF Symbols in full colour.
+///
 /// Declared in `Info.plist` under `UIApplicationSceneManifest` for the role
 /// `CPTemplateApplicationSceneSessionRoleApplication`; the SwiftUI `WindowGroup` keeps
 /// managing the phone window scene (we deliberately leave the window role unspecified).
@@ -20,7 +25,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private static let log = Logger(subsystem: "be.cooney.nightknight", category: "carplay")
 
     private var interfaceController: CPInterfaceController?
-    private var template: CPInformationTemplate?
+    private var template: CPListTemplate?
     private var refreshTask: Task<Void, Never>?
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene,
@@ -31,7 +36,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // Build the template and paint it from the warm cache *synchronously* before
         // returning, so the head unit shows content immediately and the connect handler
         // never waits on the network (which would trip CarPlay's watchdog).
-        let template = CPInformationTemplate(title: "Glucose", layout: .leading, items: [], actions: [])
+        let template = CPListTemplate(title: "Glucose", sections: [])
         self.template = template
         let settings = Settings.current()
         apply(reading: settings.isConfigured ? ReadingCache.load() : nil, unit: settings.preferredUnit)
@@ -83,7 +88,40 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func apply(reading: CurrentReading?, unit: GlucoseUnit) {
-        template?.items = CarPlayGlance.items(for: reading, unit: unit)
-            .map { CPInformationItem(title: $0.title, detail: $0.detail) }
+        let items = CarPlayGlance.items(for: reading, unit: unit).map { row -> CPListItem in
+            let item = CPListItem(text: row.title, detailText: row.detail,
+                                  image: Self.icon(row.symbol, tint: Self.color(for: row.tint)))
+            // Glance only — nothing to drill into, so no disclosure chevron or tap handler.
+            item.accessoryType = .none
+            return item
+        }
+        template?.updateSections([CPListSection(items: items)])
+    }
+
+    // MARK: - Icons
+
+    /// An SF Symbol rendered in `tint`. `.alwaysOriginal` bakes the colour in so CarPlay
+    /// shows it as-is rather than applying its default monochrome list tint.
+    private static func icon(_ symbol: String, tint: UIColor) -> UIImage? {
+        let config = UIImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
+        return UIImage(systemName: symbol, withConfiguration: config)?
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
+    }
+
+    private static func color(for tint: CarPlayGlance.Tint) -> UIColor {
+        switch tint {
+        case .level(let band): return bandColor(band)
+        case .muted: return UIColor(red: 0.576, green: 0.627, blue: 0.678, alpha: 1)
+        case .accent: return UIColor(red: 0.898, green: 0.282, blue: 0.302, alpha: 1)
+        }
+    }
+
+    /// Glucose-band colours, matching `Theme`'s palette (the web dashboard / phone app).
+    private static func bandColor(_ band: GlucoseBand) -> UIColor {
+        switch band {
+        case .veryLow, .veryHigh: return UIColor(red: 0.898, green: 0.282, blue: 0.302, alpha: 1) // danger
+        case .low, .high:         return UIColor(red: 0.878, green: 0.635, blue: 0.235, alpha: 1) // warn
+        case .inRange:            return UIColor(red: 0.212, green: 0.769, blue: 0.420, alpha: 1) // in range
+        }
     }
 }
