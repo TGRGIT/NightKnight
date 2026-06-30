@@ -30,6 +30,11 @@ targets:
       properties:
         CFBundleDisplayName: NightKnight
         UILaunchScreen: {}
+        # Export compliance: the app uses only exempt encryption (HTTPS + standard
+        # system crypto / Keychain — no custom or non-exempt encryption), so declare it
+        # here and App Store Connect skips the export-compliance question on every
+        # upload. Flip to true only if non-exempt encryption is ever added.
+        ITSAppUsesNonExemptEncryption: false
         NSHealthShareUsageDescription: "NightKnight reads glucose from Apple Health to show and analyse it."
         NSHealthUpdateUsageDescription: "NightKnight writes glucose readings to Apple Health."
         # remote-notification: silent APNs wake for background refresh (docs/SILENT-PUSH.md).
