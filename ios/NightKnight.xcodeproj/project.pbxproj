@@ -10,15 +10,19 @@
 		003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */; };
 		0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		07D33F2EB66518E84776E27E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		088E00842A1BC504607369C0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
+		0B96EAEB89F8BE62BDD855A7 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */; };
 		1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		145E7EDD810EBB1CCDACBFF8 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		151FA5BF76F327194C7D0A14 /* CarPlayGlanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */; };
 		17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		1933D1B64027067D9D9281CC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68D3159CB126C43F23D0CFEC /* Assets.xcassets */; };
 		225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		348681D27E8CE3493A67FCEB /* CarPlayGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */; };
 		38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		3B097F60833B42B6DFC36B38 /* WidgetRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5E9883D155D27E3DA6C9BA /* WidgetRenderTests.swift */; };
 		3F67726A33F34B5BF887D760 /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EBCA71EED7E861CEC77136 /* WidgetBundle.swift */; };
@@ -26,6 +30,7 @@
 		410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		43AA6421CDCEC87CE5B040BA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71859D4D8C41B215995E1B4 /* DashboardView.swift */; };
+		5564B37834D2F6B7A3F3BE15 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */; };
 		5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33754D6296502ED0D7E612D5 /* WatchApp.swift */; };
 		5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
 		625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */; };
@@ -36,14 +41,19 @@
 		6D6309217F4CBA4657C7E7EC /* NightKnightWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6F15853A027406BF86ACD46A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1518411F2A9EA45C38188E /* Theme.swift */; };
 		7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		76E010711A284862563AC3D2 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		771BE155C46C132F3CE44F2D /* NightKnightWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */; };
 		7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		7FC33A8B75E106CDDE824615 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		8385C3E7E93DFAAB64B5954F /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
+		8443410601663A60743FF53A /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		8732F534716121B9683DC689 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		8CC6B03455592C2DBEE2B176 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 412DBAF0874A666814496982 /* Assets.xcassets */; };
 		934D224D283724E0AEC08084 /* NightKnightWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9712F2AC7F19750B45169AD3 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		99D4C39F93ACDE87230AE92A /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
 		9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		AC279425B88E5E0802C63E86 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */; };
@@ -65,6 +75,7 @@
 		F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = F972CFC38D0C67561F36871E /* WatchComplication.swift */; };
 		F6E360056FCA6E9BECC38346 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		F88F8B470A272C80771AB1AE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		FEE2D489C6347CF8441C7A90 /* CarPlayGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */; };
 		FFAFE648E64DB45785CBB049 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 /* End PBXBuildFile section */
 
@@ -143,6 +154,7 @@
 		19D04B3978569C581FA1C977 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		1C2424346B65CFB750BBBFD2 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		1D9B583F5BB069D62B751C0A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		2564F02437C9EA708B14AE20 /* NightKnightCarPlayTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightCarPlayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		274ECD1BD103AB3750442D6C /* CredentialSharingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialSharingTests.swift; sourceTree = "<group>"; };
 		2F319E39305D873F3989FA87 /* GlucoseUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseUnit.swift; sourceTree = "<group>"; };
 		33754D6296502ED0D7E612D5 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
@@ -152,6 +164,7 @@
 		4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
 		618C11FF5966CAAC580973AC /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
+		65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayGlance.swift; sourceTree = "<group>"; };
 		68D3159CB126C43F23D0CFEC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71E3493FD8F4068269199124 /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
 		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
@@ -159,6 +172,7 @@
 		8125DB02F421C50937D4CEC7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
 		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C9AA58DE37FB153D9974702 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayGlanceTests.swift; sourceTree = "<group>"; };
 		9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnightWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F22872B22E684CF349F7D72 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A71859D4D8C41B215995E1B4 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
@@ -176,6 +190,7 @@
 		E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartView.swift; sourceTree = "<group>"; };
 		EF1518411F2A9EA45C38188E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDashboardView.swift; sourceTree = "<group>"; };
+		F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		F972CFC38D0C67561F36871E /* WatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComplication.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -222,6 +237,7 @@
 			isa = PBXGroup;
 			children = (
 				8A859FD94EE28AC5967C5C9D /* NightKnight.app */,
+				2564F02437C9EA708B14AE20 /* NightKnightCarPlayTests.xctest */,
 				C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */,
 				9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */,
 				C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */,
@@ -244,6 +260,8 @@
 			children = (
 				5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */,
 				68D3159CB126C43F23D0CFEC /* Assets.xcassets */,
+				65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */,
+				F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */,
 				A71859D4D8C41B215995E1B4 /* DashboardView.swift */,
 				E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */,
 				14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */,
@@ -271,6 +289,7 @@
 			isa = PBXGroup;
 			children = (
 				7E276CACB49FDC226ABB2725 /* NightKnight */,
+				D913129BF32745DFF73292B2 /* NightKnightCarPlayTests */,
 				72551D2D8EBF88FDA2CE40D6 /* NightKnightUITests */,
 				07B70AC8EEF15DCD47000C6D /* NightKnightWatch */,
 				91AA6D124F6EBA19242F8EE7 /* NightKnightWatchWidget */,
@@ -279,6 +298,14 @@
 				322FB8BD36AC7B8B5419E906 /* Shared */,
 				3308AD13747530D7D1C50DEE /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		D913129BF32745DFF73292B2 /* NightKnightCarPlayTests */ = {
+			isa = PBXGroup;
+			children = (
+				91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */,
+			);
+			path = NightKnightCarPlayTests;
 			sourceTree = "<group>";
 		};
 		F2079721D9B18BF5CC1E21B7 /* NightKnightWidgetTests */ = {
@@ -388,6 +415,23 @@
 			productReference = C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		E69FC17A709351D119B513B8 /* NightKnightCarPlayTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 35E754B6A9FE68DD358AE4D4 /* Build configuration list for PBXNativeTarget "NightKnightCarPlayTests" */;
+			buildPhases = (
+				152F65EC262DB4E9BA2CD546 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NightKnightCarPlayTests;
+			packageProductDependencies = (
+			);
+			productName = NightKnightCarPlayTests;
+			productReference = 2564F02437C9EA708B14AE20 /* NightKnightCarPlayTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3C2B6F7E2322CC479DECAE65 /* Build configuration list for PBXNativeTarget "NightKnightWatchWidget" */;
@@ -430,6 +474,9 @@
 						DevelopmentTeam = "";
 						TestTargetID = 186DBD700FB6F2F8026F6032;
 					};
+					E69FC17A709351D119B513B8 = {
+						DevelopmentTeam = "";
+					};
 					EF1B0D387B60DE79E0113424 = {
 						DevelopmentTeam = "";
 					};
@@ -450,6 +497,7 @@
 			projectRoot = "";
 			targets = (
 				186DBD700FB6F2F8026F6032 /* NightKnight */,
+				E69FC17A709351D119B513B8 /* NightKnightCarPlayTests */,
 				C70219A5C67BC93B51981C03 /* NightKnightUITests */,
 				4DF7C2A244952491E660730F /* NightKnightWatch */,
 				EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */,
@@ -479,12 +527,30 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		152F65EC262DB4E9BA2CD546 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				088E00842A1BC504607369C0 /* APIClient.swift in Sources */,
+				348681D27E8CE3493A67FCEB /* CarPlayGlance.swift in Sources */,
+				151FA5BF76F327194C7D0A14 /* CarPlayGlanceTests.swift in Sources */,
+				99D4C39F93ACDE87230AE92A /* DemoData.swift in Sources */,
+				9712F2AC7F19750B45169AD3 /* GlucoseUnit.swift in Sources */,
+				8443410601663A60743FF53A /* Keychain.swift in Sources */,
+				76E010711A284862563AC3D2 /* Models.swift in Sources */,
+				0B96EAEB89F8BE62BDD855A7 /* ReadingCache.swift in Sources */,
+				7FC33A8B75E106CDDE824615 /* Settings.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6BAAF4AFD27107A12BA00A72 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				1933D1B64027067D9D9281CC /* APIClient.swift in Sources */,
 				CA6B8AD5037083C8063D1A72 /* AlarmManager.swift in Sources */,
+				FEE2D489C6347CF8441C7A90 /* CarPlayGlance.swift in Sources */,
+				5564B37834D2F6B7A3F3BE15 /* CarPlaySceneDelegate.swift in Sources */,
 				54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */,
 				B071F90581F4F70A0C58F9C5 /* DemoData.swift in Sources */,
 				003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */,
@@ -601,6 +667,22 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		1205B6023DCC39300A389871 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightCarPlayTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		15613671231E70D80552F679 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -759,6 +841,22 @@
 				TARGETED_DEVICE_FAMILY = 4;
 			};
 			name = Release;
+		};
+		9EF8BD675852203DCE0B087F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightCarPlayTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		A7F7394403091C9D4614A271 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -935,6 +1033,15 @@
 			buildConfigurations = (
 				65F859BD84E182EECCD1E4AF /* Debug */,
 				27FDD08815F1F8AE1F02A0F4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		35E754B6A9FE68DD358AE4D4 /* Build configuration list for PBXNativeTarget "NightKnightCarPlayTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EF8BD675852203DCE0B087F /* Debug */,
+				1205B6023DCC39300A389871 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

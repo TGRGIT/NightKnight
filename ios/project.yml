@@ -38,6 +38,22 @@ targets:
         # Allow http to localhost / local network (used for local dev against the server).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        UISupportedInterfaceOrientations:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
+           UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
+           UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # CarPlay (Driving Task). We declare ONLY the CarPlay scene role and leave the
+        # window role unspecified so the SwiftUI `WindowGroup` keeps managing the phone
+        # window scene; UIKit instantiates `CarPlaySceneDelegate` for the head unit.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: NightKnight-CarPlay
+                UISceneClassName: CPTemplateApplicationScene
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -50,6 +66,10 @@ targets:
         com.apple.security.application-groups: [group.be.cooney.nightknight]
         keychain-access-groups: ["$(AppIdentifierPrefix)be.cooney.nightknight"]
         aps-environment: development
+        # CarPlay Driving Task — granted by Apple (docs/REQUESTING-ENTITLEMENTS.md). The
+        # simulator doesn't profile-validate entitlements, so the head unit connects
+        # locally; a real device needs the matching provisioning profile.
+        com.apple.developer.carplay-driving-task: true
     dependencies:
       - target: NightKnightWidget
       # Embed the watch app for a single App Store binary. link:false is essential —
@@ -163,6 +183,20 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # Hostless logic tests for the CarPlay glance formatting. Compiles the pure
+  # CarPlayGlance.swift (NOT the CarPlay-importing scene delegate) + Shared directly,
+  # so it runs without an app host — same pattern as NightKnightWidgetTests.
+  NightKnightCarPlayTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NightKnightCarPlayTests
+      - path: NightKnight/CarPlayGlance.swift
+      - path: Shared
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   NightKnight:
     build:
@@ -191,3 +225,12 @@ schemes:
       config: Debug
       targets:
         - NightKnightWidgetTests
+  # Hostless logic tests for the CarPlay glance formatting.
+  NightKnightCarPlayTests:
+    build:
+      targets:
+        NightKnightCarPlayTests: [test]
+    test:
+      config: Debug
+      targets:
+        - NightKnightCarPlayTests
