@@ -106,15 +106,6 @@ enum SourceSetup {
         }
     }
 
-    /// Whether committing `newKey` must be gated behind the destructive confirm:
-    /// the local store holds another source/account's readings.
-    static func needsWipe(newKey: String) async -> Bool {
-        let empty = (try? await LocalStore.shared.isEmpty()) ?? true
-        guard !empty else { return false }
-        let owner = try? await LocalStore.shared.owner()
-        return owner != newKey
-    }
-
     /// Commit the staged values as the active source. With `wipe`, the local data is
     /// reset to the new owner first (the confirmed switch path): cached readings from
     /// one source/account must never mix with another's.
@@ -155,6 +146,51 @@ enum SourceSetup {
         guard let samples = try? await source.backfill(), !samples.isEmpty else { return nil }
         try? await LocalStore.shared.upsert(samples, sourceKey: settings.sourceKey)
         return samples.count
+    }
+
+    /// The number of days of history the app renders — the cap the CSV importer
+    /// targets, since anything older is never shown and just bloats the local store.
+    static let renderedHistoryDays = 90
+
+    /// Parse a Dexcom Clarity / LibreView CSV export into `(date_ms, mgdl)` rows via
+    /// the Rust importer (format auto-detected), keeping only the last
+    /// `renderedHistoryDays`. Reads and parses ONLY — the caller decides when to write
+    /// (onboarding applies them after activating the source; Settings applies them to
+    /// the already-active source). Returns nil when the on-device engine is
+    /// unavailable (extensions never call this).
+    static func parseHistoryCSV(_ url: URL, now: Date = Date()) throws
+        -> (rows: [(dateMs: Int64, mgdl: Double)], source: String) {
+        guard let engine = LocalAnalytics.engine else {
+            throw ImportError.engineUnavailable
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let data = try engine.importGlucoseCSV(text: text, tzOffsetMin: APIClient.tzOffsetMinutes)
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = obj["entries"] as? [[String: Any]] else {
+            throw ImportError.badOutput
+        }
+        let cutoff = Int64((now.timeIntervalSince1970 * 1000).rounded())
+            - Int64(renderedHistoryDays) * 86_400_000
+        let rows: [(dateMs: Int64, mgdl: Double)] = entries.compactMap {
+            guard let date = $0["date"] as? Double, let mgdl = $0["mgdl"] as? Double else { return nil }
+            let ms = Int64(date)
+            guard ms >= cutoff else { return nil }
+            return (ms, mgdl)
+        }
+        return (rows, (obj["source"] as? String) ?? "csv")
+    }
+
+    enum ImportError: Error, LocalizedError {
+        case engineUnavailable
+        case badOutput
+        var errorDescription: String? {
+            switch self {
+            case .engineUnavailable: return "On-device import isn't available."
+            case .badOutput: return "Couldn't read that file as a Dexcom or LibreView export."
+            }
+        }
     }
 
     /// Source-aware "Test connection" against the STAGED values — persists nothing.
@@ -224,6 +260,13 @@ struct SourceCredentialFields: View {
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .keyboardType(.URL)
             SecureField("Device token (api-secret)", text: $staged.token)
+            // Cloudflare Access is always offered for NightKnight (optional) — a
+            // server deployed behind the Access gate needs these to connect, and
+            // hiding them behind a toggle would strand those users. Leave blank if
+            // the server isn't gated.
+            TextField("CF-Access-Client-Id (optional)", text: $staged.cfId)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+            SecureField("CF-Access-Client-Secret (optional)", text: $staged.cfSecret)
         case .dexcom:
             Picker("Region", selection: $staged.dexcomRegion) {
                 Text("United States").tag("us")

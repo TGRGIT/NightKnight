@@ -5,26 +5,32 @@ import UserNotifications
 import WidgetKit
 
 /// Data source, credentials, units, target range, Apple Health, and alarm
-/// configuration. Display/health/alarm preferences persist as you change them; the
-/// SOURCE and its credentials are staged and only commit through "Save & activate" —
-/// switching source or account is gated behind a destructive "delete cached data &
-/// resync" confirmation so readings from two accounts can never mix.
+/// configuration. Display/health/alarm preferences persist as you change them.
+///
+/// Exactly ONE data source is active at a time, and you cannot pick a different one
+/// here — you must Disconnect first (which returns to the first-run chooser). This
+/// keeps the "single active source" rule airtight: there is no in-place switch that
+/// could blend two accounts' cached readings. The active source's credential fields
+/// stay editable so you can rotate a password/token/secret without disconnecting.
 struct SettingsView: View {
     private let settings = Settings.shared
-    @State private var selectedSource: DataSource = Settings.shared.dataSource ?? .nightknight
     @State private var staged = SourceSetup.Staged(from: .shared)
-    @State private var infoFor: DataSourceInfo?
     @State private var connStatus: String?
     @State private var connOK = false
     @State private var isTesting = false
     @State private var isSaving = false
-    @State private var showSwitchConfirm = false
     @State private var showDisconnectConfirm = false
+    /// The source the user tapped while another is active — drives the "disconnect
+    /// first" modal (nil = not shown).
+    @State private var blockedTarget: DataSource?
     @State private var showImporter = false
     @State private var importStatus: String?
     /// Notification permission, so we can warn when alarms are on but iOS won't deliver.
     @State private var notifStatus: UNAuthorizationStatus = .notDetermined
 
+    /// SettingsView only renders inside the tabs, which the root shows only once a
+    /// source is chosen — so this is always non-nil in practice.
+    private var activeSource: DataSource { settings.dataSource ?? .nightknight }
     private var unit: GlucoseUnit { settings.preferredUnit }
 
     var body: some View {
@@ -32,31 +38,32 @@ struct SettingsView: View {
             Form {
                 sourceSection
                 credentialsSection
-                if selectedSource == .nightknight { cfAccessSection }
                 actionsSection
-                if let active = settings.dataSource, active.usesLocalAnalytics, active == selectedSource {
-                    importSection
-                }
+                if activeSource.usesLocalAnalytics { importSection }
                 displaySection
                 healthSection
                 alarmsSection
             }
             .navigationTitle("Settings")
             .task { notifStatus = await AlarmManager.shared.authorizationStatus() }
-            .sheet(item: $infoFor) { SourceInfoSheet(info: $0) }
-            .confirmationDialog("Switch to \(selectedSource.label)?",
-                                isPresented: $showSwitchConfirm, titleVisibility: .visible) {
-                Button("Delete & switch", role: .destructive) { Task { await performSwitch() } }
-                Button("Cancel", role: .cancel) { revertStaged() }
+            .sheet(item: infoBinding) { SourceInfoSheet(info: $0) }
+            .alert("Disconnect to switch source",
+                   isPresented: Binding(get: { blockedTarget != nil },
+                                        set: { if !$0 { blockedTarget = nil } })) {
+                Button("Disconnect \(activeSource.label)", role: .destructive) {
+                    blockedTarget = nil
+                    showDisconnectConfirm = true
+                }
+                Button("Cancel", role: .cancel) { blockedTarget = nil }
             } message: {
-                Text("This deletes all locally cached glucose data so NightKnight can resync cleanly from the new source.")
+                Text("NightKnight keeps one data source active at a time so cached readings from different accounts can never mix. Disconnect \(activeSource.label) first — that clears its data — then pick \(blockedTarget?.label ?? "another source").")
             }
-            .confirmationDialog("Disconnect from your data source?",
+            .confirmationDialog("Disconnect from \(activeSource.label)?",
                                 isPresented: $showDisconnectConfirm, titleVisibility: .visible) {
                 Button("Disconnect", role: .destructive) { disconnect() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Removes every stored credential from this iPhone, its widgets, and your Apple Watch, and returns to the data-source chooser.")
+                Text("Removes its stored credentials and locally cached readings from this iPhone, its widgets, and your Apple Watch, and returns to the data-source chooser.")
             }
             .fileImporter(isPresented: $showImporter,
                           allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
@@ -65,27 +72,37 @@ struct SettingsView: View {
         }
     }
 
+    // Sheet for the "?" pros/cons; separate from `blockedTarget` so a card's info can be
+    // read without triggering the switch-blocked alert.
+    @State private var infoSource: DataSource?
+    private var infoBinding: Binding<DataSourceInfo?> {
+        Binding(get: { infoSource.map(DataSourceInfo.info(for:)) },
+                set: { infoSource = $0?.source })
+    }
+
     // MARK: - Sections
 
     private var sourceSection: some View {
-        Section(header: Text("Data source"),
-                footer: Text(sourceFooter)) {
+        Section(header: Text("Data source"), footer: Text("\(activeSource.label) is active. To use a different source, disconnect first.")) {
             ForEach(DataSourceInfo.all) { info in
                 HStack {
                     Button {
-                        selectedSource = info.source
-                        connStatus = nil
+                        // Selecting a different source is blocked while one is active.
+                        if info.source != activeSource { blockedTarget = info.source }
                     } label: {
                         HStack {
-                            Text(info.title).foregroundStyle(.primary)
+                            Text(info.title)
+                                .foregroundStyle(info.source == activeSource ? .primary : .secondary)
                             Spacer()
-                            if selectedSource == info.source {
+                            if info.source == activeSource {
                                 Image(systemName: "checkmark").foregroundStyle(Color.nkAccent)
+                            } else {
+                                Image(systemName: "lock").font(.footnote).foregroundStyle(.tertiary)
                             }
                         }
                     }
                     Button {
-                        infoFor = info
+                        infoSource = info.source
                     } label: {
                         Image(systemName: "questionmark.circle").foregroundStyle(Color.nkAccent)
                     }
@@ -95,50 +112,29 @@ struct SettingsView: View {
         }
     }
 
-    private var sourceFooter: String {
-        guard let active = settings.dataSource else {
-            return "No source active yet."
-        }
-        if active == selectedSource {
-            return "\(active.label) is active."
-        }
-        return "\(active.label) is active — enter credentials below and tap Save & activate to switch."
-    }
-
     private var credentialsSection: some View {
-        Section("\(selectedSource.label) credentials") {
-            SourceCredentialFields(source: selectedSource, staged: $staged)
-        }
-    }
-
-    private var cfAccessSection: some View {
-        Section(header: Text("Cloudflare Access (optional)"),
-                footer: Text("A service token to pass the Access gate when deployed behind Cloudflare Access.")) {
-            TextField("CF-Access-Client-Id", text: $staged.cfId).autocorrectionDisabled()
-            SecureField("CF-Access-Client-Secret", text: $staged.cfSecret)
+        Section("\(activeSource.label) credentials") {
+            SourceCredentialFields(source: activeSource, staged: $staged)
         }
     }
 
     private var actionsSection: some View {
         Section {
             Button(isTesting ? "Testing…" : "Test connection") { testConnection() }
-                .disabled(isTesting || !staged.isComplete(for: selectedSource))
-            Button(isSaving ? "Saving…" : "Save & activate") { saveAndActivate() }
-                .disabled(isSaving || !staged.isComplete(for: selectedSource))
+                .disabled(isTesting || !staged.isComplete(for: activeSource))
+            Button(isSaving ? "Saving…" : "Save changes") { saveChanges() }
+                .disabled(isSaving || !staged.isComplete(for: activeSource))
             if let connStatus {
                 Text(connStatus).font(.caption)
                     .foregroundStyle(connOK ? Color.green : Color.nkAccent)
             }
-            // Only offered once something is stored to remove.
-            if settings.dataSource != nil {
-                Button("Disconnect", role: .destructive) { showDisconnectConfirm = true }
-            }
+            Button("Disconnect", role: .destructive) { showDisconnectConfirm = true }
         }
     }
 
     private var importSection: some View {
         Section(header: Text("History"),
-                footer: Text("Direct sources start with only the vendor's recent window; stats build up as readings accumulate. Import a Dexcom Clarity or LibreView CSV export for instant history — the format is auto-detected.")) {
+                footer: Text("Import a Dexcom Clarity or LibreView CSV export to backfill up to \(SourceSetup.renderedHistoryDays) days at once — the most history NightKnight shows. The format is detected automatically.")) {
             Button("Import history CSV…") { showImporter = true }
             if let importStatus {
                 Text(importStatus).font(.caption).foregroundStyle(.secondary)
@@ -191,14 +187,11 @@ struct SettingsView: View {
         }
     }
 
+    /// Alarm copy is deliberately cautious and mechanism-free — consistent with the
+    /// first-launch safety notice. Alarms are on-device and most reliable in the
+    /// foreground; background delivery is limited by iOS regardless of data source.
     private var alarmsFooter: String {
-        var text = "On-device alarms for out-of-range and rapid drops, using your target range above. Simply on or off — there's no snooze. Nothing fires when disabled."
-        if settings.usesLocalAnalytics {
-            // Be explicit about the real limitation of going serverless — don't let a
-            // local source silently imply server-mode alarm timeliness.
-            text += " With a direct source there is no server push, so background alarms are best-effort: iOS decides when the app may refresh, and a backgrounded alarm can fire late. Reliable background alarms need NightKnight (or a push-capable Nightscout setup)."
-        }
-        return text
+        "On-device alarms for out-of-range readings and rapid drops, using your target range above. They're most reliable while NightKnight is open — in the background iOS limits how often the app can check, so alerts may be delayed or missed. There's no snooze; nothing fires when alarms are off."
     }
 
     // MARK: - Actions
@@ -209,94 +202,52 @@ struct SettingsView: View {
         isTesting = true
         connStatus = nil
         Task {
-            let result = await SourceSetup.test(selectedSource, staged: staged)
+            let result = await SourceSetup.test(activeSource, staged: staged)
             connOK = result.ok
             connStatus = result.message
             isTesting = false
         }
     }
 
-    /// Commit the staged source + credentials. If the local store holds another
-    /// source/account's readings this is a SWITCH and must be confirmed (wipe &
-    /// resync); otherwise it commits directly.
-    private func saveAndActivate() {
+    /// Save credential edits to the ACTIVE source. Changing the account identity
+    /// (server URL, username, email, region — anything that changes the source key)
+    /// is a source switch, which is only allowed via Disconnect; block it with the
+    /// same modal as tapping another source. A same-key edit (password / token /
+    /// secret rotation) commits directly with no wipe.
+    private func saveChanges() {
+        let newKey = staged.sourceKey(for: activeSource)
+        guard newKey == settings.sourceKey else {
+            blockedTarget = activeSource
+            return
+        }
         isSaving = true
-        let newKey = staged.sourceKey(for: selectedSource)
+        connStatus = nil
         Task {
-            if await SourceSetup.needsWipe(newKey: newKey) {
-                isSaving = false
-                showSwitchConfirm = true
-            } else {
-                await SourceSetup.activate(selectedSource, staged: staged, settings: settings, wipe: false)
-                await afterActivate(didWipe: false)
+            await SourceSetup.activate(activeSource, staged: staged, settings: settings, wipe: false)
+            connOK = true
+            connStatus = "Saved ✓"
+            if settings.isConfigured && !settings.usesLocalAnalytics {
+                UIApplication.shared.registerForRemoteNotifications()
             }
+            isSaving = false
         }
     }
 
-    /// The confirmed destructive path: wipe the local data, activate the new source,
-    /// and resync from scratch.
-    private func performSwitch() async {
-        isSaving = true
-        await SourceSetup.activate(selectedSource, staged: staged, settings: settings, wipe: true)
-        await afterActivate(didWipe: true)
-    }
-
-    /// Cancel path of the switch dialog: nothing persisted — put the controls back to
-    /// the active configuration.
-    private func revertStaged() {
-        staged = SourceSetup.Staged(from: settings)
-        selectedSource = settings.dataSource ?? .nightknight
-        isSaving = false
-    }
-
-    private func afterActivate(didWipe: Bool) async {
-        connOK = true
-        connStatus = "Saved ✓ — \(selectedSource.label) is active"
-        // `||` can't await its right operand, so resolve the store check up front.
-        var firstConnect = didWipe
-        if !firstConnect {
-            firstConnect = (try? await LocalStore.shared.isEmpty()) ?? false
-        }
-        if selectedSource == .nightscout, firstConnect {
-            // First connect to this instance: pull its full history in the background.
-            connStatus = "Saved ✓ — backfilling history from Nightscout…"
-            Task.detached {
-                let n = await SourceSetup.initialBackfill(settings: .shared)
-                await MainActor.run {
-                    if let n { connStatus = "Saved ✓ — imported \(n) readings from Nightscout" }
-                }
-            }
-        }
-        if settings.isConfigured && !settings.usesLocalAnalytics {
-            // Server mode: register for silent push now that we may finally be
-            // configured (the launch callback was a no-op until then).
-            UIApplication.shared.registerForRemoteNotifications()
-        }
-        isSaving = false
-    }
-
-    /// Import a Clarity/LibreView CSV through the Rust importer (auto-detects the
-    /// format) straight into the local store — instant backfill for direct sources.
+    /// Import a Clarity/LibreView CSV into the active source's local store — instant
+    /// backfill, trimmed to the rendered window.
     private func importCSV(_ url: URL) async {
-        guard let engine = LocalAnalytics.engine else { return }
         importStatus = "Importing…"
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            let data = try engine.importGlucoseCSV(text: text, tzOffsetMin: APIClient.tzOffsetMinutes)
-            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let entries = obj["entries"] as? [[String: Any]] else {
-                importStatus = "Import failed: unexpected importer output."
+            let parsed = try SourceSetup.parseHistoryCSV(url)
+            guard !parsed.rows.isEmpty else {
+                importStatus = "No readings in the last \(SourceSetup.renderedHistoryDays) days were found in that file."
                 return
             }
-            let rows: [(dateMs: Int64, mgdl: Double)] = entries.compactMap {
-                guard let date = $0["date"] as? Double, let mgdl = $0["mgdl"] as? Double else { return nil }
-                return (Int64(date), mgdl)
-            }
-            try await LocalStore.shared.upsertRows(rows, sourceKey: settings.sourceKey)
-            let source = (obj["source"] as? String) ?? "csv"
-            importStatus = "Imported \(rows.count) readings (\(source) export)."
+            try await LocalStore.shared.upsertRows(parsed.rows, sourceKey: settings.sourceKey)
+            try await LocalStore.shared.prune(olderThanDays: SourceSetup.renderedHistoryDays,
+                                              sourceKey: settings.sourceKey)
+            await AnalyticsMemo.shared.clear()
+            importStatus = "Imported \(parsed.rows.count) readings (\(parsed.source) export)."
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -304,10 +255,8 @@ struct SettingsView: View {
         }
     }
 
-    /// Remove the stored credentials everywhere: unregister this device's push token
-    /// from the server (while we're still authenticated), clear every source's
-    /// credentials and the cached reading, mirror the sign-out to the Watch, and
-    /// return to the first-run chooser.
+    /// Remove the active source's credentials everywhere, wipe its cached readings, and
+    /// return to the first-run chooser (dataSource → nil).
     private func disconnect() {
         // Unregister push first, from an immutable snapshot of the *current* credentials,
         // so the clear below can't pull them out from under the in-flight request.

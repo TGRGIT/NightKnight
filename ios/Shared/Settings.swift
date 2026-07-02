@@ -62,6 +62,11 @@ final class Settings {
     var writeToHealthKit: Bool { didSet { persist(writeToHealthKit, "hkWrite") } }
     var readFromHealthKit: Bool { didSet { persist(readFromHealthKit, "hkRead") } }
 
+    /// Whether the user has accepted the first-launch safety notice (not a medical
+    /// device; alarms are reliable only while the app is open). Gates the data-source
+    /// chooser — a returning user who has already accepted skips straight to it.
+    var hasAcceptedDisclaimer: Bool { didSet { persist(hasAcceptedDisclaimer, "disclaimerAccepted") } }
+
     // Credentials. Stored in the shared App Group (NOT the per-target Keychain) so the
     // widget + watch complication can read them — keychain access groups don't reliably
     // share on-device without provisioning, which left the widget unauthenticated ("--").
@@ -111,6 +116,7 @@ final class Settings {
         baseURL = ""; preferredUnit = .mgdl; trailingDays = 7
         alarmsEnabled = false; lowThresholdMgdl = 70; highThresholdMgdl = 180; fastDropAlarm = true
         writeToHealthKit = false; readFromHealthKit = false
+        hasAcceptedDisclaimer = false
         deviceToken = ""; cfAccessClientId = ""; cfAccessClientSecret = ""; apnsToken = ""
         dataSource = nil
         dexcomRegion = "us"; dexcomUsername = ""; dexcomPassword = ""
@@ -210,6 +216,7 @@ final class Settings {
         fastDropAlarm = defaults.object(forKey: "fastDrop") as? Bool ?? true
         writeToHealthKit = defaults.object(forKey: "hkWrite") as? Bool ?? false
         readFromHealthKit = defaults.object(forKey: "hkRead") as? Bool ?? false
+        hasAcceptedDisclaimer = defaults.object(forKey: "disclaimerAccepted") as? Bool ?? false
         deviceToken = defaults.string(forKey: "deviceToken") ?? ""
         cfAccessClientId = defaults.string(forKey: "cfId") ?? ""
         cfAccessClientSecret = defaults.string(forKey: "cfSecret") ?? ""

@@ -147,6 +147,7 @@
 		F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = F972CFC38D0C67561F36871E /* WatchComplication.swift */; };
 		F6E360056FCA6E9BECC38346 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		F88F8B470A272C80771AB1AE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		FC1C6BC894B317E5AE0F20F8 /* AnalyticsMemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */; };
 		FEE2D489C6347CF8441C7A90 /* CarPlayGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */; };
 		FFAFE648E64DB45785CBB049 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 /* End PBXBuildFile section */
@@ -219,6 +220,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsMemoTests.swift; sourceTree = "<group>"; };
 		04E463B3A140E188311E2D4D /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NightKnight.entitlements; sourceTree = "<group>"; };
 		0988BBC058E287DFE4336721 /* nightscout-history-page-filtered.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nightscout-history-page-filtered.json"; sourceTree = "<group>"; };
@@ -413,6 +415,7 @@
 		60446F77C977321912E23BF2 /* NightKnightSourcesTests */ = {
 			isa = PBXGroup;
 			children = (
+				03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */,
 				F69E6B977CEC6C57C5C915E4 /* DexcomShareClientTests.swift */,
 				C5B74E513627DB0959242DEB /* LibreLinkUpClientTests.swift */,
 				C21E039A226575142700E3E4 /* LocalStoreTests.swift */,
@@ -846,6 +849,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4FE648A4A7B0BF806E6B8994 /* APIClient.swift in Sources */,
+				FC1C6BC894B317E5AE0F20F8 /* AnalyticsMemoTests.swift in Sources */,
 				574EECF926DB1074852CC5DB /* DemoData.swift in Sources */,
 				D61F351C4306C2B944F7A5F5 /* DexcomShareClient.swift in Sources */,
 				632332FEF9C5D819CD8D2262 /* DexcomShareClientTests.swift in Sources */,
