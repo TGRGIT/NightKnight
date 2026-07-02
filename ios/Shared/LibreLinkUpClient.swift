@@ -85,23 +85,6 @@ struct LibreLinkUpClient: StandaloneSource {
         "\(base)/llu/connections/\(patientId)/graph"
     }
 
-    /// The connection logbook — ~2 weeks of alarm/scan **event** points (not a
-    /// continuous trace). Reachable with the LibreLinkUp token; used as the backfill
-    /// fallback when the dense history endpoint isn't available.
-    static func logbookURL(base: String, patientId: String) -> String {
-        "\(base)/llu/connections/\(patientId)/logbook"
-    }
-
-    /// The LibreView patient glucose-history endpoint (up to 90 days, dense). This is
-    /// the *first-choice* backfill source, but empirically the LibreLinkUp-issued
-    /// token is product-gated out of it (`400 ProductMismatch`) — it belongs to the
-    /// LibreView **web** product — so `backfill()` treats it as best-effort and falls
-    /// back to the logbook. `period` is the window in days (max 90 = the app's rendered
-    /// window); `numPeriods=1` requests it as a single span.
-    static func historyURL(base: String, days: Int = 90) -> String {
-        "\(base)/glucoseHistory?numPeriods=1&period=\(max(1, min(days, 90)))"
-    }
-
     /// Outcome of a login attempt.
     enum LoginResult: Equatable {
         /// Authenticated: bearer token + the account's user id.
@@ -222,44 +205,6 @@ struct LibreLinkUpClient: StandaloneSource {
             }
         }
         return out
-    }
-
-    /// Parse the connection logbook: `data` is a flat array of measurement objects
-    /// (`ValueInMgPerDl` + `FactoryTimestamp`), same shape as a graph point. These are
-    /// alarm/scan events rather than a continuous trace, so they're sparse and skewed
-    /// toward highs/lows — a thin backfill, not a substitute for a CSV import.
-    static func parseLogbook(_ body: Data) throws -> [CgmSample] {
-        let v = try jsonObject(body)
-        guard let arr = v["data"] as? [Any] else {
-            throw StandaloneError.parse("logbook: no data array")
-        }
-        return arr.compactMap {
-            ($0 as? [String: Any]).flatMap { sampleFromMeasurement($0, withTrend: false) }
-        }
-    }
-
-    /// Parse the glucose-history response. Its exact shape is **unverified** — the
-    /// endpoint is product-gated for LibreLinkUp tokens, so we've never seen a success
-    /// body — so this walks `data` and collects every measurement-shaped object
-    /// (`ValueInMgPerDl` + a timestamp) at any nesting, which is robust to however the
-    /// web product happens to wrap the readings.
-    static func parseGlucoseHistory(_ body: Data) throws -> [CgmSample] {
-        let v = try jsonObject(body)
-        guard let data = v["data"] else { return [] }
-        var out: [CgmSample] = []
-        collectMeasurements(data, into: &out)
-        return out
-    }
-
-    private static func collectMeasurements(_ any: Any, into out: inout [CgmSample]) {
-        if let dict = any as? [String: Any] {
-            // A measurement object is a leaf — parse it and don't recurse into it (so a
-            // reading's own fields can't be double-counted).
-            if let s = sampleFromMeasurement(dict, withTrend: false) { out.append(s) }
-            else { for value in dict.values { collectMeasurements(value, into: &out) } }
-        } else if let arr = any as? [Any] {
-            for element in arr { collectMeasurements(element, into: &out) }
-        }
     }
 
     /// A compact, single-line preview of a response body for diagnostics — lets a 403
@@ -390,59 +335,6 @@ struct LibreLinkUpClient: StandaloneSource {
         let samples = try await fetchData(base: fresh.base, token: fresh.token,
                                           accountId: fresh.accountId, retryOn401: false)
         return samples.sorted { $0.dateMs < $1.dateMs }
-    }
-
-    /// Best-effort history backfill (a Swift-side extension — the Rust reference has no
-    /// LibreLinkUp backfill). First choice: the dense `/glucoseHistory` window (up to 90
-    /// days). In practice the LibreLinkUp token is product-gated out of that endpoint
-    /// (`400 ProductMismatch`), so on any failure this falls back to the `/logbook`
-    /// (~2 weeks of alarm/scan events — sparse and skewed, hence the CSV import remains
-    /// the way to get a true dense history). Returns whatever it could get, newest-last.
-    func backfill() async throws -> [CgmSample] {
-        let session = try await resolveSession()
-        let authed = Self.headers(token: session.token, accountId: session.accountId)
-
-        // First option: dense patient history, up to the rendered window.
-        if let hist = try? await Self.get(Self.historyURL(base: session.base), headers: authed),
-           (200..<300).contains(hist.status),
-           let samples = try? Self.parseGlucoseHistory(hist.body), !samples.isEmpty {
-            return samples.sorted { $0.dateMs < $1.dateMs }
-        }
-
-        // Fallback: the connection logbook (~2 weeks of events).
-        let patient = try await firstPatient(session)
-        let log = try await Self.get(Self.logbookURL(base: session.base, patientId: patient),
-                                     headers: authed)
-        guard (200..<300).contains(log.status) else {
-            throw StandaloneError.proto("logbook failed (\(log.status)) \(Self.snippet(log.body))")
-        }
-        return try Self.parseLogbook(log.body).sorted { $0.dateMs < $1.dateMs }
-    }
-
-    /// A valid session for the authed backfill requests — the cached bearer if it's
-    /// still good, otherwise a fresh login (which is backoff-gated and re-cached).
-    private func resolveSession() async throws -> (base: String, token: String, accountId: String) {
-        let defaults = Self.store
-        let cachedRegion = defaults.string(forKey: Self.regionKey) ?? ""
-        let region = cachedRegion.isEmpty ? (defaults.string(forKey: "libreRegion") ?? "") : cachedRegion
-        if let s = Self.cachedSession(defaults, email: email) {
-            let base = Self.isValidRegion(region) ? Self.regionalBase(region) : Self.defaultBase
-            return (base, s.token, s.accountId)
-        }
-        return try await login(defaults, region: region, backoffKey: "libre:\(email.lowercased())")
-    }
-
-    /// The first followed patient's id (backfill needs it for the logbook URL).
-    private func firstPatient(_ session: (base: String, token: String, accountId: String)) async throws -> String {
-        let authed = Self.headers(token: session.token, accountId: session.accountId)
-        let conns = try await Self.get(Self.connectionsURL(base: session.base), headers: authed)
-        guard (200..<300).contains(conns.status) else {
-            throw StandaloneError.proto("connections failed (\(conns.status)) \(Self.snippet(conns.body))")
-        }
-        guard let patient = try Self.parseConnections(conns.body).first else {
-            throw StandaloneError.proto("no LibreLinkUp connections")
-        }
-        return patient
     }
 
     /// The authed data flow: connections → first patientId → graph. With

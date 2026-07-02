@@ -137,19 +137,14 @@ enum SourceSetup {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    /// First-connect history backfill via the source's own API. Nightscout walks its
-    /// full paginated history; Libre makes a best-effort pull (dense `/glucoseHistory`
-    /// if the token is accepted, else the ~2-week logbook). Dexcom Share has no history
-    /// endpoint, so it returns `[]` and is skipped. Trimmed to the rendered window.
-    /// Returns the imported reading count, or nil when nothing was backfilled.
+    /// Nightscout first-connect: walk the instance's full history into the local
+    /// store (the other sources only accumulate forward). Returns the reading count,
+    /// or nil when the source doesn't backfill / the walk failed.
     static func initialBackfill(settings: Settings) async -> Int? {
-        guard settings.dataSource == .nightscout || settings.dataSource == .libre,
+        guard settings.dataSource == .nightscout,
               let source = StandaloneSources.make(settings) else { return nil }
         guard let samples = try? await source.backfill(), !samples.isEmpty else { return nil }
-        let key = settings.sourceKey
-        try? await LocalStore.shared.upsert(samples, sourceKey: key)
-        try? await LocalStore.shared.prune(olderThanDays: renderedHistoryDays, sourceKey: key)
-        await AnalyticsMemo.shared.clear()
+        try? await LocalStore.shared.upsert(samples, sourceKey: settings.sourceKey)
         return samples.count
     }
 

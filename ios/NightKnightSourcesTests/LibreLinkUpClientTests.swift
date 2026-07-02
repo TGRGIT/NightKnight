@@ -159,35 +159,4 @@ final class LibreLinkUpClientTests: XCTestCase {
         XCTAssertEqual(LibreLinkUpClient.jwtExp("x.\(b64url).y"), 1_893_456_000)
         XCTAssertNil(LibreLinkUpClient.jwtExp("garbage"))
     }
-
-    // MARK: - History backfill (Swift-side extension; verified against live-recorded shapes)
-
-    func testBackfillURLs() {
-        XCTAssertEqual(LibreLinkUpClient.historyURL(base: "https://api.libreview.io"),
-                       "https://api.libreview.io/glucoseHistory?numPeriods=1&period=90")
-        XCTAssertEqual(LibreLinkUpClient.historyURL(base: "https://api.libreview.io", days: 200),
-                       "https://api.libreview.io/glucoseHistory?numPeriods=1&period=90", "days clamps to 90")
-        XCTAssertEqual(LibreLinkUpClient.logbookURL(base: "https://api.libreview.io", patientId: "p-1"),
-                       "https://api.libreview.io/llu/connections/p-1/logbook")
-    }
-
-    /// The logbook `data` is a flat array of measurement objects (the shape recorded
-    /// from a live `/logbook` response); each parses into a `CgmSample`.
-    func testParsesLogbook() throws {
-        let samples = try LibreLinkUpClient.parseLogbook(fixture("libre-logbook"))
-        XCTAssertEqual(samples.count, 3)
-        XCTAssertEqual(samples.map(\.mgdl), [69, 67, 210])
-        XCTAssertEqual(samples[0].device, "librelinkup")
-        XCTAssertTrue(samples.allSatisfy { $0.dateMs > 0 })
-        // Logbook points are events, not a trend series — no arrow attached.
-        XCTAssertTrue(samples.allSatisfy { $0.direction == nil })
-    }
-
-    /// The glucose-history parser walks the (unverified) response shape and collects
-    /// every measurement-shaped object, wherever it's nested.
-    func testParsesGlucoseHistory() throws {
-        let samples = try LibreLinkUpClient.parseGlucoseHistory(fixture("libre-glucosehistory"))
-        XCTAssertEqual(samples.count, 2)
-        XCTAssertEqual(samples.map(\.mgdl), [120, 125])
-    }
 }
