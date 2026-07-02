@@ -250,9 +250,11 @@ struct WelcomeView: View {
                                                sourceKey: settings.sourceKey)
             await AnalyticsMemo.shared.clear()
         }
-        if source == .nightscout {
-            // Pull the instance's full history in the background; the dashboard is
-            // usable immediately from the recent window.
+        if source == .nightscout || source == .libre {
+            // Pull history via the source's API in the background (Nightscout: full
+            // paginated walk; Libre: best-effort dense-or-logbook). The dashboard is
+            // usable immediately from the recent window, and any CSV the user imported
+            // above is already applied.
             Task.detached { _ = await SourceSetup.initialBackfill(settings: .shared) }
         }
         if settings.isConfigured && !settings.usesLocalAnalytics {

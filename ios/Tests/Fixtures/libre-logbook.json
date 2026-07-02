@@ -1,0 +1,8 @@
+{
+    "status": 0,
+    "data": [
+        {"FactoryTimestamp": "7/2/2026 4:14:46 AM", "Timestamp": "7/2/2026 5:14:46 AM", "type": 3, "ValueInMgPerDl": 69, "TrendArrow": 3, "TrendMessage": null, "MeasurementColor": 2, "GlucoseUnits": 0, "Value": 69, "isHigh": false, "isLow": true, "alarmType": 1},
+        {"FactoryTimestamp": "6/30/2026 3:59:49 PM", "Timestamp": "6/30/2026 4:59:49 PM", "type": 3, "ValueInMgPerDl": 67, "TrendArrow": 1, "TrendMessage": null, "MeasurementColor": 2, "GlucoseUnits": 0, "Value": 67, "isHigh": false, "isLow": true, "alarmType": 1},
+        {"FactoryTimestamp": "6/23/2026 11:42:02 PM", "type": 3, "ValueInMgPerDl": 210, "TrendArrow": 5, "MeasurementColor": 3, "GlucoseUnits": 0, "Value": 210, "isHigh": true, "isLow": false, "alarmType": 0}
+    ]
+}

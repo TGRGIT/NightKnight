@@ -15,6 +15,7 @@
 		07D33F2EB66518E84776E27E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		088E00842A1BC504607369C0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
+		096F687657D0B45F0132AFBB /* libre-glucosehistory.json in Resources */ = {isa = PBXBuildFile; fileRef = 42493CD65C4E05649B1B1196 /* libre-glucosehistory.json */; };
 		0B96EAEB89F8BE62BDD855A7 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */; };
 		1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
@@ -101,6 +102,7 @@
 		9712F2AC7F19750B45169AD3 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		99D4C39F93ACDE87230AE92A /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
+		9C52894066C37023796B38A9 /* libre-logbook.json in Resources */ = {isa = PBXBuildFile; fileRef = 534D47B5ED8D46D102D2648C /* libre-logbook.json */; };
 		9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		A8220A9D701DA41856DF7B67 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
 		AC279425B88E5E0802C63E86 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
@@ -243,9 +245,11 @@
 		385B98DBD0F0FD9783E0EED3 /* libre-connections.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-connections.json"; sourceTree = "<group>"; };
 		3943381D68D21D395767E8D3 /* dexcom-glucose.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dexcom-glucose.json"; sourceTree = "<group>"; };
 		412DBAF0874A666814496982 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		42493CD65C4E05649B1B1196 /* libre-glucosehistory.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-glucosehistory.json"; sourceTree = "<group>"; };
 		45EBCA71EED7E861CEC77136 /* WidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBundle.swift; sourceTree = "<group>"; };
 		4B5E9883D155D27E3DA6C9BA /* WidgetRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRenderTests.swift; sourceTree = "<group>"; };
 		4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		534D47B5ED8D46D102D2648C /* libre-logbook.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-logbook.json"; sourceTree = "<group>"; };
 		58409B729DE186D6CD2319B1 /* NightscoutClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutClientTests.swift; sourceTree = "<group>"; };
 		5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
 		618C11FF5966CAAC580973AC /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
@@ -397,7 +401,9 @@
 				F7211334564458BE600FC123 /* dexcom-wt-timestamps.json */,
 				385B98DBD0F0FD9783E0EED3 /* libre-connections.json */,
 				B54FB18CFE9F2826B845AF4A /* libre-factory-timestamps.json */,
+				42493CD65C4E05649B1B1196 /* libre-glucosehistory.json */,
 				8577B47D57FC09B67A1D332D /* libre-graph.json */,
+				534D47B5ED8D46D102D2648C /* libre-logbook.json */,
 				FD775FC8DC049DDB02266820 /* libre-login-bad.json */,
 				2BE0F476218418AC6263B6D2 /* libre-login-locked.json */,
 				A3AD3713A559C0806FB0663B /* libre-login-ok.json */,
@@ -744,7 +750,9 @@
 				331DFFBBA53E3ECD3816B2FF /* dexcom-wt-timestamps.json in Resources */,
 				4E803384B28E8433097A9B26 /* libre-connections.json in Resources */,
 				02F387F44D10ED74927B56CF /* libre-factory-timestamps.json in Resources */,
+				096F687657D0B45F0132AFBB /* libre-glucosehistory.json in Resources */,
 				1CDABB1F95470D62BC91625F /* libre-graph.json in Resources */,
+				9C52894066C37023796B38A9 /* libre-logbook.json in Resources */,
 				29D1708A96D7A019686FE870 /* libre-login-bad.json in Resources */,
 				D9C03BD12E13DE2019AB8B05 /* libre-login-locked.json in Resources */,
 				C40AD231F17EAEB72C1F8F15 /* libre-login-ok.json in Resources */,

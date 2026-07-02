@@ -1,0 +1,9 @@
+{
+    "status": 0,
+    "data": {
+        "graphData": [
+            {"FactoryTimestamp": "7/1/2026 12:00:00 AM", "Timestamp": "7/1/2026 1:00:00 AM", "type": 0, "ValueInMgPerDl": 120, "GlucoseUnits": 0, "Value": 120, "isHigh": false, "isLow": false},
+            {"FactoryTimestamp": "7/1/2026 12:15:00 AM", "Timestamp": "7/1/2026 1:15:00 AM", "type": 0, "ValueInMgPerDl": 125, "GlucoseUnits": 0, "Value": 125, "isHigh": false, "isLow": false}
+        ]
+    }
+}
