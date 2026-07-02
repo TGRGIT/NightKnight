@@ -1,0 +1,6 @@
+[
+    {"_id":"6a3d54045da0bda161923313","type":"sgv","date":1782404097000,"dateString":"2026-06-25T16:14:57.000Z","device":"nightscout-librelink-up","direction":"Flat","sgv":91,"utcOffset":0,"mills":1782404097000},
+    {"_id":"x","type":"sgv","date":1782403977000,"sgv":90,"direction":"FortyFiveUp","device":"nightscout-librelink-up"},
+    {"_id":"y","type":"cal","date":1782403900000,"sgv":0},
+    {"_id":"z","type":"sgv","date":1782403800000,"sgv":0}
+]

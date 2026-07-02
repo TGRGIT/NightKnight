@@ -48,6 +48,9 @@ enum Demo {
         // A friendly fake config so the app looks "connected", never a real host.
         s.baseURL = "https://nightknight.example.com"
         s.deviceToken = "demo"
+        // Demo intercepts at the APIClient layer regardless of source; pick the server
+        // mode so screenshot runs skip the first-run chooser.
+        s.dataSource = .nightknight
     }
 
     // MARK: - Current reading (derived from the trace so the number, trend and

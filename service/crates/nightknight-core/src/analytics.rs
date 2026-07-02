@@ -20,6 +20,8 @@
 use crate::timeutil::{self, DAY_MS};
 use crate::units::GlucoseValue;
 
+pub mod report;
+
 /// A timestamped glucose reading — the unit of all analytics and charting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlucoseReading {

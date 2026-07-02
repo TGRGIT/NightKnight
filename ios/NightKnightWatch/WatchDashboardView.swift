@@ -9,6 +9,16 @@ final class WatchModel {
     private var client: APIClient { APIClient(settings: .shared) }
 
     func refresh() async {
+        // Local-analytics sources: the watch never holds vendor credentials and never
+        // logs in — the phone pushes each new reading over WatchConnectivity into this
+        // watch's ReadingCache. (Richer analytics tiles on the watch in a local source
+        // are a documented follow-up; the summary line just stays empty.)
+        if Settings.shared.usesLocalAnalytics {
+            current = ReadingCache.load()
+            analytics = nil
+            errorText = current == nil ? "Open NightKnight on your iPhone to sync readings" : nil
+            return
+        }
         do {
             async let c = client.current()
             async let a = client.analytics(hours: 24)

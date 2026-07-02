@@ -23,3 +23,17 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  # The iOS app links a CHECKED-IN xcframework built from nightknight-ffi/-core
+  # (ios/scripts/build-rust-ffi.sh). This job recomputes the source hash and fails
+  # when those sources changed without a rebuilt + recommitted artifact — a stale
+  # xcframework would silently serve outdated analytics on-device. Pure hashing,
+  # no Apple toolchain needed.
+  ffi-staleness:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check committed xcframework matches FFI sources
+      run: bash ios/scripts/build-rust-ffi.sh --check

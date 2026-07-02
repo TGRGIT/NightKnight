@@ -1201,6 +1201,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nightknight-ffi"
+version = "0.1.0"
+dependencies = [
+ "nightknight-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nightknight-server"
 version = "0.1.0"
 dependencies = [
