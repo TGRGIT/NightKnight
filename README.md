@@ -5,8 +5,6 @@ Known issues:
 - Background refresh needs APNs silent push configured to be timely — see
   [docs/SILENT-PUSH.md](docs/SILENT-PUSH.md) (until then it falls back to the OS's
   best-effort `BGAppRefreshTask`)
-- Ambulatory glucose is broken
-- Import testing
 
 A modern continuous-glucose-monitoring service and native iOS app, written in Rust to
 run on **Cloudflare Workers + D1** *or* as a **self-hosted container + Postgres**. It
