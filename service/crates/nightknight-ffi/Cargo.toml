@@ -1,0 +1,18 @@
+[package]
+name = "nightknight-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "C ABI over nightknight-core's analytics for the iOS app: JSON in, JSON out, byte-identical to the server's /api/v4 payloads. The only crate in the tree allowed to use unsafe — everything else stays unsafe-forbidden."
+
+# `staticlib` is what the iOS xcframework links; `rlib` lets `cargo test` link the
+# crate into its test harness.
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+nightknight-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

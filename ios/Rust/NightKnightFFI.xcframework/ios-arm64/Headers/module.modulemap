@@ -1,0 +1,6 @@
+// Clang module map so Swift can `import NightKnightFFI` — travels with the
+// xcframework's headers (no bridging header needed).
+module NightKnightFFI {
+    header "nightknight_ffi.h"
+    export *
+}

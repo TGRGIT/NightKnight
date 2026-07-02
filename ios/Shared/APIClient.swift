@@ -17,10 +17,18 @@ enum APIError: Error, LocalizedError {
     }
 }
 
-/// Talks to the NightKnight `/api/v4` API. Authentication:
-/// * `api-secret` — the device token created in the web UI (app-level auth).
-/// * `CF-Access-Client-Id` / `CF-Access-Client-Secret` — a Cloudflare Access service
-///   token to pass the edge gate (optional; only when deployed behind Access).
+/// The app's single data facade — every view fetches through here, which is why the
+/// data source is swappable at exactly this layer (the same place DEBUG demo mode
+/// already substitutes synthetic data).
+///
+/// * **NightKnight (server) mode** — talks to the NightKnight `/api/v4` API.
+///   Authentication: `api-secret` (the device token created in the web UI) plus an
+///   optional `CF-Access-Client-Id`/`-Secret` service token for the Cloudflare edge.
+/// * **Local-analytics sources** (Dexcom Share / LibreLinkUp / Nightscout) — fetches
+///   raw readings via the `StandaloneSource` protocol, accumulates them in
+///   `LocalStore`, and computes the same wire payloads on-device through the Rust FFI
+///   (`LocalAnalytics.engine`), decoded by the SAME DTOs below. Views never know the
+///   difference.
 struct APIClient {
     let settings: Settings
 
@@ -71,6 +79,7 @@ struct APIClient {
         #if DEBUG
         if Demo.isEnabled { return Demo.current() }
         #endif
+        if settings.usesLocalAnalytics { return try await localCurrent() }
         let dto = try await fetch(CurrentEnvelope.self, path: "/api/v4/current")
         guard let c = dto.current else { return nil }
         let trend = TrendDirection(name: c.direction)
@@ -86,6 +95,9 @@ struct APIClient {
         #if DEBUG
         if Demo.isEnabled { return Demo.readings(hours: hours) }
         #endif
+        if settings.usesLocalAnalytics {
+            return try await LocalStore.shared.entries(hours: hours, sourceKey: settings.sourceKey)
+        }
         let dto = try await fetch(EntriesEnvelope.self, path: "/api/v4/entries",
                                   query: [.init(name: "hours", value: String(hours))])
         return dto.entries.map {
@@ -98,10 +110,17 @@ struct APIClient {
         #if DEBUG
         if Demo.isEnabled { return Demo.analytics(hours: hours) }
         #endif
+        if settings.usesLocalAnalytics { return try await localAnalytics(hours: hours) }
         let d = try await fetch(AnalyticsDTO.self, path: "/api/v4/analytics", query: [
             .init(name: "hours", value: String(hours)),
             .init(name: "tzOffset", value: String(Self.tzOffsetMinutes)),
         ])
+        return Self.mapAnalytics(d)
+    }
+
+    /// DTO → app model, shared verbatim by the server fetch and the on-device FFI path
+    /// (both decode the same wire JSON).
+    private static func mapAnalytics(_ d: AnalyticsDTO) -> GlucoseAnalytics {
         let mapStat: (EpStatDTO) -> EpisodeStat = {
             EpisodeStat(count: $0.count, nocturnal: $0.nocturnal, perDay: $0.perDay, longestMin: $0.longestMin, totalMin: $0.totalMin)
         }
@@ -142,13 +161,17 @@ struct APIClient {
     /// the app to refresh. Idempotent server-side, so it's safe to call on every launch
     /// (and whenever iOS rotates the token). `environment` is `"sandbox"` for a
     /// development build, `"production"` for TestFlight / App Store.
+    /// No-op concept for local sources: there is no server to push, so this throws
+    /// rather than sending the token (with an empty api-secret) to the default host.
     func registerPush(token: String, environment: String) async throws {
+        guard !settings.usesLocalAnalytics else { throw APIError.notConfigured }
         try await sendJSON(method: "POST", path: "/api/v4/push/register",
                            body: ["token": token, "environment": environment])
     }
 
     /// Unregister this device's APNs token (sign-out / token change).
     func unregisterPush(token: String) async throws {
+        guard !settings.usesLocalAnalytics else { throw APIError.notConfigured }
         try await sendJSON(method: "DELETE", path: "/api/v4/push/register",
                            body: ["token": token])
     }
@@ -157,11 +180,84 @@ struct APIClient {
         #if DEBUG
         if Demo.isEnabled { return Demo.agp(days: days) }
         #endif
+        if settings.usesLocalAnalytics { return try await localAgp(days: days) }
         let d = try await fetch(AgpDTO.self, path: "/api/v4/agp", query: [
             .init(name: "days", value: String(days)),
             .init(name: "tzOffset", value: String(Self.tzOffsetMinutes)),
         ])
-        return d.bins.map { AgpBin(minuteOfDay: $0.minuteOfDay, n: $0.n, p05: $0.p05, p25: $0.p25, p50: $0.p50, p75: $0.p75, p95: $0.p95) }
+        return Self.mapAgp(d)
+    }
+
+    private static func mapAgp(_ d: AgpDTO) -> [AgpBin] {
+        d.bins.map { AgpBin(minuteOfDay: $0.minuteOfDay, n: $0.n, p05: $0.p05, p25: $0.p25, p50: $0.p50, p75: $0.p75, p95: $0.p95) }
+    }
+
+    // MARK: - Local-analytics sources (Dexcom Share / LibreLinkUp / Nightscout)
+
+    /// The server's default AGP bin width (minutes) — the app never overrides it.
+    private static let agpBinMinutes = 15
+
+    /// One vendor round-trip per poll: fetch the recent window, fold it into the local
+    /// history, warm the extensions' `ReadingCache`, and return the newest sample. The
+    /// app is the SOLE fetcher — widget/watch/complication only ever read the cache.
+    private func localCurrent() async throws -> CurrentReading? {
+        guard settings.isConfigured, let source = StandaloneSources.make(settings) else {
+            throw APIError.notConfigured
+        }
+        let key = settings.sourceKey
+        let samples = try await source.fetchRecent()
+        try await LocalStore.shared.upsert(samples, sourceKey: key)
+        // Trailing-90-day stats are the longest window; anything older is dead weight.
+        try? await LocalStore.shared.prune(olderThanDays: 90, sourceKey: key)
+        guard let newest = samples.max(by: { $0.dateMs < $1.dateMs }) else { return nil }
+        let current = newest.asCurrent
+        ReadingCache.save(current)
+        return current
+    }
+
+    private func localAnalytics(hours: Int) async throws -> GlucoseAnalytics {
+        let data = try await localReportJSON(kind: .analytics, window: hours)
+        guard let d = try? JSONDecoder().decode(AnalyticsDTO.self, from: data) else {
+            throw APIError.decode
+        }
+        return Self.mapAnalytics(d)
+    }
+
+    private func localAgp(days: Int) async throws -> [AgpBin] {
+        let data = try await localReportJSON(kind: .agp, window: days)
+        guard let d = try? JSONDecoder().decode(AgpDTO.self, from: data) else {
+            throw APIError.decode
+        }
+        return Self.mapAgp(d)
+    }
+
+    /// Compute (or reuse) one FFI report. Memoised on `(kind, window, owner, maxDateMs,
+    /// count, tz)`: the per-minute `current()` poll must not re-run a ~25k-reading
+    /// analytics round-trip — the report recomputes only when new readings land, the
+    /// period changes, or the store is reset.
+    private func localReportJSON(kind: AnalyticsMemo.Kind, window: Int) async throws -> Data {
+        guard let engine = LocalAnalytics.engine else {
+            // Only the app registers an engine; extensions never compute analytics.
+            throw APIError.notConfigured
+        }
+        let key = settings.sourceKey
+        let tz = Self.tzOffsetMinutes
+        let stats = try await LocalStore.shared.stats(sourceKey: key)
+        let memoKey = AnalyticsMemo.Key(kind: kind, window: window, owner: key,
+                                        maxDateMs: stats.maxDateMs ?? 0, count: stats.count, tz: tz)
+        if let cached = await AnalyticsMemo.shared.get(memoKey) { return cached }
+        let hours = kind == .analytics ? window : window * 24
+        let readingsJSON = try await LocalStore.shared.allReadingsJSON(hours: hours, sourceKey: key)
+        let data: Data
+        switch kind {
+        case .analytics:
+            data = try engine.analyticsJSON(readingsJSON: readingsJSON, hours: window, tzOffsetMin: tz)
+        case .agp:
+            data = try engine.agpJSON(readingsJSON: readingsJSON, days: window,
+                                      binMinutes: Self.agpBinMinutes, tzOffsetMin: tz)
+        }
+        await AnalyticsMemo.shared.set(memoKey, data)
+        return data
     }
 
     // MARK: - DTOs
@@ -193,6 +289,35 @@ struct APIClient {
     private struct EpisodesDTO: Decodable { let low, veryLow, high, veryHigh: EpStatDTO; let recent: [RecentEpDTO] }
     private struct AgpDTO: Decodable { let bins: [AgpBinDTO] }
     private struct AgpBinDTO: Decodable { let minuteOfDay: Int; let n: Int; let p05: Double?; let p25: Double?; let p50: Double?; let p75: Double?; let p95: Double? }
+}
+
+/// Cache of the last FFI report per (kind, window, owner, data-version, tz). One small
+/// entry per active view combination; wiped wholesale past a small cap rather than
+/// tracking LRU — recomputing is cheap enough once a minute, just not once a second.
+actor AnalyticsMemo {
+    static let shared = AnalyticsMemo()
+
+    enum Kind: Hashable { case analytics, agp }
+    struct Key: Hashable {
+        let kind: Kind
+        let window: Int
+        let owner: String
+        let maxDateMs: Int64
+        let count: Int
+        let tz: Int
+    }
+
+    private var store: [Key: Data] = [:]
+
+    func get(_ key: Key) -> Data? { store[key] }
+
+    func set(_ key: Key, _ data: Data) {
+        if store.count >= 16 { store.removeAll() }
+        store[key] = data
+    }
+
+    /// Drop everything — called when the local store is reset (source switch).
+    func clear() { store.removeAll() }
 }
 
 extension Data {

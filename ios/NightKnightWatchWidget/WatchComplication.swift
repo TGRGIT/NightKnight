@@ -33,8 +33,23 @@ struct WatchProvider: AppIntentTimelineProvider {
         // edited/cleared on the phone (synced here via WatchConnectivity) without mutating the
         // shared singleton from this background fetch.
         let settings = Settings.current()
+        guard settings.dataSource != nil else {
+            // No source chosen (or removed): show "--", not a stale cached reading.
+            return WatchEntry(date: .now, value: nil, trend: .none, unit: settings.preferredUnit)
+        }
+        // Local-analytics sources: the watch never holds vendor credentials (they are
+        // deliberately not synced from the phone) and must not log in per timeline
+        // reload (lockout risk) — render the reading the phone pushed into this
+        // watch's ReadingCache via WatchConnectivity. `isConfigured`'s credential
+        // check must NOT gate this branch: for these sources it always reads the
+        // watch's own (always-empty) vendor fields and would blank the complication
+        // even with a perfectly healthy phone-side connection.
+        if settings.usesLocalAnalytics {
+            let cached = ReadingCache.load()
+            return WatchEntry(date: cached?.date ?? .now, value: cached?.value,
+                              trend: cached?.trend ?? .none, unit: settings.preferredUnit)
+        }
         guard settings.isConfigured else {
-            // Account removed: show "--", not a stale cached reading from the old account.
             return WatchEntry(date: .now, value: nil, trend: .none, unit: settings.preferredUnit)
         }
         let fetched = try? await APIClient(settings: settings).current()

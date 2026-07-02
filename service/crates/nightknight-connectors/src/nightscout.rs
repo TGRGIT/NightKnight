@@ -258,6 +258,19 @@ impl Connector for NightscoutConnector {
 mod tests {
     use super::*;
 
+    /// Canonical payloads live under `ios/Tests/Fixtures/` and are shared byte-for-byte
+    /// with the Swift port's tests (`NightKnightSourcesTests`) — the two parsers cannot
+    /// drift silently.
+    macro_rules! fixture {
+        ($name:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../ios/Tests/Fixtures/",
+                $name
+            ))
+        };
+    }
+
     #[test]
     fn normalizes_base_and_builds_url() {
         assert_eq!(normalize_base("https://x.cooney.be/"), "https://x.cooney.be");
@@ -286,6 +299,20 @@ mod tests {
         // cursor is floored to 0 (no panic / no negative in the URL).
         assert!(read_url_before("https://x.cooney.be", 2000, i64::MAX).contains("%24lt%5D=9223372036854775807"));
         assert!(read_url_before("https://x.cooney.be", 2000, -5).ends_with("%24lt%5D=0"));
+    }
+
+    /// The full allow/deny table is the shared fixture `ssrf-table.json` — it is the
+    /// spec for the Swift port's `isSafeBase`, asserted from both languages.
+    #[test]
+    fn ssrf_guard_matches_the_shared_table() {
+        let table: Vec<serde_json::Value> =
+            serde_json::from_slice(fixture!("ssrf-table.json")).unwrap();
+        assert!(table.len() >= 24, "SSRF table lost rows");
+        for row in &table {
+            let url = row["url"].as_str().unwrap();
+            let safe = row["safe"].as_bool().unwrap();
+            assert_eq!(is_safe_base(url), safe, "is_safe_base({url:?}) should be {safe}");
+        }
     }
 
     #[test]
@@ -319,13 +346,8 @@ mod tests {
 
     #[test]
     fn parses_a_real_entries_payload() {
-        // The exact shape returned by the live endpoint.
-        let body = br#"[
-            {"_id":"6a3d54045da0bda161923313","type":"sgv","date":1782404097000,"dateString":"2026-06-25T16:14:57.000Z","device":"nightscout-librelink-up","direction":"Flat","sgv":91,"utcOffset":0,"mills":1782404097000},
-            {"_id":"x","type":"sgv","date":1782403977000,"sgv":90,"direction":"FortyFiveUp","device":"nightscout-librelink-up"},
-            {"_id":"y","type":"cal","date":1782403900000,"sgv":0},
-            {"_id":"z","type":"sgv","date":1782403800000,"sgv":0}
-        ]"#;
+        // The exact shape returned by the live endpoint (shared fixture).
+        let body = fixture!("nightscout-entries.json");
         let samples = parse_entries(body).unwrap();
         assert_eq!(samples.len(), 2, "the cal record and the 0-sgv reading are skipped");
         assert_eq!(samples[0].mgdl, 91);
@@ -354,12 +376,7 @@ mod tests {
     /// full backfill page would look like end-of-history and abandon all older readings.
     #[test]
     fn history_page_reports_raw_count_and_oldest_date() {
-        let body = br#"[
-            {"type":"sgv","date":1782404097000,"sgv":91,"device":"d"},
-            {"type":"sgv","date":1782403977000,"sgv":90,"device":"d"},
-            {"type":"cal","date":1782403900000,"sgv":0},
-            {"type":"sgv","date":1782403800000,"sgv":0}
-        ]"#;
+        let body = fixture!("nightscout-history-page.json");
         let page = parse_history_page(body).unwrap();
         assert_eq!(page.raw_len, 4, "raw count counts every record, before filtering");
         assert_eq!(page.samples.len(), 2, "only the two real sgv readings are usable");
@@ -374,10 +391,7 @@ mod tests {
     /// and an oldest date, so the backfill advances past it instead of stalling forever.
     #[test]
     fn all_filtered_page_still_reports_raw_progress() {
-        let body = br#"[
-            {"type":"sgv","date":1782403900000,"sgv":0},
-            {"type":"cal","date":1782403800000,"sgv":0}
-        ]"#;
+        let body = fixture!("nightscout-history-page-filtered.json");
         let page = parse_history_page(body).unwrap();
         assert_eq!(page.raw_len, 2);
         assert!(page.samples.is_empty());

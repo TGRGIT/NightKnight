@@ -52,6 +52,16 @@ struct Provider: AppIntentTimelineProvider {
             // Account removed: show "--", not the last cached reading from the old account.
             return GlucoseEntry(date: .now, value: nil, trend: .none, unit: settings.preferredUnit)
         }
+        // Local-analytics sources (Dexcom/Libre/Nightscout): the APP is the sole fetcher —
+        // a vendor login from every timeline reload would be slow, battery-hungry and (for
+        // Libre especially) risks account lockout from re-authenticating across processes.
+        // Render from the ReadingCache the app keeps warm; no sparkline (the cache holds
+        // exactly one reading).
+        if settings.usesLocalAnalytics {
+            let cached = ReadingCache.load()
+            return GlucoseEntry(date: .now, value: cached?.value, trend: cached?.trend ?? .none,
+                                unit: settings.preferredUnit, readingDate: cached?.date)
+        }
         let client = APIClient(settings: settings)
         async let curTask = client.current()
         async let entTask = client.entries(hours: 4)

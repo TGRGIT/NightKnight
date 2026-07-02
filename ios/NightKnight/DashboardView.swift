@@ -40,6 +40,9 @@ final class DashboardModel {
             if let current, current.date.timeIntervalSince1970 > lastWidgetReloadAt {
                 lastWidgetReloadAt = current.date.timeIntervalSince1970
                 WidgetCenter.shared.reloadAllTimelines()
+                // Same freshness gate for the watch push: in a local-analytics source
+                // this is the watch's only data feed.
+                PhoneSyncManager.shared.pushReading(current)
             }
         } catch {
             errorText = (error as? APIError)?.errorDescription ?? error.localizedDescription

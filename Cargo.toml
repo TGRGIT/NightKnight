@@ -17,6 +17,7 @@ members = [
     "service/crates/nightknight-auth",
     "service/crates/nightknight-api",
     "service/crates/nightknight-connectors",
+    "service/crates/nightknight-ffi",
     "service/crates/nightknight-server",
     "service/crates/nightknight-store-d1",
     "service/crates/nightknight-worker",
@@ -81,3 +82,11 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# The iOS staticlib (`ios/scripts/build-rust-ffi.sh`) builds with `--profile ffi`:
+# release codegen, but with unwinding panics. The FFI boundary converts panics to
+# in-band `{"error":"panic"}` via `catch_unwind`, which is a no-op under the release
+# profile's `panic = "abort"` — a panic there would kill the host app instead.
+[profile.ffi]
+inherits = "release"
+panic = "unwind"

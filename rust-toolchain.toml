@@ -1,4 +1,7 @@
 [toolchain]
 channel = "stable"
-targets = ["wasm32-unknown-unknown"]
+# The iOS targets build the nightknight-ffi staticlib for the app's xcframework
+# (ios/scripts/build-rust-ffi.sh). Declaring them here pins them to the same
+# channel everywhere; on non-mac hosts they cost only the std download.
+targets = ["wasm32-unknown-unknown", "aarch64-apple-ios", "aarch64-apple-ios-sim"]
 components = ["rustfmt", "clippy"]
