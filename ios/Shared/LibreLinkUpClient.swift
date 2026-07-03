@@ -296,7 +296,7 @@ struct LibreLinkUpClient: StandaloneSource {
     /// The cached session, if it belongs to this account and its JWT is still valid —
     /// with a 60 s margin so a token can't expire mid-request.
     private static func cachedSession(_ d: UserDefaults, email: String) -> (token: String, accountId: String)? {
-        guard d.string(forKey: accountKey) == email,
+        guard d.string(forKey: accountKey) == Settings.accountTag(email),
               let token = d.string(forKey: tokenKey), !token.isEmpty,
               let accountId = d.string(forKey: accountIdKey), !accountId.isEmpty else { return nil }
         let exp = (d.object(forKey: tokenExpKey) as? NSNumber)?.int64Value ?? 0
@@ -387,7 +387,9 @@ struct LibreLinkUpClient: StandaloneSource {
                 throw StandaloneError.auth("login redirect loop")
             }
             let accountId = Self.accountIdHash(userId)
-            defaults.set(email, forKey: Self.accountKey)
+            // Store a non-reversible tag, not the raw email — this is the plaintext-at-rest
+            // App Group store (CWE-312); `cachedSession` compares the same tag.
+            defaults.set(Settings.accountTag(email), forKey: Self.accountKey)
             defaults.set(token, forKey: Self.tokenKey)
             defaults.set(accountId, forKey: Self.accountIdKey)
             defaults.set(Self.jwtExp(token) ?? 0, forKey: Self.tokenExpKey)

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CryptoKit
 
 /// Where the app's glucose data comes from — one flat choice, mapping 1:1 to the four
 /// onboarding cards. `.nightknight` is the classic server mode (the server computes the
@@ -166,18 +167,30 @@ final class Settings {
     /// Convenience over the optional: an unchosen source behaves like server mode.
     var usesLocalAnalytics: Bool { (dataSource ?? .nightknight).usesLocalAnalytics }
 
+    /// Non-reversible tag for a follower-account identifier (an email / username). The
+    /// owner-guard key and the Libre session cache only need to compare accounts for
+    /// equality, so tagging the raw PII keeps it out of the (plaintext-at-rest) App Group
+    /// store and the local SQLite DB (CWE-312). Normalised first so the same account always
+    /// tags equal, regardless of casing/whitespace.
+    static func accountTag(_ raw: String) -> String {
+        let norm = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        return SHA256.hash(data: Data(norm.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Identifies the active source *by account identity* — the value the settings UI and
     /// the `LocalStore` owner-guard compare to decide "is this a switch that must wipe the
     /// local data?". Secrets are excluded on purpose: re-entering a password is not a
-    /// switch; a different account or instance is.
+    /// switch; a different account or instance is. The follower-account identifier is
+    /// tagged (`accountTag`) so this key — stamped into the on-device DB — never carries the
+    /// raw email/username at rest.
     var sourceKey: String {
         switch dataSource ?? .nightknight {
         case .nightknight:
             return "nightknight:\(baseURL)"
         case .dexcom:
-            return "dexcom:\(dexcomRegion.trimmingCharacters(in: .whitespaces).lowercased()):\(dexcomUsername.trimmingCharacters(in: .whitespaces).lowercased())"
+            return "dexcom:\(dexcomRegion.trimmingCharacters(in: .whitespaces).lowercased()):\(Self.accountTag(dexcomUsername))"
         case .libre:
-            return "libre:\(libreEmail.trimmingCharacters(in: .whitespaces).lowercased())"
+            return "libre:\(Self.accountTag(libreEmail))"
         case .nightscout:
             return "nightscout:\(NightscoutClient.normalizeBase(nightscoutURL).lowercased())"
         }

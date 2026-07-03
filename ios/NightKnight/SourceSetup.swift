@@ -59,9 +59,9 @@ enum SourceSetup {
             case .nightknight:
                 return "nightknight:\(trimmed(baseURL))"
             case .dexcom:
-                return "dexcom:\(trimmed(dexcomRegion).lowercased()):\(trimmed(dexcomUsername).lowercased())"
+                return "dexcom:\(trimmed(dexcomRegion).lowercased()):\(Settings.accountTag(dexcomUsername))"
             case .libre:
-                return "libre:\(trimmed(libreEmail).lowercased())"
+                return "libre:\(Settings.accountTag(libreEmail))"
             case .nightscout:
                 return "nightscout:\(NightscoutClient.normalizeBase(nightscoutURL).lowercased())"
             }
