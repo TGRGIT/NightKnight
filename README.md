@@ -1,5 +1,7 @@
 # NightKnight
 
+[<img src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" alt="Download NightKnight — Glucose Tracker on the App Store" height="52">](https://apps.apple.com/us/app/nightknight-glucose-tracker/id6784815820)
+
 Status: Early development / Alpha
 Known issues: 
 - Background refresh needs APNs silent push configured to be timely — see
