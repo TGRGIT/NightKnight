@@ -195,19 +195,14 @@ struct DexcomShareClient: StandaloneSource {
     // MARK: - The IO edge
 
     /// Every Dexcom POST carries exactly these three headers: Rust's `json_headers()`
-    /// plus the `content-type` that `HttpReq::post_json` appends.
+    /// plus the `content-type` that `HttpReq::post_json` appends. Hardcoded-host, so it
+    /// uses the shared session (following redirects, like the Rust reference).
     private static func post(_ urlString: String, json: Any) async throws -> (status: Int, body: Data) {
-        guard let url = URL(string: urlString) else {
-            throw StandaloneError.proto("bad request URL")
-        }
-        var req = URLRequest(url: url, timeoutInterval: 20)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "accept")
-        req.setValue("Dexcom Share/3.0.2.11 CFNetwork", forHTTPHeaderField: "user-agent")
-        req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: json)
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        return ((resp as? HTTPURLResponse)?.statusCode ?? 0, data)
+        try await HTTPEdge.send(urlString, method: "POST",
+            headers: [("accept", "application/json"),
+                      ("user-agent", "Dexcom Share/3.0.2.11 CFNetwork"),
+                      ("content-type", "application/json")],
+            body: try JSONSerialization.data(withJSONObject: json))
     }
 
     func fetchRecent() async throws -> [CgmSample] {

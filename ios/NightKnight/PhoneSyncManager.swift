@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import WatchConnectivity
 
@@ -35,6 +36,12 @@ final class PhoneSyncManager: NSObject, WCSessionDelegate {
             // The watch needs the source *kind* to know it must stay cache-only; the
             // vendor credentials themselves are deliberately never synced.
             "dataSource": s.dataSource?.rawValue ?? "",
+            // An opaque per-account fingerprint. The `dataSource` kind can't distinguish two
+            // accounts of the SAME vendor (Dexcom A vs B both read "dexcom"), so the watch
+            // also compares this to decide a switch and drop the old account's cached reading
+            // — the "glucose from the wrong person" guard. Hashed so the raw account identity
+            // (username / email / instance URL) never crosses to the watch.
+            "sourceID": Self.sourceFingerprint(s.sourceKey),
         ]
         if let r = reading {
             ctx["reading.mgdl"] = r.value.mgdl
@@ -42,6 +49,13 @@ final class PhoneSyncManager: NSObject, WCSessionDelegate {
             ctx["reading.date"] = r.date.timeIntervalSince1970
         }
         return ctx
+    }
+
+    /// Stable, non-reversible fingerprint of the account identity (`Settings.sourceKey`)
+    /// used only for change-detection on the watch. Same account → same fingerprint across
+    /// launches (unlike `hashValue`, which is per-process randomised).
+    private static func sourceFingerprint(_ sourceKey: String) -> String {
+        SHA256.hash(data: Data(sourceKey.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {

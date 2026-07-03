@@ -96,6 +96,24 @@ final class NightscoutClientTests: XCTestCase {
                        "a boolean sgv/date must be discarded, not coerced to 1")
     }
 
+    /// A JSON *float* must be treated exactly as Rust `serde_json`'s `as_i64()` treats it:
+    /// `sgv` is rounded (Rust `as_i64().or_else(as_f64().round())`), while `date` is
+    /// integer-only (`as_i64()` → `None` for a float) so the record is skipped. Foundation's
+    /// `NSNumber.intValue`/`.int64Value` would instead *truncate* (`90.6 → 90`, a float
+    /// `date` kept), silently diverging from the server's "byte-identical" output — the
+    /// `jsonInt`/`jsonInt64` float guard is what prevents that.
+    func testFractionalSgvRoundsAndFloatDateIsRejected() throws {
+        // sgv 90.6 rounds to 91 (server would store 91, not a truncated 90).
+        let rounded = try NightscoutClient.parseEntries(
+            Data(#"[{"type":"sgv","sgv":90.6,"date":1782404097000}]"#.utf8))
+        XCTAssertEqual(rounded.count, 1)
+        XCTAssertEqual(rounded[0].mgdl, 91, "a fractional sgv rounds, matching the Rust reference")
+        // A float `date` is not an integer → the record is skipped, like Rust `as_i64()`.
+        XCTAssertEqual(
+            try NightscoutClient.parseEntries(Data(#"[{"type":"sgv","sgv":90,"date":1.782404097e12}]"#.utf8)).count,
+            0, "a float date must be skipped, not truncated to an integer")
+    }
+
     /// The history page reports the RAW record count (before filtering) and the
     /// oldest raw `date`, so the backfill can tell "a full page that filtered down"
     /// from "a short page (end of history)". The payload has 4 raw records but only

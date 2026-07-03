@@ -421,32 +421,20 @@ struct LibreLinkUpClient: StandaloneSource {
     /// A 401 on an authed GET with a cached token — the signal to re-login once.
     private struct Unauthorized: Error {}
 
-    private static func request(_ url: String, headers: [(String, String)]) throws -> URLRequest {
-        // The bases are constants + a validated region and the patient id comes from
-        // the vendor's own JSON, but keep the guard so a malformed value fails loudly.
-        guard let u = URL(string: url) else { throw StandaloneError.proto("bad URL") }
-        var req = URLRequest(url: u)
-        req.timeoutInterval = 20
-        for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
-        return req
-    }
-
+    // Hardcoded-host (a validated region + vendor-supplied patient id), so these use the
+    // shared session and follow redirects, like the Rust reference. The `(body, status)`
+    // order is what the call sites read, so `HTTPEdge.send`'s `(status, body)` is flipped.
     private static func get(_ url: String, headers: [(String, String)]) async throws -> (body: Data, status: Int) {
-        try await send(request(url, headers: headers))
+        let r = try await HTTPEdge.send(url, method: "GET", headers: headers)
+        return (r.body, r.status)
     }
 
     private static func postJSON(_ url: String, headers: [(String, String)],
                                  body: Data) async throws -> (body: Data, status: Int) {
-        var req = try request(url, headers: headers)
-        req.httpMethod = "POST"
-        // Mirrors Rust `HttpReq::post_json`, which appends the content type itself.
-        req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = body
-        return try await send(req)
-    }
-
-    private static func send(_ req: URLRequest) async throws -> (body: Data, status: Int) {
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+        // The trailing content-type mirrors Rust `HttpReq::post_json`, which appends it itself.
+        let r = try await HTTPEdge.send(url, method: "POST",
+                                        headers: headers + [("content-type", "application/json")],
+                                        body: body)
+        return (r.body, r.status)
     }
 }

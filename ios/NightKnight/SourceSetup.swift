@@ -165,7 +165,7 @@ enum SourceSetup {
         }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try Self.decodeCSV(Data(contentsOf: url))
         let data = try engine.importGlucoseCSV(text: text, tzOffsetMin: APIClient.tzOffsetMinutes)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = obj["entries"] as? [[String: Any]] else {
@@ -182,13 +182,44 @@ enum SourceSetup {
         return (rows, (obj["source"] as? String) ?? "csv")
     }
 
+    /// Decode a CSV export to text before it crosses the C-string FFI.
+    ///
+    /// Two hazards this closes:
+    /// * **Encoding** — not every export is UTF-8. Some LibreView / Clarity locale exports
+    ///   are BOM-tagged UTF-16 or Western-European (Latin-1 / CP-1252); the old
+    ///   `String(contentsOf:encoding:.utf8)` threw on those, surfacing a valid file as a
+    ///   confusing "unreadable". Try the BOM-tagged UTF-16 form, then strict UTF-8, then
+    ///   CP-1252 (which never fails, so it's the final fallback).
+    /// * **Embedded NUL** — `importGlucoseCSV` passes the string through `withCString`,
+    ///   which terminates at the first NUL. A real text CSV never contains one, so an
+    ///   embedded NUL means a binary/garbled file; reject it rather than silently importing
+    ///   only the head and reporting the partial count as success.
+    static func decodeCSV(_ data: Data) throws -> String {
+        let decoded: String
+        let bom = data.prefix(2)
+        if bom == Data([0xFE, 0xFF]) || bom == Data([0xFF, 0xFE]),
+           let s = String(data: data, encoding: .utf16) {
+            decoded = s
+        } else if let s = String(data: data, encoding: .utf8) {
+            decoded = s
+        } else if let s = String(data: data, encoding: .windowsCP1252) {
+            decoded = s
+        } else {
+            throw ImportError.unreadable
+        }
+        guard !decoded.utf8.contains(0) else { throw ImportError.unreadable }
+        return decoded
+    }
+
     enum ImportError: Error, LocalizedError {
         case engineUnavailable
         case badOutput
+        case unreadable
         var errorDescription: String? {
             switch self {
             case .engineUnavailable: return "On-device import isn't available."
             case .badOutput: return "Couldn't read that file as a Dexcom or LibreView export."
+            case .unreadable: return "Couldn't read that file — export it as a Dexcom Clarity or LibreView CSV and try again."
             }
         }
     }

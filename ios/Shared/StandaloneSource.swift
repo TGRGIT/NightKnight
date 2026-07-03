@@ -8,13 +8,24 @@ import Foundation
 /// user-supplied, possibly hostile origin), so a malformed `{"sgv": true}` must be
 /// discarded like the Rust reference discards it, not silently read as `mgdl: 1`.
 /// Use these in place of a bare `as? Int`/`as? Int64` on any vendor numeric field.
+///
+/// These also reject a JSON *float* token (`90.6`, `90.0`), matching `as_i64()`, which
+/// returns `None` for `Value::Number` that isn't integral. Without this guard,
+/// `NSNumber.intValue`/`.int64Value` would silently truncate `90.6 → 90`, diverging
+/// from the Rust reference at every `as_i64()` call site (a fractional `sgv` the server
+/// would round to `91`, or a float `date` the server would skip entirely). A field the
+/// reference *does* round (`as_i64().or_else(as_f64().round())`) must layer that on top
+/// via `jsonDouble` explicitly, so the round is expressed at the call site, not hidden
+/// in a truncation here.
 func jsonInt(_ v: Any?) -> Int? {
-    guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+    guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+          !CFNumberIsFloatType(n as CFNumber) else { return nil }
     return n.intValue
 }
 
 func jsonInt64(_ v: Any?) -> Int64? {
-    guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+    guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+          !CFNumberIsFloatType(n as CFNumber) else { return nil }
     return n.int64Value
 }
 
@@ -176,4 +187,40 @@ protocol AnalyticsEngine: Sendable {
 enum LocalAnalytics {
     /// Registered once at app launch (before any fetch); nil in extensions.
     static var engine: (any AnalyticsEngine)?
+}
+
+/// The single `URLSession` round-trip every standalone connector's IO edge shares.
+///
+/// Dexcom, LibreLinkUp, and Nightscout each used to rebuild the identical boilerplate —
+/// `URL(string:)` guard → `URLRequest(timeoutInterval: 20)` → set header pairs →
+/// `session.data(for:)` → `(resp as? HTTPURLResponse)?.statusCode ?? 0`. That lived in
+/// three files, so a change to the shared convention (timeout, the status-0 fallback, a
+/// default header) meant editing three copies and every new source re-derived it. This is
+/// the one place that convention now lives.
+///
+/// The `session` is a *parameter*, not a constant, because it's the one axis the connectors
+/// genuinely differ on: Nightscout hits a **user-supplied** host and must use its
+/// redirect-refusing session (a `302` carrying the api-secret to a loopback / metadata host
+/// would defeat the SSRF guard), while the hardcoded-host vendor clients use `.shared` and
+/// follow redirects — matching the Rust reference's `follow_redirects` default for those.
+enum HTTPEdge {
+    /// Run one request and normalise the response to `(status, body)`. A non-HTTP response
+    /// collapses to status `0`, exactly as each connector's prior `?? 0` did (callers treat
+    /// any non-2xx, including 0, as a failure).
+    static func send(_ urlString: String,
+                     method: String = "GET",
+                     headers: [(String, String)] = [],
+                     body: Data? = nil,
+                     session: URLSession = .shared,
+                     timeout: TimeInterval = 20) async throws -> (status: Int, body: Data) {
+        guard let url = URL(string: urlString) else {
+            throw StandaloneError.proto("bad request URL")
+        }
+        var req = URLRequest(url: url, timeoutInterval: timeout)
+        req.httpMethod = method
+        for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
+        req.httpBody = body
+        let (data, resp) = try await session.data(for: req)
+        return ((resp as? HTTPURLResponse)?.statusCode ?? 0, data)
+    }
 }

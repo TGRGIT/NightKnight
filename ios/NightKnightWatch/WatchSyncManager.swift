@@ -8,6 +8,10 @@ import WidgetKit
 final class WatchSyncManager: NSObject, WCSessionDelegate {
     static let shared = WatchSyncManager()
 
+    /// App-Group key holding the fingerprint of the account the watch last synced, so a
+    /// same-vendor account switch (which the `dataSource` kind can't distinguish) is detected.
+    private static let lastSourceIDKey = "watch.lastSourceID"
+
     func start() {
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
@@ -46,6 +50,21 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
                 let parsed = DataSource(rawValue: source)
                 sourceChanged = parsed != settings.dataSource
                 settings.dataSource = parsed
+            }
+            // A switch between two accounts of the SAME vendor (Dexcom A→B, a different
+            // Nightscout instance) keeps `dataSource` identical, so the kind check above
+            // can't see it. Compare the phone's opaque per-account fingerprint too. This
+            // also survives `updateApplicationContext` coalescing: if the watch was
+            // unreachable during the switch, the intermediate sign-out ("") context can be
+            // dropped, but the final context's fingerprint still differs from the stored one,
+            // so the abandoned account's cached reading is still cleared. Absent (older phone
+            // build): fall back to the kind-only check above.
+            if let sourceID = ctx["sourceID"] as? String {
+                let store = UserDefaults(suiteName: Settings.appGroup)
+                if store?.string(forKey: Self.lastSourceIDKey) != sourceID {
+                    sourceChanged = true
+                    store?.set(sourceID, forKey: Self.lastSourceIDKey)
+                }
             }
             if sourceChanged { ReadingCache.clear() }
             // A pushed reading is the watch's data feed in a local-analytics source; store

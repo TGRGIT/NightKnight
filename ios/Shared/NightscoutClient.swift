@@ -224,16 +224,10 @@ struct NightscoutClient: StandaloneSource {
     }()
 
     private static func get(_ urlString: String, secret: String) async throws -> (status: Int, body: Data) {
-        guard let url = URL(string: urlString) else {
-            throw StandaloneError.proto("bad request URL")
-        }
-        var req = URLRequest(url: url, timeoutInterval: 20)
-        req.httpMethod = "GET"
-        for (name, value) in headers(secret: secret) {
-            req.setValue(value, forHTTPHeaderField: name)
-        }
-        let (data, resp) = try await session.data(for: req)
-        return ((resp as? HTTPURLResponse)?.statusCode ?? 0, data)
+        // The redirect-refusing `session` is passed through: the SSRF guard only vetted the
+        // original host, so a 3xx must not be followed off it (see `RedirectRefuser`).
+        try await HTTPEdge.send(urlString, method: "GET",
+                                headers: headers(secret: secret), session: session)
     }
 
     func fetchRecent() async throws -> [CgmSample] {

@@ -129,17 +129,23 @@ actor LocalStore {
         return String(decoding: try JSONEncoder().encode(rows), as: UTF8.self)
     }
 
-    /// The analytics memo-key ingredients: row count + newest reading. Cheaper than
-    /// hashing the data — any ingest changes at least one of the two.
-    func stats(sourceKey: String) throws -> (count: Int, maxDateMs: Int64?) {
+    /// The analytics memo-key ingredients: row count, newest reading, and a value
+    /// checksum. Count + newest alone miss an *in-place* revision — `upsertRows` does
+    /// `INSERT OR REPLACE` on the `date_ms` primary key, so correcting a reading's value
+    /// at an already-stored timestamp (a vendor re-smoothing the recent window, or a CSV
+    /// re-import over the same timestamps) leaves both count and `MAX(date_ms)` unchanged
+    /// and would serve a stale memoised report. `checksum` (the scaled sum of every
+    /// `mgdl`) moves whenever any value changes, so the memo invalidates. Still far
+    /// cheaper than hashing rows, and `TOTAL` never returns NULL (0.0 for an empty table).
+    func stats(sourceKey: String) throws -> (count: Int, maxDateMs: Int64?, checksum: Int64) {
         let db = try handle()
-        guard try guardRead(db, sourceKey) else { return (0, nil) }
-        let stmt = try prepare(db, "SELECT COUNT(*), MAX(date_ms) FROM readings")
+        guard try guardRead(db, sourceKey) else { return (0, nil, 0) }
+        let stmt = try prepare(db, "SELECT COUNT(*), MAX(date_ms), CAST(TOTAL(mgdl * 1000.0) AS INTEGER) FROM readings")
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { throw ioError(db) }
         let maxMs: Int64? = sqlite3_column_type(stmt, 1) == SQLITE_NULL
             ? nil : sqlite3_column_int64(stmt, 1)
-        return (Int(sqlite3_column_int64(stmt, 0)), maxMs)
+        return (Int(sqlite3_column_int64(stmt, 0)), maxMs, sqlite3_column_int64(stmt, 2))
     }
 
     /// The authoritative wipe on a source switch: empty the table and stamp the new

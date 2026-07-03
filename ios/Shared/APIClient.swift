@@ -232,9 +232,10 @@ struct APIClient {
     }
 
     /// Compute (or reuse) one FFI report. Memoised on `(kind, window, owner, maxDateMs,
-    /// count, tz)`: the per-minute `current()` poll must not re-run a ~25k-reading
-    /// analytics round-trip — the report recomputes only when new readings land, the
-    /// period changes, or the store is reset.
+    /// count, checksum, tz)`: the per-minute `current()` poll must not re-run a
+    /// ~25k-reading analytics round-trip — the report recomputes only when new readings
+    /// land, an existing reading's value is revised (the `checksum`; see `LocalStore.stats`),
+    /// the period changes, or the store is reset.
     private func localReportJSON(kind: AnalyticsMemo.Kind, window: Int) async throws -> Data {
         guard let engine = LocalAnalytics.engine else {
             // Only the app registers an engine; extensions never compute analytics.
@@ -244,7 +245,8 @@ struct APIClient {
         let tz = Self.tzOffsetMinutes
         let stats = try await LocalStore.shared.stats(sourceKey: key)
         let memoKey = AnalyticsMemo.Key(kind: kind, window: window, owner: key,
-                                        maxDateMs: stats.maxDateMs ?? 0, count: stats.count, tz: tz)
+                                        maxDateMs: stats.maxDateMs ?? 0, count: stats.count,
+                                        checksum: stats.checksum, tz: tz)
         if let cached = await AnalyticsMemo.shared.get(memoKey) { return cached }
         let hours = kind == .analytics ? window : window * 24
         let readingsJSON = try await LocalStore.shared.allReadingsJSON(hours: hours, sourceKey: key)
@@ -304,6 +306,9 @@ actor AnalyticsMemo {
         let owner: String
         let maxDateMs: Int64
         let count: Int
+        /// Scaled sum of every stored `mgdl` — moves when a value is revised in place at
+        /// an existing timestamp (which leaves `count`/`maxDateMs` unchanged).
+        let checksum: Int64
         let tz: Int
     }
 
