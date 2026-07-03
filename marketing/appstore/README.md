@@ -16,10 +16,11 @@ marketing/appstore/
     watch-ultra3/   01..02.png   422 × 514    (Apple Watch Ultra 3 49mm)
     web/            01..02.png   1440 × 900   (web UI, for README / docs)
   previews/
-    iphone-6.9-preview.mp4       886 × 1920, H.264, 30 fps, stereo AAC, 24 s
-    ipad-13-preview.mp4          1200 × 1600, H.264, 30 fps, stereo AAC, 24 s
+    iphone-6.9-preview.mp4       886 × 1920, H.264, 30 fps, video-only, 25 s
+    ipad-13-preview.mp4          1200 × 1600, H.264, 30 fps, video-only, 25 s
   capture.sh                     regenerate iPhone/iPad screenshot set
-  record.sh                      regenerate an App Preview
+  record.sh                      regenerate an App Preview (drives the
+                                 AppStorePreviewUITests XCUITest while recording)
 ```
 
 The six shots, in order: Dashboard (mg/dL) · Dashboard (mmol/L, alarms on) ·
@@ -33,14 +34,18 @@ Analysis overview (GRI + core metrics) · AGP · Episodes & variability · Setti
 | iPad 13" screenshot | 2064 × 2752 portrait, PNG/JPEG, no alpha | 2064 × 2752 PNG, alpha stripped ✓ |
 | Watch Ultra 3 screenshot | 422 × 514 or 410 × 502, PNG/JPEG, no alpha | 422 × 514 PNG, alpha stripped ✓ |
 | Watch Series 11 screenshot | 416 × 496, PNG/JPEG, no alpha | 416 × 496 PNG, alpha stripped ✓ |
-| iPhone 6.9" preview | 886 × 1920, H.264, 30 fps, 15–30 s, **stereo AAC audio**, ≤500 MB | 886 × 1920, 30 fps, 24 s, AAC 256k/44.1kHz stereo, ~4 MB ✓ |
-| iPad 13" preview | 1200 × 1600, H.264, 30 fps, 15–30 s, **stereo AAC audio**, ≤500 MB | 1200 × 1600, 30 fps, 24 s, AAC 256k/44.1kHz stereo, ~6 MB ✓ |
+| iPhone 6.9" preview | 886 × 1920, H.264, 30 fps, 15–30 s, ≤500 MB | 886 × 1920, 30 fps, 25 s, video-only, ~5 MB ✓ |
+| iPad 13" preview | 1200 × 1600, H.264, 30 fps, 15–30 s, ≤500 MB | 1200 × 1600, 30 fps, 25 s, video-only, ~6 MB ✓ |
 
 Notes:
 - The status bar is overridden to the marketing-standard **9:41**, full battery/signal.
-- App Store Connect requires an **audio track** on previews even if silent; both videos
-  carry a silent stereo AAC track (no licensing risk). Swap in a soundtrack later if you
-  want, keeping the same a/v settings.
+- The previews are deliberately **video-only** (no audio track — `record.sh` asserts
+  its absence). If a soundtrack is ever wanted, add it in the ffmpeg conform step and
+  keep the video settings unchanged.
+- The walk is driven by a real XCUITest
+  (`ios/NightKnightUITests/AppStorePreviewUITests.swift`), which asserts each tab
+  transition happens — a broken autoplay fails the recording instead of shipping a
+  25-second still frame.
 - Apple now only *requires* the 6.9" iPhone and 13" iPad sizes; it down-scales these for
   older device families automatically.
 

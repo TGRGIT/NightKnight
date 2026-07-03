@@ -15,6 +15,11 @@ struct NightKnightApp: App {
         // the widget/watch never migrate; they only read the App Group.
         LegacyCredentialMigration.run()
         Settings.shared.reloadFromStore()
+        // On-device analytics: fail loudly at launch if the checked-in xcframework is
+        // stale, then register the FFI engine so APIClient's local-analytics branch can
+        // reach it (only the app links the Rust staticlib; extensions leave this nil).
+        RustAnalytics.assertABI()
+        LocalAnalytics.engine = RustAnalytics()
         #if DEBUG
         // Screenshot/preview mode: seed display preferences before any view loads.
         Demo.applyToSettings()
@@ -176,6 +181,12 @@ enum BackgroundRefresh {
     /// Pull the latest reading, mirror to Health, evaluate alarms, and reload widgets.
     /// Shared by the app-refresh task and the HealthKit background-delivery wake-up.
     /// Kept short to stay within the background time budget.
+    ///
+    /// In a local-analytics source this is the "StandaloneRefresh" the design calls
+    /// for: `client.current()` performs the vendor fetch, folds the window into
+    /// `LocalStore`, and warms `ReadingCache` — this task is what keeps the cache,
+    /// alarms and widgets alive while backgrounded, as far as iOS's best-effort
+    /// BGAppRefresh throttling allows (local sources have no server to push).
     @MainActor
     static func refreshNow() async {
         let settings = Settings.shared
@@ -183,6 +194,8 @@ enum BackgroundRefresh {
         let client = APIClient(settings: settings)
         if let current = try? await client.current() {
             AlarmManager.shared.evaluate(current, settings: settings)
+            // The watch never fetches in a local source — feed it the fresh reading.
+            PhoneSyncManager.shared.pushReading(current)
         }
         if settings.writeToHealthKit, let readings = try? await client.entries(hours: 6) {
             await HealthKitManager.shared.write(readings)
@@ -205,6 +218,9 @@ struct RootTabView: View {
     /// first live reading lands and dismiss itself.
     @State private var model = DashboardModel()
 
+    /// Observed so choosing a source in `WelcomeView` swaps the chooser out for the tabs.
+    private let settings = Settings.shared
+
     /// The branded launch splash covers the tabs until the live glucose stat is loaded.
     /// Skipped in demo/screenshot mode so App Store captures stay deterministic.
     @State private var showSplash: Bool = {
@@ -216,6 +232,17 @@ struct RootTabView: View {
     }()
 
     var body: some View {
+        // First launch (no source chosen, and no legacy config to migrate): land on the
+        // four-way chooser instead of an empty dashboard. Picking a source sets
+        // `Settings.dataSource`, which swaps the tabs in.
+        if settings.dataSource == nil {
+            WelcomeView()
+        } else {
+            tabs
+        }
+    }
+
+    private var tabs: some View {
         ZStack {
             TabView(selection: $selection) {
                 DashboardView(model: model)

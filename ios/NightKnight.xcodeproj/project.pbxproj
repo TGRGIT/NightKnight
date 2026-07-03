@@ -8,73 +8,146 @@
 
 /* Begin PBXBuildFile section */
 		003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */; };
+		026248F1C873120C6DF6031D /* readings-14d.json in Resources */ = {isa = PBXBuildFile; fileRef = F80F510B1120930A85BAED03 /* readings-14d.json */; };
+		02F387F44D10ED74927B56CF /* libre-factory-timestamps.json in Resources */ = {isa = PBXBuildFile; fileRef = B54FB18CFE9F2826B845AF4A /* libre-factory-timestamps.json */; };
 		0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		03B6AF4C6302A441C8A4C002 /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
 		07D33F2EB66518E84776E27E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		088E00842A1BC504607369C0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 		08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
 		0B96EAEB89F8BE62BDD855A7 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */; };
 		1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		13AB81E41DA7EA6F360D1AFD /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
 		145E7EDD810EBB1CCDACBFF8 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		14E64EC56D1133A968201162 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
 		151FA5BF76F327194C7D0A14 /* CarPlayGlanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */; };
+		1604FD0FC10BDD880DB09739 /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
+		16EE21902E1F682645209620 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
 		17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		1933D1B64027067D9D9281CC /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		1CDABB1F95470D62BC91625F /* libre-graph.json in Resources */ = {isa = PBXBuildFile; fileRef = 8577B47D57FC09B67A1D332D /* libre-graph.json */; };
 		1F482D22FE2F3863F966B46E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 68D3159CB126C43F23D0CFEC /* Assets.xcassets */; };
+		1F7C0823899C34CCFE020F54 /* NightKnightFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = CF81AAA647BD7935146581DF /* NightKnightFFI.xcframework */; };
+		20F67A4CAD328E5C0E2B752D /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
 		225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		26DF495584AFADB6B135BA76 /* nightscout-history-page-filtered.json in Resources */ = {isa = PBXBuildFile; fileRef = 0988BBC058E287DFE4336721 /* nightscout-history-page-filtered.json */; };
 		2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		27B62734D1F5D494ABA304DD /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		29D1708A96D7A019686FE870 /* libre-login-bad.json in Resources */ = {isa = PBXBuildFile; fileRef = FD775FC8DC049DDB02266820 /* libre-login-bad.json */; };
+		2A24E828B642765CDA9E341C /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		331DFFBBA53E3ECD3816B2FF /* dexcom-wt-timestamps.json in Resources */ = {isa = PBXBuildFile; fileRef = F7211334564458BE600FC123 /* dexcom-wt-timestamps.json */; };
 		348681D27E8CE3493A67FCEB /* CarPlayGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */; };
+		36B72ACBFFEE73DF86785A28 /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
+		36D6DB8A70D65682865A81FE /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
 		38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		39E0723DF15F4002F058239D /* LibreLinkUpClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B74E513627DB0959242DEB /* LibreLinkUpClientTests.swift */; };
 		3B097F60833B42B6DFC36B38 /* WidgetRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5E9883D155D27E3DA6C9BA /* WidgetRenderTests.swift */; };
+		3C8A98CA1F4A3009E5A1FB50 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
+		3E2D779E93BD1D2915A8EF2F /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
 		3F67726A33F34B5BF887D760 /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EBCA71EED7E861CEC77136 /* WidgetBundle.swift */; };
+		3FE4727E24D73EC52431CFDD /* AppStorePreviewUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DB9C0519443171C35D3841 /* AppStorePreviewUITests.swift */; };
 		409E11FB0629408BCF619D1E /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		43AA6421CDCEC87CE5B040BA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		4765AB3AD7006C37EBC61A14 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
+		4965F2A5729365C7E58A8069 /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		4B340CF4932B457ABCA65CD9 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		4E803384B28E8433097A9B26 /* libre-connections.json in Resources */ = {isa = PBXBuildFile; fileRef = 385B98DBD0F0FD9783E0EED3 /* libre-connections.json */; };
+		4FE648A4A7B0BF806E6B8994 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		502B4FA6AF8E4FD0F4BF535D /* RustAnalyticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B42BD1B01A1E27451866FE3 /* RustAnalyticsTests.swift */; };
+		5150C9272C54CBBE4DCB4B04 /* DataSourceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A330BE87707FA14DE8D85444 /* DataSourceInfo.swift */; };
 		54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71859D4D8C41B215995E1B4 /* DashboardView.swift */; };
 		5564B37834D2F6B7A3F3BE15 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */; };
+		574EECF926DB1074852CC5DB /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
+		579660A6FE707F2E112AD275 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33754D6296502ED0D7E612D5 /* WatchApp.swift */; };
+		5E09DAE283556F3F6F68AD8F /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
 		5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E777FD6F466450B90A38B /* NightKnightWidget.swift */; };
+		615FD1224739757565A1C1CB /* SourceSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE7E8D3B1E4977CE564A09 /* SourceSetup.swift */; };
 		625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */; };
 		62DE72656D1AD41501B0E1C0 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		632332FEF9C5D819CD8D2262 /* DexcomShareClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F69E6B977CEC6C57C5C915E4 /* DexcomShareClientTests.swift */; };
 		64DAC52478A33EC729460E6F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		665C6DF952EBC5DF05C07AE6 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
 		689EA5609D67081BE90C03EF /* ReadingCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */; };
+		69CF5593AC8DE0131B7E8889 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
+		6AA3C7AD740ECFE26D28241B /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
 		6D6309217F4CBA4657C7E7EC /* NightKnightWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6E106A317FCC3F13C3034E96 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E463B3A140E188311E2D4D /* WelcomeView.swift */; };
 		6F15853A027406BF86ACD46A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1518411F2A9EA45C38188E /* Theme.swift */; };
+		70B6FC4291D49D0ECADF109E /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
+		742BC803FD4D01DE2E48A5B4 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
 		7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		76E010711A284862563AC3D2 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		771BE155C46C132F3CE44F2D /* NightKnightWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		77F376348DB1A5BD9A49DA36 /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
 		7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */; };
 		7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
+		7C3AB1368D7DCB6AA8D32A0F /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
+		7D971F65A668240DBD2394B6 /* analytics-golden.json in Resources */ = {isa = PBXBuildFile; fileRef = 7725A9523B870A136D3CD06D /* analytics-golden.json */; };
+		7EE75FE39C56055A9A7BF5C3 /* agp-golden.json in Resources */ = {isa = PBXBuildFile; fileRef = 22BCA7FF90D3DF734E1E9B89 /* agp-golden.json */; };
 		7FC33A8B75E106CDDE824615 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		82E945EC0538F11EB35FC4ED /* nightscout-history-page.json in Resources */ = {isa = PBXBuildFile; fileRef = AF290E38B765169CC39DD1D3 /* nightscout-history-page.json */; };
 		8385C3E7E93DFAAB64B5954F /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
 		8443410601663A60743FF53A /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		8732F534716121B9683DC689 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		8766CA7F6601462A94683DCA /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		87868BD978116068A2AA22B4 /* ssrf-table.json in Resources */ = {isa = PBXBuildFile; fileRef = BA8575855BB4AD6C9EFA1459 /* ssrf-table.json */; };
 		8CC6B03455592C2DBEE2B176 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 412DBAF0874A666814496982 /* Assets.xcassets */; };
+		8DF95527D8D541787703AE53 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
 		934D224D283724E0AEC08084 /* NightKnightWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		969C7059BD645E4E721BA7D1 /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
 		9712F2AC7F19750B45169AD3 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		99D4C39F93ACDE87230AE92A /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
 		9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
+		A8220A9D701DA41856DF7B67 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
 		AC279425B88E5E0802C63E86 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
 		AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */; };
+		AEA1D75110150CF1A0DCA1DA /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		B05071A207227C76FCEE1D81 /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
 		B071F90581F4F70A0C58F9C5 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
+		B479D6D383B3B345A8F684DD /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
+		B59310216A19879EBA794699 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		B7092849CD1FB57BDCAFCB30 /* libre-login-redirect.json in Resources */ = {isa = PBXBuildFile; fileRef = 61C2F168D9FDF4CD20C6BD07 /* libre-login-redirect.json */; };
 		B825D958F21A7318F3F90872 /* WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71E3493FD8F4068269199124 /* WatchSyncManager.swift */; };
+		B9651060A9A47CC3E7573851 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
+		BAEE4C2815C979D12F67BA11 /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		BE63B9DF827FA394FD855A69 /* LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DC61B76237DCB1630C026 /* LocalStore.swift */; };
+		C170E66C5DB894A299AD6091 /* NightscoutClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */; };
+		C40AD231F17EAEB72C1F8F15 /* libre-login-ok.json in Resources */ = {isa = PBXBuildFile; fileRef = A3AD3713A559C0806FB0663B /* libre-login-ok.json */; };
 		C53D2258A484B97DCF3B01E5 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
 		C5BE2847BC83EEC2038F1FBE /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */; };
+		C68EE2949E7FACAE64A0AF64 /* nightscout-entries.json in Resources */ = {isa = PBXBuildFile; fileRef = D972302080D8BE7904A4E008 /* nightscout-entries.json */; };
 		C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
+		C82E4515DFAEDC3F130C8AAC /* NightscoutClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58409B729DE186D6CD2319B1 /* NightscoutClientTests.swift */; };
 		C8300FB8A88165E3368861D4 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		CA6B8AD5037083C8063D1A72 /* AlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */; };
+		D13ACA77C831D0B0C499F31F /* NightKnightFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = CF81AAA647BD7935146581DF /* NightKnightFFI.xcframework */; };
+		D202535C48CFF4289DB950B4 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
 		D47376AED3AEBB17C560A177 /* ReadingCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */; };
+		D61F351C4306C2B944F7A5F5 /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
+		D9615918E3A42B111BEFA976 /* StandaloneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B7035E2304B01B03494BDE /* StandaloneSource.swift */; };
 		D9AD8841D4031E6C408CC5B1 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
+		D9C03BD12E13DE2019AB8B05 /* libre-login-locked.json in Resources */ = {isa = PBXBuildFile; fileRef = 2BE0F476218418AC6263B6D2 /* libre-login-locked.json */; };
+		DEFCD8A38CF33652F0178A90 /* LocalStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C21E039A226575142700E3E4 /* LocalStoreTests.swift */; };
 		E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */; };
+		E1BB434F7DC1D83997226055 /* RustAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5527B8D855EF774D5DC0BB /* RustAnalytics.swift */; };
 		E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		E4E24AC71CE5D61FED347B48 /* LibreLinkUpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */; };
+		E6D4708E53C6B5D42F45F72D /* DexcomShareClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */; };
 		E884930D5BB2207174EF2C4E /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2424346B65CFB750BBBFD2 /* Settings.swift */; };
+		EB86023C9D33E9DEA0D21462 /* libre-login-redirect-invalid.json in Resources */ = {isa = PBXBuildFile; fileRef = 807F6E85BB0BDA59893D6D9B /* libre-login-redirect-invalid.json */; };
+		ECBCE802629F78FBA09674DA /* RustAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5527B8D855EF774D5DC0BB /* RustAnalytics.swift */; };
 		EFB9DA4561E1ABF75C9DF333 /* CredentialSharingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274ECD1BD103AB3750442D6C /* CredentialSharingTests.swift */; };
+		F1D05380D1A337E024B8B5D7 /* dexcom-glucose.json in Resources */ = {isa = PBXBuildFile; fileRef = 3943381D68D21D395767E8D3 /* dexcom-glucose.json */; };
 		F2CA83DC8DAE4A31171C2155 /* GlucoseUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F319E39305D873F3989FA87 /* GlucoseUnit.swift */; };
 		F54B1FD23A1FB00DF3A69118 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C11FF5966CAAC580973AC /* DemoData.swift */; };
 		F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = F972CFC38D0C67561F36871E /* WatchComplication.swift */; };
 		F6E360056FCA6E9BECC38346 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D04B3978569C581FA1C977 /* Keychain.swift */; };
 		F88F8B470A272C80771AB1AE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9B583F5BB069D62B751C0A /* Models.swift */; };
+		FC1C6BC894B317E5AE0F20F8 /* AnalyticsMemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */; };
 		FEE2D489C6347CF8441C7A90 /* CarPlayGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */; };
 		FFAFE648E64DB45785CBB049 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE94479F7120807D1A5D3DB4 /* APIClient.swift */; };
 /* End PBXBuildFile section */
@@ -147,52 +220,106 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsMemoTests.swift; sourceTree = "<group>"; };
+		04E463B3A140E188311E2D4D /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NightKnight.entitlements; sourceTree = "<group>"; };
+		0988BBC058E287DFE4336721 /* nightscout-history-page-filtered.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nightscout-history-page-filtered.json"; sourceTree = "<group>"; };
+		0B42BD1B01A1E27451866FE3 /* RustAnalyticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAnalyticsTests.swift; sourceTree = "<group>"; };
 		0E1A40E653718DEB5F2C075C /* NightKnightWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NightKnightWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibreLinkUpClient.swift; sourceTree = "<group>"; };
 		11B6797901ED826D49A441BB /* Watch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Watch.entitlements; sourceTree = "<group>"; };
 		14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DexcomShareClient.swift; sourceTree = "<group>"; };
 		19D04B3978569C581FA1C977 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		1C2424346B65CFB750BBBFD2 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		1D9B583F5BB069D62B751C0A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		22BCA7FF90D3DF734E1E9B89 /* agp-golden.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "agp-golden.json"; sourceTree = "<group>"; };
 		2564F02437C9EA708B14AE20 /* NightKnightCarPlayTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightCarPlayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutClient.swift; sourceTree = "<group>"; };
 		274ECD1BD103AB3750442D6C /* CredentialSharingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialSharingTests.swift; sourceTree = "<group>"; };
+		2BE0F476218418AC6263B6D2 /* libre-login-locked.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-login-locked.json"; sourceTree = "<group>"; };
 		2F319E39305D873F3989FA87 /* GlucoseUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseUnit.swift; sourceTree = "<group>"; };
 		33754D6296502ED0D7E612D5 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
+		385B98DBD0F0FD9783E0EED3 /* libre-connections.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-connections.json"; sourceTree = "<group>"; };
+		3943381D68D21D395767E8D3 /* dexcom-glucose.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dexcom-glucose.json"; sourceTree = "<group>"; };
 		412DBAF0874A666814496982 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		45EBCA71EED7E861CEC77136 /* WidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBundle.swift; sourceTree = "<group>"; };
 		4B5E9883D155D27E3DA6C9BA /* WidgetRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRenderTests.swift; sourceTree = "<group>"; };
 		4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		58409B729DE186D6CD2319B1 /* NightscoutClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutClientTests.swift; sourceTree = "<group>"; };
 		5CF16C21B8234EE2007C6D37 /* AlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmManager.swift; sourceTree = "<group>"; };
 		618C11FF5966CAAC580973AC /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
+		61C2F168D9FDF4CD20C6BD07 /* libre-login-redirect.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-login-redirect.json"; sourceTree = "<group>"; };
 		65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayGlance.swift; sourceTree = "<group>"; };
 		68D3159CB126C43F23D0CFEC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71E3493FD8F4068269199124 /* WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncManager.swift; sourceTree = "<group>"; };
+		7725A9523B870A136D3CD06D /* analytics-golden.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analytics-golden.json"; sourceTree = "<group>"; };
 		7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUITests.swift; sourceTree = "<group>"; };
 		7F9298E39B4D5C2A7A5F5AEA /* ReadingCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCacheTests.swift; sourceTree = "<group>"; };
+		807F6E85BB0BDA59893D6D9B /* libre-login-redirect-invalid.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-login-redirect-invalid.json"; sourceTree = "<group>"; };
 		8125DB02F421C50937D4CEC7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
+		8577B47D57FC09B67A1D332D /* libre-graph.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-graph.json"; sourceTree = "<group>"; };
 		8A859FD94EE28AC5967C5C9D /* NightKnight.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NightKnight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C9AA58DE37FB153D9974702 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayGlanceTests.swift; sourceTree = "<group>"; };
 		9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NightKnightWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F22872B22E684CF349F7D72 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A330BE87707FA14DE8D85444 /* DataSourceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataSourceInfo.swift; sourceTree = "<group>"; };
+		A3AD3713A559C0806FB0663B /* libre-login-ok.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-login-ok.json"; sourceTree = "<group>"; };
+		A4B7035E2304B01B03494BDE /* StandaloneSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneSource.swift; sourceTree = "<group>"; };
 		A71859D4D8C41B215995E1B4 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		AE94479F7120807D1A5D3DB4 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		AF290E38B765169CC39DD1D3 /* nightscout-history-page.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nightscout-history-page.json"; sourceTree = "<group>"; };
 		AFF01144A12FD25F08FDD8C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B54FB18CFE9F2826B845AF4A /* libre-factory-timestamps.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-factory-timestamps.json"; sourceTree = "<group>"; };
+		B6BE7E8D3B1E4977CE564A09 /* SourceSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSetup.swift; sourceTree = "<group>"; };
 		B8AABE6A1E18EE42241455E9 /* NightKnightWidgetTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightWidgetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA8575855BB4AD6C9EFA1459 /* ssrf-table.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "ssrf-table.json"; sourceTree = "<group>"; };
+		BC5527B8D855EF774D5DC0BB /* RustAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAnalytics.swift; sourceTree = "<group>"; };
 		BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingCache.swift; sourceTree = "<group>"; };
+		BE6DC61B76237DCB1630C026 /* LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStore.swift; sourceTree = "<group>"; };
+		C21E039A226575142700E3E4 /* LocalStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStoreTests.swift; sourceTree = "<group>"; };
 		C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NightKnightWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5B74E513627DB0959242DEB /* LibreLinkUpClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibreLinkUpClientTests.swift; sourceTree = "<group>"; };
 		C66E777FD6F466450B90A38B /* NightKnightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightWidget.swift; sourceTree = "<group>"; };
 		C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightKnightApp.swift; sourceTree = "<group>"; };
+		C9FC3B32367D78A43C57085A /* NightKnightSourcesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NightKnightSourcesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CBC0D37B5BE05566AA5EF705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CF81AAA647BD7935146581DF /* NightKnightFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = NightKnightFFI.xcframework; path = Rust/NightKnightFFI.xcframework; sourceTree = "<group>"; };
 		D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSyncManager.swift; sourceTree = "<group>"; };
+		D972302080D8BE7904A4E008 /* nightscout-entries.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nightscout-entries.json"; sourceTree = "<group>"; };
 		DAB850FB71FA7DC14C069A3E /* WatchWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WatchWidget.entitlements; sourceTree = "<group>"; };
 		E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartView.swift; sourceTree = "<group>"; };
+		E8DB9C0519443171C35D3841 /* AppStorePreviewUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStorePreviewUITests.swift; sourceTree = "<group>"; };
 		EF1518411F2A9EA45C38188E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		F0BFDC96D04DE87B6E1B0D18 /* WatchDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDashboardView.swift; sourceTree = "<group>"; };
+		F69E6B977CEC6C57C5C915E4 /* DexcomShareClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DexcomShareClientTests.swift; sourceTree = "<group>"; };
+		F7211334564458BE600FC123 /* dexcom-wt-timestamps.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dexcom-wt-timestamps.json"; sourceTree = "<group>"; };
+		F80F510B1120930A85BAED03 /* readings-14d.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "readings-14d.json"; sourceTree = "<group>"; };
 		F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		F972CFC38D0C67561F36871E /* WatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComplication.swift; sourceTree = "<group>"; };
+		FD775FC8DC049DDB02266820 /* libre-login-bad.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "libre-login-bad.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		38450D9C8F7400CBACAF11B1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1F7C0823899C34CCFE020F54 /* NightKnightFFI.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E01782958DD8FC5459B20CC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D13ACA77C831D0B0C499F31F /* NightKnightFFI.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		07B70AC8EEF15DCD47000C6D /* NightKnightWatch */ = {
@@ -224,11 +351,16 @@
 			children = (
 				AE94479F7120807D1A5D3DB4 /* APIClient.swift */,
 				618C11FF5966CAAC580973AC /* DemoData.swift */,
+				14FD6460B741206B7ADCF189 /* DexcomShareClient.swift */,
 				2F319E39305D873F3989FA87 /* GlucoseUnit.swift */,
 				19D04B3978569C581FA1C977 /* Keychain.swift */,
+				0FD7620F796FE780895C5706 /* LibreLinkUpClient.swift */,
+				BE6DC61B76237DCB1630C026 /* LocalStore.swift */,
 				1D9B583F5BB069D62B751C0A /* Models.swift */,
+				266CE2BB526CA1F056F1B5CD /* NightscoutClient.swift */,
 				BC9F3F72CAE47D26E1F157A7 /* ReadingCache.swift */,
 				1C2424346B65CFB750BBBFD2 /* Settings.swift */,
+				A4B7035E2304B01B03494BDE /* StandaloneSource.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -238,6 +370,7 @@
 			children = (
 				8A859FD94EE28AC5967C5C9D /* NightKnight.app */,
 				2564F02437C9EA708B14AE20 /* NightKnightCarPlayTests.xctest */,
+				C9FC3B32367D78A43C57085A /* NightKnightSourcesTests.xctest */,
 				C4F9EBCC97625C4D24D561FE /* NightKnightUITests.xctest */,
 				9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */,
 				C3C9C310A4FFED72CBD2AA78 /* NightKnightWatchWidget.appex */,
@@ -247,9 +380,55 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		3A01030B1F0E5C322DB49E35 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				CF81AAA647BD7935146581DF /* NightKnightFFI.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		57DDCFAA8D526C53CF585451 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				22BCA7FF90D3DF734E1E9B89 /* agp-golden.json */,
+				7725A9523B870A136D3CD06D /* analytics-golden.json */,
+				3943381D68D21D395767E8D3 /* dexcom-glucose.json */,
+				F7211334564458BE600FC123 /* dexcom-wt-timestamps.json */,
+				385B98DBD0F0FD9783E0EED3 /* libre-connections.json */,
+				B54FB18CFE9F2826B845AF4A /* libre-factory-timestamps.json */,
+				8577B47D57FC09B67A1D332D /* libre-graph.json */,
+				FD775FC8DC049DDB02266820 /* libre-login-bad.json */,
+				2BE0F476218418AC6263B6D2 /* libre-login-locked.json */,
+				A3AD3713A559C0806FB0663B /* libre-login-ok.json */,
+				807F6E85BB0BDA59893D6D9B /* libre-login-redirect-invalid.json */,
+				61C2F168D9FDF4CD20C6BD07 /* libre-login-redirect.json */,
+				D972302080D8BE7904A4E008 /* nightscout-entries.json */,
+				0988BBC058E287DFE4336721 /* nightscout-history-page-filtered.json */,
+				AF290E38B765169CC39DD1D3 /* nightscout-history-page.json */,
+				F80F510B1120930A85BAED03 /* readings-14d.json */,
+				BA8575855BB4AD6C9EFA1459 /* ssrf-table.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		60446F77C977321912E23BF2 /* NightKnightSourcesTests */ = {
+			isa = PBXGroup;
+			children = (
+				03B2737698AF96E0900FD14C /* AnalyticsMemoTests.swift */,
+				F69E6B977CEC6C57C5C915E4 /* DexcomShareClientTests.swift */,
+				C5B74E513627DB0959242DEB /* LibreLinkUpClientTests.swift */,
+				C21E039A226575142700E3E4 /* LocalStoreTests.swift */,
+				58409B729DE186D6CD2319B1 /* NightscoutClientTests.swift */,
+				0B42BD1B01A1E27451866FE3 /* RustAnalyticsTests.swift */,
+			);
+			path = NightKnightSourcesTests;
+			sourceTree = "<group>";
+		};
 		72551D2D8EBF88FDA2CE40D6 /* NightKnightUITests */ = {
 			isa = PBXGroup;
 			children = (
+				E8DB9C0519443171C35D3841 /* AppStorePreviewUITests.swift */,
 				7A1800CD1B05C7599E7DB73F /* DashboardUITests.swift */,
 			);
 			path = NightKnightUITests;
@@ -263,14 +442,18 @@
 				65B003BCFC79F2550A6EDF22 /* CarPlayGlance.swift */,
 				F8AA7BD82AE40B6904471C31 /* CarPlaySceneDelegate.swift */,
 				A71859D4D8C41B215995E1B4 /* DashboardView.swift */,
+				A330BE87707FA14DE8D85444 /* DataSourceInfo.swift */,
 				E6C9740964FA91911AFC37C3 /* GlucoseChartView.swift */,
 				14A1C9E08B60F55ADA9271F0 /* HealthKitManager.swift */,
 				CBC0D37B5BE05566AA5EF705 /* Info.plist */,
 				08F2CAEB4231043443EC77D9 /* NightKnight.entitlements */,
 				C6F89E7DE2E92C0646F516B0 /* NightKnightApp.swift */,
 				D5EE1D4F0F7D94F6F9B8D94E /* PhoneSyncManager.swift */,
+				BC5527B8D855EF774D5DC0BB /* RustAnalytics.swift */,
 				4BA1A8E7F322CC2AB372A7CA /* SettingsView.swift */,
+				B6BE7E8D3B1E4977CE564A09 /* SourceSetup.swift */,
 				EF1518411F2A9EA45C38188E /* Theme.swift */,
+				04E463B3A140E188311E2D4D /* WelcomeView.swift */,
 			);
 			path = NightKnight;
 			sourceTree = "<group>";
@@ -290,12 +473,15 @@
 			children = (
 				7E276CACB49FDC226ABB2725 /* NightKnight */,
 				D913129BF32745DFF73292B2 /* NightKnightCarPlayTests */,
+				60446F77C977321912E23BF2 /* NightKnightSourcesTests */,
 				72551D2D8EBF88FDA2CE40D6 /* NightKnightUITests */,
 				07B70AC8EEF15DCD47000C6D /* NightKnightWatch */,
 				91AA6D124F6EBA19242F8EE7 /* NightKnightWatchWidget */,
 				2C00ECA9BB12215D46499701 /* NightKnightWidget */,
 				F2079721D9B18BF5CC1E21B7 /* NightKnightWidgetTests */,
 				322FB8BD36AC7B8B5419E906 /* Shared */,
+				F07CCB3752D3BBA3A5D77A34 /* Tests */,
+				3A01030B1F0E5C322DB49E35 /* Frameworks */,
 				3308AD13747530D7D1C50DEE /* Products */,
 			);
 			sourceTree = "<group>";
@@ -306,6 +492,14 @@
 				91F454DE7363016D7397AE7D /* CarPlayGlanceTests.swift */,
 			);
 			path = NightKnightCarPlayTests;
+			sourceTree = "<group>";
+		};
+		F07CCB3752D3BBA3A5D77A34 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				57DDCFAA8D526C53CF585451 /* Fixtures */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		F2079721D9B18BF5CC1E21B7 /* NightKnightWidgetTests */ = {
@@ -327,6 +521,7 @@
 			buildPhases = (
 				6BAAF4AFD27107A12BA00A72 /* Sources */,
 				C33411CE77E02661F2420A65 /* Resources */,
+				5E01782958DD8FC5459B20CC /* Frameworks */,
 				FF5DC8C816AC4F97F4444357 /* Embed Foundation Extensions */,
 				5C95C7980D64CC9CBF000184 /* Embed Watch Content */,
 			);
@@ -396,6 +591,25 @@
 			productName = NightKnightWatch;
 			productReference = 9C45658979FD0EEFE6DD258D /* NightKnightWatch.app */;
 			productType = "com.apple.product-type.application";
+		};
+		88057B885F1C42E65D120E1E /* NightKnightSourcesTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6EDF4D1C547DC3CAED164609 /* Build configuration list for PBXNativeTarget "NightKnightSourcesTests" */;
+			buildPhases = (
+				775CAE1ABF39BB4242CEDD07 /* Sources */,
+				A645CDE1C298A0C35DFB5785 /* Resources */,
+				38450D9C8F7400CBACAF11B1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NightKnightSourcesTests;
+			packageProductDependencies = (
+			);
+			productName = NightKnightSourcesTests;
+			productReference = C9FC3B32367D78A43C57085A /* NightKnightSourcesTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		C70219A5C67BC93B51981C03 /* NightKnightUITests */ = {
 			isa = PBXNativeTarget;
@@ -470,6 +684,9 @@
 					4DF7C2A244952491E660730F = {
 						DevelopmentTeam = "";
 					};
+					88057B885F1C42E65D120E1E = {
+						DevelopmentTeam = "";
+					};
 					C70219A5C67BC93B51981C03 = {
 						DevelopmentTeam = "";
 						TestTargetID = 186DBD700FB6F2F8026F6032;
@@ -498,6 +715,7 @@
 			targets = (
 				186DBD700FB6F2F8026F6032 /* NightKnight */,
 				E69FC17A709351D119B513B8 /* NightKnightCarPlayTests */,
+				88057B885F1C42E65D120E1E /* NightKnightSourcesTests */,
 				C70219A5C67BC93B51981C03 /* NightKnightUITests */,
 				4DF7C2A244952491E660730F /* NightKnightWatch */,
 				EF1B0D387B60DE79E0113424 /* NightKnightWatchWidget */,
@@ -513,6 +731,30 @@
 			buildActionMask = 2147483647;
 			files = (
 				8CC6B03455592C2DBEE2B176 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A645CDE1C298A0C35DFB5785 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7EE75FE39C56055A9A7BF5C3 /* agp-golden.json in Resources */,
+				7D971F65A668240DBD2394B6 /* analytics-golden.json in Resources */,
+				F1D05380D1A337E024B8B5D7 /* dexcom-glucose.json in Resources */,
+				331DFFBBA53E3ECD3816B2FF /* dexcom-wt-timestamps.json in Resources */,
+				4E803384B28E8433097A9B26 /* libre-connections.json in Resources */,
+				02F387F44D10ED74927B56CF /* libre-factory-timestamps.json in Resources */,
+				1CDABB1F95470D62BC91625F /* libre-graph.json in Resources */,
+				29D1708A96D7A019686FE870 /* libre-login-bad.json in Resources */,
+				D9C03BD12E13DE2019AB8B05 /* libre-login-locked.json in Resources */,
+				C40AD231F17EAEB72C1F8F15 /* libre-login-ok.json in Resources */,
+				EB86023C9D33E9DEA0D21462 /* libre-login-redirect-invalid.json in Resources */,
+				B7092849CD1FB57BDCAFCB30 /* libre-login-redirect.json in Resources */,
+				C68EE2949E7FACAE64A0AF64 /* nightscout-entries.json in Resources */,
+				26DF495584AFADB6B135BA76 /* nightscout-history-page-filtered.json in Resources */,
+				82E945EC0538F11EB35FC4ED /* nightscout-history-page.json in Resources */,
+				026248F1C873120C6DF6031D /* readings-14d.json in Resources */,
+				87868BD978116068A2AA22B4 /* ssrf-table.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -535,11 +777,16 @@
 				348681D27E8CE3493A67FCEB /* CarPlayGlance.swift in Sources */,
 				151FA5BF76F327194C7D0A14 /* CarPlayGlanceTests.swift in Sources */,
 				99D4C39F93ACDE87230AE92A /* DemoData.swift in Sources */,
+				BAEE4C2815C979D12F67BA11 /* DexcomShareClient.swift in Sources */,
 				9712F2AC7F19750B45169AD3 /* GlucoseUnit.swift in Sources */,
 				8443410601663A60743FF53A /* Keychain.swift in Sources */,
+				77F376348DB1A5BD9A49DA36 /* LibreLinkUpClient.swift in Sources */,
+				1604FD0FC10BDD880DB09739 /* LocalStore.swift in Sources */,
 				76E010711A284862563AC3D2 /* Models.swift in Sources */,
+				C170E66C5DB894A299AD6091 /* NightscoutClient.swift in Sources */,
 				0B96EAEB89F8BE62BDD855A7 /* ReadingCache.swift in Sources */,
 				7FC33A8B75E106CDDE824615 /* Settings.swift in Sources */,
+				16EE21902E1F682645209620 /* StandaloneSource.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -552,18 +799,27 @@
 				FEE2D489C6347CF8441C7A90 /* CarPlayGlance.swift in Sources */,
 				5564B37834D2F6B7A3F3BE15 /* CarPlaySceneDelegate.swift in Sources */,
 				54BAC02BE4DD61D12283E296 /* DashboardView.swift in Sources */,
+				5150C9272C54CBBE4DCB4B04 /* DataSourceInfo.swift in Sources */,
 				B071F90581F4F70A0C58F9C5 /* DemoData.swift in Sources */,
+				E6D4708E53C6B5D42F45F72D /* DexcomShareClient.swift in Sources */,
 				003D2BD41B44051120F66A39 /* GlucoseChartView.swift in Sources */,
 				F2CA83DC8DAE4A31171C2155 /* GlucoseUnit.swift in Sources */,
 				C5BE2847BC83EEC2038F1FBE /* HealthKitManager.swift in Sources */,
 				38A8F9626FE35D04C54E10B0 /* Keychain.swift in Sources */,
+				969C7059BD645E4E721BA7D1 /* LibreLinkUpClient.swift in Sources */,
+				BE63B9DF827FA394FD855A69 /* LocalStore.swift in Sources */,
 				64DAC52478A33EC729460E6F /* Models.swift in Sources */,
 				625502A553F2E67F18089DFA /* NightKnightApp.swift in Sources */,
+				3E2D779E93BD1D2915A8EF2F /* NightscoutClient.swift in Sources */,
 				E153D69F235A4EC1BF09A06C /* PhoneSyncManager.swift in Sources */,
 				C53D2258A484B97DCF3B01E5 /* ReadingCache.swift in Sources */,
+				ECBCE802629F78FBA09674DA /* RustAnalytics.swift in Sources */,
 				E4A155DD2B94FB377D4963DD /* Settings.swift in Sources */,
 				7B5717E310EA672BD4A039A1 /* SettingsView.swift in Sources */,
+				615FD1224739757565A1C1CB /* SourceSetup.swift in Sources */,
+				69CF5593AC8DE0131B7E8889 /* StandaloneSource.swift in Sources */,
 				6F15853A027406BF86ACD46A /* Theme.swift in Sources */,
+				6E106A317FCC3F13C3034E96 /* WelcomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -573,13 +829,44 @@
 			files = (
 				43AA6421CDCEC87CE5B040BA /* APIClient.swift in Sources */,
 				F54B1FD23A1FB00DF3A69118 /* DemoData.swift in Sources */,
+				2A24E828B642765CDA9E341C /* DexcomShareClient.swift in Sources */,
 				409E11FB0629408BCF619D1E /* GlucoseUnit.swift in Sources */,
 				99052F68ECDA06E7B14A3AFB /* Keychain.swift in Sources */,
+				6AA3C7AD740ECFE26D28241B /* LibreLinkUpClient.swift in Sources */,
+				5E09DAE283556F3F6F68AD8F /* LocalStore.swift in Sources */,
 				AC279425B88E5E0802C63E86 /* Models.swift in Sources */,
 				5F9AA3ECAD55874E1E355448 /* NightKnightWidget.swift in Sources */,
+				A8220A9D701DA41856DF7B67 /* NightscoutClient.swift in Sources */,
 				17DB623247BF09A3B8CE5D48 /* ReadingCache.swift in Sources */,
 				225AC5C1ECB487B3D4F75D5A /* Settings.swift in Sources */,
+				4765AB3AD7006C37EBC61A14 /* StandaloneSource.swift in Sources */,
 				3F67726A33F34B5BF887D760 /* WidgetBundle.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		775CAE1ABF39BB4242CEDD07 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4FE648A4A7B0BF806E6B8994 /* APIClient.swift in Sources */,
+				FC1C6BC894B317E5AE0F20F8 /* AnalyticsMemoTests.swift in Sources */,
+				574EECF926DB1074852CC5DB /* DemoData.swift in Sources */,
+				D61F351C4306C2B944F7A5F5 /* DexcomShareClient.swift in Sources */,
+				632332FEF9C5D819CD8D2262 /* DexcomShareClientTests.swift in Sources */,
+				579660A6FE707F2E112AD275 /* GlucoseUnit.swift in Sources */,
+				B59310216A19879EBA794699 /* Keychain.swift in Sources */,
+				E4E24AC71CE5D61FED347B48 /* LibreLinkUpClient.swift in Sources */,
+				39E0723DF15F4002F058239D /* LibreLinkUpClientTests.swift in Sources */,
+				B479D6D383B3B345A8F684DD /* LocalStore.swift in Sources */,
+				DEFCD8A38CF33652F0178A90 /* LocalStoreTests.swift in Sources */,
+				4B340CF4932B457ABCA65CD9 /* Models.swift in Sources */,
+				8DF95527D8D541787703AE53 /* NightscoutClient.swift in Sources */,
+				C82E4515DFAEDC3F130C8AAC /* NightscoutClientTests.swift in Sources */,
+				8766CA7F6601462A94683DCA /* ReadingCache.swift in Sources */,
+				E1BB434F7DC1D83997226055 /* RustAnalytics.swift in Sources */,
+				502B4FA6AF8E4FD0F4BF535D /* RustAnalyticsTests.swift in Sources */,
+				20F67A4CAD328E5C0E2B752D /* Settings.swift in Sources */,
+				D202535C48CFF4289DB950B4 /* StandaloneSource.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -589,11 +876,16 @@
 			files = (
 				9D65D6E46A18189A13682FD3 /* APIClient.swift in Sources */,
 				8385C3E7E93DFAAB64B5954F /* DemoData.swift in Sources */,
+				4965F2A5729365C7E58A8069 /* DexcomShareClient.swift in Sources */,
 				7B9F9F03AE03C47AA54A3D8D /* GlucoseUnit.swift in Sources */,
 				7525F5CA554A36CE4A55708E /* Keychain.swift in Sources */,
+				36B72ACBFFEE73DF86785A28 /* LibreLinkUpClient.swift in Sources */,
+				03B6AF4C6302A441C8A4C002 /* LocalStore.swift in Sources */,
 				8732F534716121B9683DC689 /* Models.swift in Sources */,
+				7C3AB1368D7DCB6AA8D32A0F /* NightscoutClient.swift in Sources */,
 				D47376AED3AEBB17C560A177 /* ReadingCache.swift in Sources */,
 				1209ECC9EC3111508F2C8CC6 /* Settings.swift in Sources */,
+				14E64EC56D1133A968201162 /* StandaloneSource.swift in Sources */,
 				F5F2C9771288672E32930BCA /* WatchComplication.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -602,6 +894,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3FE4727E24D73EC52431CFDD /* AppStorePreviewUITests.swift in Sources */,
 				AE673DDE734EBB4E5C74598A /* DashboardUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -613,13 +906,18 @@
 				FFAFE648E64DB45785CBB049 /* APIClient.swift in Sources */,
 				EFB9DA4561E1ABF75C9DF333 /* CredentialSharingTests.swift in Sources */,
 				665C6DF952EBC5DF05C07AE6 /* DemoData.swift in Sources */,
+				AEA1D75110150CF1A0DCA1DA /* DexcomShareClient.swift in Sources */,
 				C8300FB8A88165E3368861D4 /* GlucoseUnit.swift in Sources */,
 				F6E360056FCA6E9BECC38346 /* Keychain.swift in Sources */,
+				36D6DB8A70D65682865A81FE /* LibreLinkUpClient.swift in Sources */,
+				70B6FC4291D49D0ECADF109E /* LocalStore.swift in Sources */,
 				F88F8B470A272C80771AB1AE /* Models.swift in Sources */,
 				08918441D2A3853946B0E73D /* NightKnightWidget.swift in Sources */,
+				3C8A98CA1F4A3009E5A1FB50 /* NightscoutClient.swift in Sources */,
 				62DE72656D1AD41501B0E1C0 /* ReadingCache.swift in Sources */,
 				689EA5609D67081BE90C03EF /* ReadingCacheTests.swift in Sources */,
 				E884930D5BB2207174EF2C4E /* Settings.swift in Sources */,
+				D9615918E3A42B111BEFA976 /* StandaloneSource.swift in Sources */,
 				3B097F60833B42B6DFC36B38 /* WidgetRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -630,11 +928,16 @@
 			files = (
 				2764FD46BAA5C7D4A58E280D /* APIClient.swift in Sources */,
 				D9AD8841D4031E6C408CC5B1 /* DemoData.swift in Sources */,
+				27B62734D1F5D494ABA304DD /* DexcomShareClient.swift in Sources */,
 				410CC83036F7F173754C23DD /* GlucoseUnit.swift in Sources */,
 				C6A8CEF2AA72FE6EE93BB7D3 /* Keychain.swift in Sources */,
+				13AB81E41DA7EA6F360D1AFD /* LibreLinkUpClient.swift in Sources */,
+				B05071A207227C76FCEE1D81 /* LocalStore.swift in Sources */,
 				07D33F2EB66518E84776E27E /* Models.swift in Sources */,
+				B9651060A9A47CC3E7573851 /* NightscoutClient.swift in Sources */,
 				145E7EDD810EBB1CCDACBFF8 /* ReadingCache.swift in Sources */,
 				0367FF8301FAA48E38DD5332 /* Settings.swift in Sources */,
+				742BC803FD4D01DE2E48A5B4 /* StandaloneSource.swift in Sources */,
 				5B1F3628A5A9844816C40F1F /* WatchApp.swift in Sources */,
 				114E5D65306542F40C1B8A86 /* WatchDashboardView.swift in Sources */,
 				B825D958F21A7318F3F90872 /* WatchSyncManager.swift in Sources */,
@@ -667,6 +970,30 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		0711C83817A610763187BE92 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Rust\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightSourcesTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		1205B6023DCC39300A389871 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -689,10 +1016,18 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Rust\"",
+				);
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight;
 				SDKROOT = iphoneos;
@@ -818,10 +1153,18 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = NightKnight/NightKnight.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Rust\"",
+				);
 				INFOPLIST_FILE = NightKnight/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnight;
 				SDKROOT = iphoneos;
@@ -999,6 +1342,30 @@
 			};
 			name = Release;
 		};
+		D4ECC36E84914CFA63CD3614 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Rust\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = be.cooney.nightknight.NightKnightSourcesTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		DEF66B2317E0A9925BF9DDA3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1060,6 +1427,15 @@
 			buildConfigurations = (
 				AEB1638FACC1FB6F11C4F753 /* Debug */,
 				A7F7394403091C9D4614A271 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6EDF4D1C547DC3CAED164609 /* Build configuration list for PBXNativeTarget "NightKnightSourcesTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4ECC36E84914CFA63CD3614 /* Debug */,
+				0711C83817A610763187BE92 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

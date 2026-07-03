@@ -325,6 +325,19 @@ fn snippet(body: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// Canonical payloads live under `ios/Tests/Fixtures/` and are shared byte-for-byte
+    /// with the Swift port's tests (`NightKnightSourcesTests`) — the two parsers cannot
+    /// drift silently.
+    macro_rules! fixture {
+        ($name:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../ios/Tests/Fixtures/",
+                $name
+            ))
+        };
+    }
+
     #[test]
     fn snippet_is_one_line_and_truncated() {
         assert_eq!(snippet(b"<html>\n  Access\tDenied  </html>"), "<html> Access Denied </html>");
@@ -350,13 +363,14 @@ mod tests {
     /// A successful login yields token + user id; a regional redirect is surfaced.
     #[test]
     fn parses_login_success_and_redirect() {
-        let ok = br#"{"status":0,"data":{"authTicket":{"token":"jwt-abc"},"user":{"id":"u-1"}}}"#;
         assert_eq!(
-            parse_login(ok).unwrap(),
+            parse_login(fixture!("libre-login-ok.json")).unwrap(),
             LoginResult::Authenticated { token: "jwt-abc".into(), user_id: "u-1".into() }
         );
-        let redir = br#"{"status":0,"data":{"redirect":true,"region":"eu"}}"#;
-        assert_eq!(parse_login(redir).unwrap(), LoginResult::Redirect { region: "eu".into() });
+        assert_eq!(
+            parse_login(fixture!("libre-login-redirect.json")).unwrap(),
+            LoginResult::Redirect { region: "eu".into() }
+        );
         assert_eq!(regional_base("EU"), "https://api-eu.libreview.io");
     }
 
@@ -366,7 +380,7 @@ mod tests {
     fn rejects_redirect_with_invalid_region() {
         assert!(is_valid_region("eu") && is_valid_region("ap-west"));
         assert!(!is_valid_region("x/@evil.com") && !is_valid_region("a.b") && !is_valid_region(""));
-        let redir = br#"{"status":0,"data":{"redirect":true,"region":"x/@evil.com"}}"#;
+        let redir = fixture!("libre-login-redirect-invalid.json");
         assert!(matches!(parse_login(redir), Err(ConnectorError::Auth(_))));
     }
 
@@ -374,15 +388,13 @@ mod tests {
     /// connector's status in the UI says *why*, not a generic "no data".
     #[test]
     fn surfaces_login_failures() {
-        let bad = br#"{"status":2,"error":{"message":"incorrect username/password"}}"#;
-        let err = parse_login(bad).unwrap_err();
+        let err = parse_login(fixture!("libre-login-bad.json")).unwrap_err();
         assert!(
             matches!(&err, ConnectorError::Auth(m) if m.contains("status 2") && m.contains("incorrect username/password")),
             "got {err:?}"
         );
 
-        let locked = br#"{"status":429,"data":{"message":"locked"}}"#;
-        let err = parse_login(locked).unwrap_err();
+        let err = parse_login(fixture!("libre-login-locked.json")).unwrap_err();
         assert!(
             matches!(&err, ConnectorError::Auth(m) if m.contains("status 429") && m.contains("locked")),
             "got {err:?}"
@@ -391,7 +403,7 @@ mod tests {
 
     #[test]
     fn parses_connections_patient_ids() {
-        let body = br#"{"status":0,"data":[{"patientId":"p-1"},{"patientId":"p-2"}]}"#;
+        let body = fixture!("libre-connections.json");
         assert_eq!(parse_connections(body).unwrap(), vec!["p-1", "p-2"]);
     }
 
@@ -405,31 +417,33 @@ mod tests {
     }
 
     /// The LibreLinkUp `M/D/YYYY h:mm:ss AM/PM` timestamp parses to UTC epoch ms,
-    /// with correct 12-hour handling at noon and midnight.
+    /// with correct 12-hour handling at noon and midnight. The case table is the
+    /// shared fixture, asserted identically by the Swift port.
     #[test]
     fn parses_factory_timestamp() {
-        // 2023-11-14 22:13:19 UTC == 1_699_999_999_000 ms.
-        assert_eq!(parse_factory_timestamp("11/14/2023 10:13:19 PM"), Some(1_699_999_999_000));
-        // Midnight and noon edges.
-        let midnight = parse_factory_timestamp("1/1/2024 12:00:00 AM").unwrap();
-        assert_eq!(midnight, timeutil::parse_iso8601_ms("2024-01-01T00:00:00Z").unwrap());
-        let noon = parse_factory_timestamp("1/1/2024 12:00:00 PM").unwrap();
-        assert_eq!(noon, timeutil::parse_iso8601_ms("2024-01-01T12:00:00Z").unwrap());
+        let table: Vec<Value> =
+            serde_json::from_slice(fixture!("libre-factory-timestamps.json")).unwrap();
+        assert!(!table.is_empty());
+        for row in &table {
+            let s = row["s"].as_str().unwrap();
+            assert_eq!(parse_factory_timestamp(s), row["ms"].as_i64(), "parse_factory_timestamp({s:?})");
+        }
+        // Midnight and noon rows agree with the ISO parser too.
+        assert_eq!(
+            parse_factory_timestamp("1/1/2024 12:00:00 AM"),
+            timeutil::parse_iso8601_ms("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            parse_factory_timestamp("1/1/2024 12:00:00 PM"),
+            timeutil::parse_iso8601_ms("2024-01-01T12:00:00Z")
+        );
     }
 
-    /// The graph response yields the latest measurement (with trend) plus history.
+    /// The graph response (shared fixture) yields the latest measurement (with trend)
+    /// plus history.
     #[test]
     fn parses_graph_latest_and_history() {
-        let body = br#"{
-            "status":0,
-            "data":{
-                "connection":{ "glucoseMeasurement":{ "ValueInMgPerDl":120, "FactoryTimestamp":"11/14/2023 10:13:19 PM", "TrendArrow":3 } },
-                "graphData":[
-                    { "ValueInMgPerDl":118, "FactoryTimestamp":"11/14/2023 10:08:19 PM" },
-                    { "ValueInMgPerDl":115, "FactoryTimestamp":"11/14/2023 10:03:19 PM" }
-                ]
-            }
-        }"#;
+        let body = fixture!("libre-graph.json");
         let samples = parse_graph(body).unwrap();
         assert_eq!(samples.len(), 3);
         assert_eq!(samples[0].mgdl, 120);

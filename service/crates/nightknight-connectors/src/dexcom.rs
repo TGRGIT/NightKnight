@@ -215,6 +215,19 @@ impl Connector for DexcomConnector {
 mod tests {
     use super::*;
 
+    /// Canonical payloads live under `ios/Tests/Fixtures/` and are shared byte-for-byte
+    /// with the Swift port's tests (`NightKnightSourcesTests`) — the two parsers cannot
+    /// drift silently.
+    macro_rules! fixture {
+        ($name:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../ios/Tests/Fixtures/",
+                $name
+            ))
+        };
+    }
+
     /// Region selection picks the right base URL and application id.
     #[test]
     fn region_endpoints() {
@@ -245,12 +258,16 @@ mod tests {
     }
 
     /// The Dexcom `WT` timestamp yields epoch ms regardless of the timezone suffix.
+    /// The case table is the shared fixture, asserted identically by the Swift port.
     #[test]
     fn parses_wt_timestamp() {
-        assert_eq!(parse_wt_ms("Date(1699999999000)"), Some(1_699_999_999_000));
-        assert_eq!(parse_wt_ms("Date(1699999999000-0500)"), Some(1_699_999_999_000));
-        assert_eq!(parse_wt_ms("Date(1699999999000+0000)"), Some(1_699_999_999_000));
-        assert_eq!(parse_wt_ms("garbage"), None);
+        let table: Vec<Value> =
+            serde_json::from_slice(fixture!("dexcom-wt-timestamps.json")).unwrap();
+        assert!(!table.is_empty());
+        for row in &table {
+            let wt = row["wt"].as_str().unwrap();
+            assert_eq!(parse_wt_ms(wt), row["ms"].as_i64(), "parse_wt_ms({wt:?})");
+        }
     }
 
     /// The Dexcom Share `Trend` field maps to a Direction whether it arrives as a
@@ -266,13 +283,11 @@ mod tests {
         assert_eq!(trend_from_share(&json!(0)), None); // 0 = None → no arrow
     }
 
-    /// A representative readings payload parses into samples with mg/dL, time, trend.
+    /// A representative readings payload (shared fixture) parses into samples with
+    /// mg/dL, time, trend.
     #[test]
     fn parses_glucose_payload() {
-        let body = br#"[
-            {"WT":"Date(1699999999000-0000)","ST":"Date(1699999999000)","DT":"Date(1699999999000-0000)","Value":120,"Trend":"Flat"},
-            {"WT":"Date(1699999699000-0000)","Value":135,"Trend":"FortyFiveUp"}
-        ]"#;
+        let body = fixture!("dexcom-glucose.json");
         let samples = parse_glucose(body).unwrap();
         assert_eq!(samples.len(), 2);
         assert_eq!(samples[0].mgdl, 120);

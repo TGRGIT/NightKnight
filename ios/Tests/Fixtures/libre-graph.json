@@ -1,0 +1,10 @@
+{
+    "status":0,
+    "data":{
+        "connection":{ "glucoseMeasurement":{ "ValueInMgPerDl":120, "FactoryTimestamp":"11/14/2023 10:13:19 PM", "TrendArrow":3 } },
+        "graphData":[
+            { "ValueInMgPerDl":118, "FactoryTimestamp":"11/14/2023 10:08:19 PM" },
+            { "ValueInMgPerDl":115, "FactoryTimestamp":"11/14/2023 10:03:19 PM" }
+        ]
+    }
+}
