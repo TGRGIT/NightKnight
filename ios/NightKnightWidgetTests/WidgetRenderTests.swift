@@ -56,47 +56,55 @@ final class WidgetRenderTests: XCTestCase {
     }
 
     /// The widget's real per-family container background (mirrors `NightKnightWidgetView`):
-    /// the dark brand tile behind `systemSmall`, transparent for tinted accessory families.
-    private func background(for family: WidgetFamily) -> Color {
+    /// the adaptive brand tile behind `systemSmall`, transparent for tinted accessory families.
+    private func background(for family: WidgetFamily, _ scheme: ColorScheme) -> Color {
         switch family {
         case .accessoryCircular, .accessoryInline, .accessoryRectangular: return .clear
-        default: return Color(red: 0.043, green: 0.055, blue: 0.071)
+        default: return GlanceColors.tile(scheme)
         }
     }
 
     func testEveryFamilyRendersNonBlank() throws {
         var failures: [String] = []
         for s in scenarios {
-            let content = NightKnightWidgetContent(family: s.family, entry: s.entry)
-                .frame(width: s.size.width, height: s.size.height)
+            // systemSmall adapts its tile + palette to the system appearance, so render it
+            // in both schemes; accessory families are system-tinted (scheme-independent).
+            let schemes: [ColorScheme] = s.family == .systemSmall ? [.dark, .light] : [.dark]
+            for scheme in schemes {
+                let name = schemes.count > 1 ? "\(s.name)-\(scheme == .dark ? "dark" : "light")" : s.name
+                let content = NightKnightWidgetContent(family: s.family, entry: s.entry)
+                    .frame(width: s.size.width, height: s.size.height)
+                    .environment(\.colorScheme, scheme)
 
-            // Assertion render: CLEAR backdrop, so the pixel count reflects *content* only —
-            // a blank/"renders nothing" view shows up as ~0 drawn pixels (the bug this guards).
-            let bare = ImageRenderer(content: content)
-            bare.scale = 2
-            guard let cgBare = bare.cgImage else {
-                failures.append("\(s.name): ImageRenderer produced no image")
-                continue
-            }
-            let drawn = nonTransparentPixels(cgBare)
-            let total = cgBare.width * cgBare.height
-            if drawn < 30 {
-                failures.append("\(s.name): only \(drawn)/\(total) non-transparent pixels — looks blank")
-            } else {
-                print("✅ \(s.name): \(drawn)/\(total) content pixels drawn")
-            }
+                // Assertion render: CLEAR backdrop, so the pixel count reflects *content* only —
+                // a blank/"renders nothing" view shows up as ~0 drawn pixels (the bug this guards).
+                let bare = ImageRenderer(content: content)
+                bare.scale = 2
+                guard let cgBare = bare.cgImage else {
+                    failures.append("\(name): ImageRenderer produced no image")
+                    continue
+                }
+                let drawn = nonTransparentPixels(cgBare)
+                let total = cgBare.width * cgBare.height
+                if drawn < 30 {
+                    failures.append("\(name): only \(drawn)/\(total) non-transparent pixels — looks blank")
+                } else {
+                    print("✅ \(name): \(drawn)/\(total) content pixels drawn")
+                }
 
-            // Inspection render: inset by WidgetKit's default content margin and drawn on the
-            // real family background, so the PNG looks like the actual widget (the design
-            // check). The margin is applied here only — the live widget gets it from the system.
-            let margin: CGFloat = s.family == .systemSmall ? 14 : 0
-            let preview = NightKnightWidgetContent(family: s.family, entry: s.entry)
-                .padding(margin)
-                .frame(width: s.size.width, height: s.size.height)
-                .background(background(for: s.family))
-            let p = ImageRenderer(content: preview)
-            p.scale = 3
-            if let cg = p.cgImage { write(cg, name: s.name) }
+                // Inspection render: inset by WidgetKit's default content margin and drawn on the
+                // real family background, so the PNG looks like the actual widget (the design
+                // check). The margin is applied here only — the live widget gets it from the system.
+                let margin: CGFloat = s.family == .systemSmall ? 14 : 0
+                let preview = NightKnightWidgetContent(family: s.family, entry: s.entry)
+                    .padding(margin)
+                    .frame(width: s.size.width, height: s.size.height)
+                    .background(background(for: s.family, scheme))
+                    .environment(\.colorScheme, scheme)
+                let p = ImageRenderer(content: preview)
+                p.scale = 3
+                if let cg = p.cgImage { write(cg, name: name) }
+            }
         }
         XCTAssertTrue(failures.isEmpty, "Widget rendered blank:\n" + failures.joined(separator: "\n"))
         print("ℹ️ Rendered PNGs written to \(Self.outDir.path)")

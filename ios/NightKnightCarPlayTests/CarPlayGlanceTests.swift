@@ -87,4 +87,50 @@ final class CarPlayGlanceTests: XCTestCase {
     func testFutureReadingClampsToJustNow() {
         XCTAssertEqual(CarPlayGlance.age(of: now.addingTimeInterval(120), now: now), "just now")
     }
+
+    // MARK: - Icon palette (light/dark content styles)
+
+    private var allTints: [CarPlayGlance.Tint] {
+        [.level(.veryLow), .level(.low), .level(.inRange), .level(.high), .level(.veryHigh),
+         .muted, .accent]
+    }
+
+    /// The head unit can render light (day) or dark (night); a single baked-in palette
+    /// can't hold contrast on both, so every tint must actually change with the style.
+    func testPaletteAdaptsToContentStyle() {
+        for tint in allTints {
+            let dark = CarPlayGlance.rgb(for: tint, style: .dark)
+            let light = CarPlayGlance.rgb(for: tint, style: .light)
+            XCTAssertTrue(dark != light, "\(tint) must resolve differently for light vs dark car UIs")
+        }
+    }
+
+    /// Glanceability while driving is the whole point: every icon tint must clear the
+    /// WCAG graphics contrast minimum (3:1) against the list background it sits on —
+    /// CarPlay's near-black dark chrome and white light chrome.
+    func testPaletteKeepsContrastOnBothBackgrounds() {
+        let darkBackground = (red: 0.11, green: 0.11, blue: 0.12)   // ≈ CarPlay dark list chrome
+        let lightBackground = (red: 1.0, green: 1.0, blue: 1.0)
+        for tint in allTints {
+            let onDark = contrast(CarPlayGlance.rgb(for: tint, style: .dark), darkBackground)
+            let onLight = contrast(CarPlayGlance.rgb(for: tint, style: .light), lightBackground)
+            XCTAssertGreaterThanOrEqual(onDark, 3.0,
+                "\(tint) is only \(String(format: "%.2f", onDark)):1 on the dark chrome")
+            XCTAssertGreaterThanOrEqual(onLight, 3.0,
+                "\(tint) is only \(String(format: "%.2f", onLight)):1 on the light chrome")
+        }
+    }
+
+    /// WCAG contrast ratio between two sRGB colours.
+    private func contrast(_ a: (red: Double, green: Double, blue: Double),
+                          _ b: (red: Double, green: Double, blue: Double)) -> Double {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    /// WCAG relative luminance of an sRGB colour.
+    private func luminance(_ c: (red: Double, green: Double, blue: Double)) -> Double {
+        func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.red) + 0.7152 * lin(c.green) + 0.0722 * lin(c.blue)
+    }
 }

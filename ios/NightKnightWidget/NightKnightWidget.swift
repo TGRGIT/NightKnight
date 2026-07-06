@@ -104,26 +104,45 @@ struct Provider: AppIntentTimelineProvider {
     func recommendations() -> [AppIntentRecommendation<ConfigIntent>] { [] }
 }
 
-/// Band colours for the glance, matching the CarPlay/widget design (vivid on the dark
-/// `nkInk` tile): a bright text/number colour plus a slightly deeper sparkline line.
+/// Band colours for the glance, per colour scheme. Dark keeps the vivid palette designed
+/// for the `nkInk` tile (CarPlay / StandBy / dark home screens); light swaps to deeper
+/// ink-on-paper variants so the hero value and sparkline hold contrast on the pale tile
+/// instead of washing out (the vivid hexes drop under 2.5:1 on white).
 enum GlanceColors {
-    static func text(_ mgdl: Double) -> Color {
+    /// The `systemSmall` container tile: the dark brand ink at night, soft paper in light.
+    static func tile(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.043, green: 0.055, blue: 0.071)   // nkInk #0B0E12
+                        : Color(red: 0.969, green: 0.976, blue: 0.984)   // #F7F9FB
+    }
+
+    static func text(_ mgdl: Double, _ scheme: ColorScheme) -> Color {
         switch GlucoseBand.of(mgdl: mgdl) {
-        case .veryLow, .veryHigh: return Color(red: 1.0, green: 0.373, blue: 0.392)   // #FF5F64
-        case .low, .high:         return Color(red: 0.949, green: 0.718, blue: 0.322)  // #F2B752
-        case .inRange:            return Color(red: 0.275, green: 0.835, blue: 0.518)  // #46D584
+        case .veryLow, .veryHigh:
+            return scheme == .dark ? Color(red: 1.0, green: 0.373, blue: 0.392)    // #FF5F64
+                                   : Color(red: 0.851, green: 0.188, blue: 0.212)  // #D93036
+        case .low, .high:
+            return scheme == .dark ? Color(red: 0.949, green: 0.718, blue: 0.322)  // #F2B752
+                                   : Color(red: 0.722, green: 0.459, blue: 0.078)  // #B87514
+        case .inRange:
+            return scheme == .dark ? Color(red: 0.275, green: 0.835, blue: 0.518)  // #46D584
+                                   : Color(red: 0.090, green: 0.541, blue: 0.298)  // #178A4C
         }
     }
-    static func line(_ mgdl: Double) -> Color {
+
+    static func line(_ mgdl: Double, _ scheme: ColorScheme) -> Color {
         switch GlucoseBand.of(mgdl: mgdl) {
-        case .veryLow, .veryHigh: return Color(red: 0.898, green: 0.282, blue: 0.302)  // #E5484D
-        case .low, .high:         return Color(red: 0.878, green: 0.635, blue: 0.235)  // #E0A23C
-        case .inRange:            return Color(red: 0.184, green: 0.745, blue: 0.416)  // #2FBE6A
+        case .veryLow, .veryHigh:
+            return scheme == .dark ? Color(red: 0.898, green: 0.282, blue: 0.302)  // #E5484D
+                                   : Color(red: 0.851, green: 0.188, blue: 0.212)  // #D93036
+        case .low, .high:
+            return scheme == .dark ? Color(red: 0.878, green: 0.635, blue: 0.235)  // #E0A23C
+                                   : Color(red: 0.722, green: 0.459, blue: 0.078)  // #B87514
+        case .inRange:
+            return scheme == .dark ? Color(red: 0.184, green: 0.745, blue: 0.416)  // #2FBE6A
+                                   : Color(red: 0.090, green: 0.541, blue: 0.298)  // #178A4C
         }
     }
 }
-
-private func bandColor(_ mgdl: Double) -> Color { GlanceColors.text(mgdl) }
 
 /// A minimal, dependency-free sparkline of recent readings. Deliberately understated —
 /// a thin line over a gradient that fades out toward the top, so a value placed in the
@@ -194,10 +213,11 @@ struct TrendSparkline: View {
 struct NightKnightWidgetContent: View {
     let family: WidgetFamily
     let entry: GlucoseEntry
+    @Environment(\.colorScheme) private var scheme
 
     private var text: String { entry.value?.display(in: entry.unit) ?? "--" }
-    private var color: Color { entry.value.map { GlanceColors.text($0.mgdl) } ?? .secondary }
-    private var lineColor: Color { entry.value.map { GlanceColors.line($0.mgdl) } ?? .secondary }
+    private var color: Color { entry.value.map { GlanceColors.text($0.mgdl, scheme) } ?? .secondary }
+    private var lineColor: Color { entry.value.map { GlanceColors.line($0.mgdl, scheme) } ?? .secondary }
     private var statusLabel: String? { entry.value.map { GlucoseBand.of(mgdl: $0.mgdl).label } }
 
     var body: some View {
@@ -276,6 +296,7 @@ struct NightKnightWidgetContent: View {
 
 struct NightKnightWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.colorScheme) private var scheme
     let entry: GlucoseEntry
 
     var body: some View {
@@ -283,16 +304,18 @@ struct NightKnightWidgetView: View {
             .containerBackground(for: .widget) { background }
     }
 
-    /// The dark brand tile (#0B0E12 = `nkInk`) behind the home-screen / CarPlay
-    /// `systemSmall` glance, so the vivid band colours read with the contrast the design
-    /// intends. Lock-screen accessory families are tinted monochrome by the system, so they
-    /// stay transparent. (Avoids naming `.systemSmall`, which doesn't exist on watchOS.)
+    /// The brand tile behind the home-screen / CarPlay `systemSmall` glance — dark ink
+    /// (#0B0E12 = `nkInk`) in dark mode, soft paper in light — paired with the matching
+    /// `GlanceColors` palette so the band colours read with the contrast the design
+    /// intends in either appearance. Lock-screen accessory families are tinted monochrome
+    /// by the system, so they stay transparent. (Avoids naming `.systemSmall`, which
+    /// doesn't exist on watchOS.)
     @ViewBuilder private var background: some View {
         switch family {
         case .accessoryCircular, .accessoryInline, .accessoryRectangular:
             Color.clear
         default:
-            Color(red: 0.043, green: 0.055, blue: 0.071)
+            GlanceColors.tile(scheme)
         }
     }
 }
