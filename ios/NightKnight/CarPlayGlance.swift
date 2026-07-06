@@ -32,6 +32,42 @@ enum CarPlayGlance {
         let tint: Tint
     }
 
+    /// The car's rendered content style. Head units are dark by default, but many render
+    /// a light UI in day mode — the icon palette must hold contrast on both backgrounds
+    /// (the system already adapts the row text; the baked-in icon tints are ours).
+    enum Style { case light, dark }
+
+    /// sRGB components for a tint under a content style. Kept pure (no UIKit) so the
+    /// palette's contrast against the list background is unit-testable; the scene
+    /// delegate wraps these in `UIColor`. Dark uses the widget's vivid on-ink hexes;
+    /// light uses deeper ink-on-paper variants (the vivid ones wash out on white).
+    static func rgb(for tint: Tint, style: Style) -> (red: Double, green: Double, blue: Double) {
+        switch (tint, style) {
+        case (.level(let band), .dark):  return darkBand(band)
+        case (.level(let band), .light): return lightBand(band)
+        case (.muted, .dark):  return (0.655, 0.706, 0.761)   // #A7B4C2
+        case (.muted, .light): return (0.353, 0.400, 0.447)   // #5A6672
+        case (.accent, .dark):  return (1.0, 0.373, 0.392)    // #FF5F64
+        case (.accent, .light): return (0.851, 0.188, 0.212)  // #D93036
+        }
+    }
+
+    private static func darkBand(_ band: GlucoseBand) -> (red: Double, green: Double, blue: Double) {
+        switch band {
+        case .veryLow, .veryHigh: return (1.0, 0.373, 0.392)     // #FF5F64 danger
+        case .low, .high:         return (0.949, 0.718, 0.322)   // #F2B752 warn
+        case .inRange:            return (0.275, 0.835, 0.518)   // #46D584 in range
+        }
+    }
+
+    private static func lightBand(_ band: GlucoseBand) -> (red: Double, green: Double, blue: Double) {
+        switch band {
+        case .veryLow, .veryHigh: return (0.851, 0.188, 0.212)   // #D93036 danger
+        case .low, .high:         return (0.722, 0.459, 0.078)   // #B87514 warn
+        case .inRange:            return (0.090, 0.541, 0.298)   // #178A4C in range
+        }
+    }
+
     /// Build the glance rows for a reading, or short guidance when there's nothing to show
     /// (no account configured, or no cached reading yet). `now` is injectable so the
     /// "updated N min ago" line is deterministic in tests.

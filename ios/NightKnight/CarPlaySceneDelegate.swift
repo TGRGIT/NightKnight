@@ -21,17 +21,25 @@ import os
 /// thread and every CarPlay template object must be created and mutated there, so isolating
 /// the type keeps all of it on the main actor and lets the refresh `Task` inherit it.
 @MainActor
-final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate,
+                                  CPSessionConfigurationDelegate {
     private static let log = Logger(subsystem: "be.cooney.nightknight", category: "carplay")
 
     private var interfaceController: CPInterfaceController?
     private var template: CPListTemplate?
     private var refreshTask: Task<Void, Never>?
+    /// Held to observe the car's light/dark content style; its delegate callback repaints
+    /// the glance the moment the head unit flips day/night mode (the 60 s refresh would lag).
+    private var sessionConfiguration: CPSessionConfiguration?
+    /// Last applied state, so a content-style change can repaint without refetching.
+    private var lastReading: CurrentReading?
+    private var lastUnit: GlucoseUnit = .mgdl
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene,
                                   didConnect interfaceController: CPInterfaceController) {
         Self.log.notice("scene didConnect")
         self.interfaceController = interfaceController
+        sessionConfiguration = CPSessionConfiguration(delegate: self)
 
         // Build the template and paint it from the warm cache *synchronously* before
         // returning, so the head unit shows content immediately and the connect handler
@@ -53,6 +61,27 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         refreshTask = nil
         self.interfaceController = nil
         self.template = nil
+        self.sessionConfiguration = nil
+    }
+
+    // MARK: - CPSessionConfigurationDelegate
+
+    /// Day/night flip on the head unit: repaint the same rows so the baked-in icon tints
+    /// follow the car's content style immediately.
+    func sessionConfiguration(_ sessionConfiguration: CPSessionConfiguration,
+                              contentStyleChanged contentStyle: CPContentStyle) {
+        Self.log.notice("content style -> \(contentStyle.contains(.light) ? "light" : "dark", privacy: .public)")
+        apply(reading: lastReading, unit: lastUnit)
+    }
+
+    func sessionConfiguration(_ sessionConfiguration: CPSessionConfiguration,
+                              limitedUserInterfacesChanged limitedUserInterfaces: CPLimitableUserInterface) {}
+
+    /// The car's current content style. CarPlay is dark by default; only an explicitly
+    /// light-only style flips the icon palette to the ink-on-paper variants.
+    private var carStyle: CarPlayGlance.Style {
+        guard let style = sessionConfiguration?.contentStyle else { return .dark }
+        return style.contains(.light) && !style.contains(.dark) ? .light : .dark
     }
 
     /// Poll for the latest reading and repaint the template on the CGM cadence, only while
@@ -88,9 +117,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func apply(reading: CurrentReading?, unit: GlucoseUnit) {
+        lastReading = reading
+        lastUnit = unit
+        let style = carStyle
         let items = CarPlayGlance.items(for: reading, unit: unit).map { row -> CPListItem in
             let item = CPListItem(text: row.title, detailText: row.detail,
-                                  image: Self.icon(row.symbol, tint: Self.color(for: row.tint)))
+                                  image: Self.icon(row.symbol, tint: Self.color(for: row.tint, style: style)))
             // Glance only — nothing to drill into, so no disclosure chevron or tap handler.
             item.accessoryType = .none
             return item
@@ -101,27 +133,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // MARK: - Icons
 
     /// An SF Symbol rendered in `tint`. `.alwaysOriginal` bakes the colour in so CarPlay
-    /// shows it as-is rather than applying its default monochrome list tint.
+    /// shows it as-is rather than applying its default monochrome list tint — which is
+    /// also why the colour must be re-baked (via `apply`) when the content style changes.
     private static func icon(_ symbol: String, tint: UIColor) -> UIImage? {
         let config = UIImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
         return UIImage(systemName: symbol, withConfiguration: config)?
             .withTintColor(tint, renderingMode: .alwaysOriginal)
     }
 
-    private static func color(for tint: CarPlayGlance.Tint) -> UIColor {
-        switch tint {
-        case .level(let band): return bandColor(band)
-        case .muted: return UIColor(red: 0.576, green: 0.627, blue: 0.678, alpha: 1)
-        case .accent: return UIColor(red: 0.898, green: 0.282, blue: 0.302, alpha: 1)
-        }
-    }
-
-    /// Glucose-band colours, matching `Theme`'s palette (the web dashboard / phone app).
-    private static func bandColor(_ band: GlucoseBand) -> UIColor {
-        switch band {
-        case .veryLow, .veryHigh: return UIColor(red: 0.898, green: 0.282, blue: 0.302, alpha: 1) // danger
-        case .low, .high:         return UIColor(red: 0.878, green: 0.635, blue: 0.235, alpha: 1) // warn
-        case .inRange:            return UIColor(red: 0.212, green: 0.769, blue: 0.420, alpha: 1) // in range
-        }
+    /// Palette lives in the pure `CarPlayGlance.rgb(for:style:)` (unit-tested for
+    /// contrast on both backgrounds); this just wraps it in a `UIColor`.
+    private static func color(for tint: CarPlayGlance.Tint, style: CarPlayGlance.Style) -> UIColor {
+        let c = CarPlayGlance.rgb(for: tint, style: style)
+        return UIColor(red: c.red, green: c.green, blue: c.blue, alpha: 1)
     }
 }
