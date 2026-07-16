@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use nightknight_auth::{Action, Permission, Scope};
+use nightknight_core::analytics::export::{self, ExportRange};
 use nightknight_core::analytics::report::{self, gap_caps, headline, infer_cadence_ms, tir_json};
 use nightknight_core::analytics::{
     self, GlucoseReading, GlucoseSummary, TimeInRange, TirThresholds, DEFAULT_MAX_GAP_MS,
@@ -40,6 +41,13 @@ use crate::{SERVICE_NAME, SERVICE_VERSION};
 
 const DEFAULT_HOURS: i64 = 24;
 const MAX_ANALYTICS_POINTS: i64 = 20_000;
+/// Default export window when the caller gives no `start`/`end` — the AGP-standard 14
+/// days, so a bare `GET /api/v4/export` yields the report a clinician expects.
+const DEFAULT_EXPORT_DAYS: i64 = 14;
+/// Hard ceiling on an export window's span. Matches the 90-day analytics ceiling so an
+/// unbounded range can't blow the `MAX_ANALYTICS_POINTS` cap or the per-request compute
+/// budget; a wider request is clamped to the most-recent 90 days.
+const MAX_EXPORT_DAYS: i64 = 90;
 /// How many recent readings `current` pulls to estimate a fallback trend — enough to
 /// span the 15-minute regression window at 5-minute cadence with headroom.
 const CURRENT_TREND_POINTS: i64 = 8;
@@ -81,6 +89,7 @@ impl<S: Storage> ApiService<S> {
             (Method::Get, ["analytics"]) => self.v4_analytics(req, &principal, now_ms).await,
             (Method::Get, ["days"]) => self.v4_days(req, &principal).await,
             (Method::Get, ["agp"]) => self.v4_agp(req, &principal, now_ms).await,
+            (Method::Get, ["export"]) => self.v4_export(req, &principal, now_ms).await,
             // `csv` auto-detects the exporter; `libreview` is kept as a back-compat alias.
             (Method::Post, ["import", "csv"] | ["import", "libreview"]) => {
                 self.v4_import_csv(req, &principal, now_ms).await
@@ -506,6 +515,85 @@ impl<S: Storage> ApiService<S> {
             .await?;
         let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
         Ok(ApiResponse::json(200, &report::agp_value(&readings, days, bin, tz)))
+    }
+
+    /// Export the caller's readings over a date range, in a machine-readable format, as a
+    /// downloadable file (`Content-Disposition: attachment`).
+    ///
+    /// * `?format=csv` → the raw `sgv` readings as CSV (one row per reading), for a
+    ///   spreadsheet or re-import.
+    /// * `?format=json` (the default) → the full computed metric set: the `/analytics`
+    ///   payload plus the AGP percentile bands, wrapped with the date range and generation
+    ///   timestamp — the data behind a printable AGP one-pager.
+    ///
+    /// The window is `?start=`/`?end=` epoch ms (aliases `?from=`/`?to=`); it defaults to
+    /// the last 14 days and is clamped to a 90-day span (the analytics ceiling). `?tzOffset=`
+    /// (minutes east of UTC) localises the timestamps and the AGP/time-of-day maths;
+    /// `?bin=` sets the AGP bin width for the JSON export. Every artefact is labelled with
+    /// the range + generation time inside the file itself.
+    ///
+    /// Authorization is `entries:read` and the query is scoped to `principal.user.id`, so
+    /// an export can only ever contain the authenticated caller's own readings.
+    async fn v4_export(
+        &self,
+        req: &ApiRequest,
+        principal: &Principal,
+        now_ms: i64,
+    ) -> Result<ApiResponse, ApiError> {
+        principal.require(Permission::api("entries", Action::Read))?;
+        let tz = tz_offset(req);
+
+        // Resolve the window. Accept both the `start`/`end` and the `from`/`to` spellings.
+        let end = req.query_int("end").or_else(|| req.query_int("to")).unwrap_or(now_ms);
+        let default_start = end - DEFAULT_EXPORT_DAYS * timeutil::DAY_MS;
+        let mut start = req.query_int("start").or_else(|| req.query_int("from")).unwrap_or(default_start);
+        // Clamp the span so an unbounded range can't exceed the point cap / compute budget:
+        // keep the most-recent MAX_EXPORT_DAYS, and never let start run past end.
+        let max_span = MAX_EXPORT_DAYS * timeutil::DAY_MS;
+        if end - start > max_span {
+            start = end - max_span;
+        }
+        if start > end {
+            start = end;
+        }
+
+        let docs = self
+            .storage
+            .search_documents(
+                Collection::Entries,
+                &principal.user.id,
+                &DocQuery::new()
+                    .doc_type("sgv")
+                    .date_gte(start)
+                    .date_lte(end)
+                    .limit(MAX_ANALYTICS_POINTS),
+            )
+            .await?;
+        let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
+        let range = ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz };
+        let t = TirThresholds::default();
+
+        // `format` defaults to json; anything else is a client error, not a silent fallback.
+        match req.query_get("format").unwrap_or("json") {
+            "csv" => {
+                let body = export::readings_csv(&readings, &range).into_bytes();
+                let name = format!("{}.csv", export::filename_stem("readings", &range));
+                Ok(ApiResponse::bytes(200, "text/csv; charset=utf-8", body)
+                    .with_header("content-disposition", attachment(&name)))
+            }
+            "json" => {
+                let bin = req.query_int("bin").unwrap_or(export::DEFAULT_AGP_BIN_MINUTES).clamp(5, 60);
+                let value = export::metrics_json(&readings, &range, bin, &t);
+                // Pretty-printed: the JSON export is meant to be human-readable too.
+                let body = serde_json::to_vec_pretty(&value).unwrap_or_else(|_| b"{}".to_vec());
+                let name = format!("{}.json", export::filename_stem("metrics", &range));
+                Ok(ApiResponse::bytes(200, "application/json; charset=utf-8", body)
+                    .with_header("content-disposition", attachment(&name)))
+            }
+            other => Err(ApiError::BadRequest(format!(
+                "unknown export format '{other}' (use csv or json)"
+            ))),
+        }
     }
 
     /// Import a glucose CSV export (the raw CSV is the request body) into the caller's
@@ -959,6 +1047,13 @@ fn day_expected_per_day(
         _ => fallback_cadence_ms,
     };
     (timeutil::DAY_MS as f64 / cadence_ms as f64).round() as i64
+}
+
+/// A `Content-Disposition` value that prompts a download under `name`. `name` is built
+/// from our own `filename_stem` (ASCII letters, digits, `-` and `_`), so it needs no
+/// escaping and carries no user-controlled text.
+fn attachment(name: &str) -> String {
+    format!("attachment; filename=\"{name}\"")
 }
 
 /// The caller's UTC offset in minutes (east of UTC), for localising time-of-day

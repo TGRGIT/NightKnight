@@ -88,6 +88,14 @@ fn body_json(resp: &ApiResponse) -> Value {
     serde_json::from_slice(&resp.body).unwrap_or(Value::Null)
 }
 
+/// First response header matching `name` (case-insensitive), if present.
+fn header<'a>(resp: &'a ApiResponse, name: &str) -> Option<&'a str> {
+    resp.headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
 /// An SGV entry body timestamped shortly before `NOW`.
 fn sgv(mgdl: i64) -> Value {
     json!({ "type": "sgv", "date": NOW - 60_000, "sgv": mgdl, "direction": "Flat", "device": "test" })
@@ -485,6 +493,102 @@ async fn empty_window_analytics_are_null_not_fabricated() {
     assert!(an["meanMgdl"].is_null(), "mean is null on empty");
     assert!(an["gri"]["value"].is_null(), "GRI must be null, not a fabricated 0 / zone A");
     assert!(an["gri"]["zone"].is_null());
+}
+
+/// SCENARIO: a user exports their readings as CSV to share with a clinician or open in a
+/// spreadsheet. The download is a labelled CSV (metadata preamble + header + one row per
+/// reading, oldest first, in both units) with an attachment filename stamped with the
+/// range, scoped to the caller's own readings.
+#[tokio::test]
+async fn export_csv_downloads_labelled_raw_readings() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    let entries = json!([
+        { "type": "sgv", "date": NOW - 60_000, "sgv": 180, "device": "t" },
+        { "type": "sgv", "date": NOW - DAY_MS, "sgv": 90, "device": "t" },
+    ]);
+    svc.handle(request("POST", "/api/v1/entries", &[], entries), NOW, edge.clone()).await;
+
+    let resp = svc
+        .handle(request("GET", "/api/v4/export?format=csv&tzOffset=0", &[], Value::Null), NOW, edge)
+        .await;
+    assert_eq!(resp.status, 200);
+    let ctype = header(&resp, "content-type").unwrap();
+    assert!(ctype.starts_with("text/csv"), "served as CSV, got {ctype}");
+    let disp = header(&resp, "content-disposition").unwrap();
+    assert!(disp.contains("attachment; filename=\"nightknight-readings-"), "download prompt: {disp}");
+    assert!(disp.ends_with(".csv\""));
+
+    let csv = String::from_utf8(resp.body.clone()).unwrap();
+    assert!(csv.contains("# NightKnight glucose export"), "self-describing preamble");
+    assert!(csv.contains("# generated:") && csv.contains("# range:"), "labelled with time + range");
+    assert!(csv.contains("timestamp,epoch_ms,mg_dL,mmol_L"), "column header");
+    // Oldest first: the 90 mg/dL (5.0 mmol/L) row precedes the 180 (10.0) row.
+    let data: Vec<&str> = csv.lines().filter(|l| !l.starts_with('#') && l.contains(",")).collect();
+    let ninety = data.iter().position(|l| l.contains(",90,")).unwrap();
+    let one_eighty = data.iter().position(|l| l.contains(",180,")).unwrap();
+    assert!(ninety < one_eighty, "readings are oldest-first");
+}
+
+/// SCENARIO: a user exports the computed metric set as JSON. The download bundles the full
+/// `/analytics` payload plus the AGP bands, labelled with the range + generation timestamp,
+/// and is byte-identical in shape to the live Statistical-Analysis view.
+#[tokio::test]
+async fn export_json_bundles_the_full_metric_set() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // Two weeks of hourly readings so the metric set is fully populated.
+    let mut arr = Vec::new();
+    for i in 0..(14 * 24) {
+        arr.push(json!({ "type": "sgv", "date": NOW - i * 3_600_000, "sgv": 120 + (i % 40), "device": "t" }));
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(arr)), NOW, edge.clone()).await;
+
+    let start = NOW - 14 * DAY_MS;
+    let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0");
+    let resp = svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await;
+    assert_eq!(resp.status, 200);
+    assert!(header(&resp, "content-type").unwrap().starts_with("application/json"));
+    let disp = header(&resp, "content-disposition").unwrap();
+    assert!(disp.contains("nightknight-metrics-") && disp.ends_with(".json\""), "download prompt: {disp}");
+
+    let v = body_json(&resp);
+    assert_eq!(v["report"], "NightKnight glucose metrics export");
+    assert_eq!(v["notMedicalDevice"], true);
+    assert_eq!(v["range"]["startMs"], start);
+    assert_eq!(v["range"]["endMs"], NOW);
+    assert!(v["generated"]["iso"].is_string(), "labelled with a generation timestamp");
+    // The full metric set is present under `analytics`, plus AGP bands.
+    assert!(v["analytics"]["gri"]["value"].is_number(), "GRI");
+    assert!(v["analytics"]["timeInRange"]["inRangePct"].is_number(), "TIR");
+    assert!(v["analytics"]["variability"]["mage"].is_number() || v["analytics"]["variability"]["mage"].is_null());
+    assert!(v["analytics"]["episodes"]["low"]["count"].is_number(), "episode roll-ups");
+    assert_eq!(v["agp"]["bins"].as_array().unwrap().len(), 96, "AGP percentile bands");
+}
+
+/// The export is scoped to the caller: Bob's export can never contain Alice's readings,
+/// and an unknown `format` is a clean 400 rather than a silent default.
+#[tokio::test]
+async fn export_is_user_scoped_and_validates_format() {
+    let svc = service().await;
+    svc.handle(request("POST", "/api/v1/entries", &[], json!([sgv(111)])), NOW, Some(human("alice@cooney.be")))
+        .await;
+
+    // Bob has no data; his CSV export carries only the preamble/header, none of Alice's rows.
+    let bob = svc
+        .handle(request("GET", "/api/v4/export?format=csv", &[], Value::Null), NOW, Some(human("bob@cooney.be")))
+        .await;
+    assert_eq!(bob.status, 200);
+    let csv = String::from_utf8(bob.body.clone()).unwrap();
+    assert!(csv.contains("# readings: 0"), "bob sees none of alice's readings");
+    assert!(!csv.contains(",111,"));
+
+    let bad = svc
+        .handle(request("GET", "/api/v4/export?format=xml", &[], Value::Null), NOW, Some(human("alice@cooney.be")))
+        .await;
+    assert_eq!(bad.status, 400, "an unknown format is rejected, not silently defaulted");
 }
 
 /// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would

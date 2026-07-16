@@ -633,6 +633,8 @@ final class AnalysisModel {
 /// advanced variability, each with a (?) explanation. Mirrors the web Analysis page.
 struct AnalysisView: View {
     @State private var model = AnalysisModel()
+    /// The export file currently being shared (drives the share sheet); nil = not sharing.
+    @State private var shareItem: ReportShareItem?
     private let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
     private var unit: GlucoseUnit { model.settings.preferredUnit }
     private var lowMgdl: Double { model.settings.lowThresholdMgdl }
@@ -680,6 +682,19 @@ struct AnalysisView: View {
             }
             .background(Color.nkInk.ignoresSafeArea())
             .navigationTitle("Analysis")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { exportPDF() } label: { Label("AGP report (PDF)", systemImage: "doc.richtext") }
+                        Button { exportCSV() } label: { Label("Readings (CSV)", systemImage: "tablecells") }
+                        Button { exportJSON() } label: { Label("Metrics (JSON)", systemImage: "curlybraces") }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(model.analytics == nil)
+                }
+            }
+            .sheet(item: $shareItem) { item in ReportShareSheet(items: [item.url]) }
             .task { if model.analytics == nil { await model.load() } }
             #if DEBUG
             .task { await autoplaySweep() }
@@ -897,6 +912,48 @@ struct AnalysisView: View {
         case "D": return .nkWarn
         case "E": return .nkDanger
         default: return .nkMuted
+        }
+    }
+
+    // MARK: export & report
+
+    /// The export window is the currently-selected analysis period (7/14/30 days), ending now.
+    private func exportRange() -> ExportRange { ExportRange.trailing(days: model.period) }
+
+    /// Render the light-themed AGP one-pager to a PDF and present the share sheet. Works in
+    /// every mode, including standalone (the report is built from on-device analytics).
+    @MainActor
+    private func exportPDF() {
+        guard let a = model.analytics else { return }
+        let report = AGPReportView(analytics: a, agp: model.agp, range: exportRange(),
+                                   unit: unit, lowMgdl: lowMgdl, highMgdl: highMgdl)
+        if let url = ReportPDF.render(report, fileName: "NightKnight-AGP-\(model.period)d.pdf") {
+            shareItem = ReportShareItem(url: url)
+        }
+    }
+
+    /// Export the full computed metric set as JSON (built from the loaded analytics + AGP).
+    @MainActor
+    private func exportJSON() {
+        guard let a = model.analytics else { return }
+        let data = GlucoseExport.metricsJSON(analytics: a, agp: model.agp, range: exportRange())
+        if let url = ExportFile.write(data, name: "NightKnight-metrics-\(model.period)d.json") {
+            shareItem = ReportShareItem(url: url)
+        }
+    }
+
+    /// Export the raw readings over the period as CSV. Readings aren't held by the Analysis
+    /// model, so fetch them (server or on-device) before building the file.
+    @MainActor
+    private func exportCSV() {
+        let period = model.period
+        let settings = model.settings
+        Task { @MainActor in
+            let readings = (try? await APIClient(settings: settings).entries(hours: period * 24)) ?? []
+            let csv = GlucoseExport.readingsCSV(readings, range: ExportRange.trailing(days: period))
+            if let url = ExportFile.write(csv, name: "NightKnight-readings-\(period)d.csv") {
+                shareItem = ReportShareItem(url: url)
+            }
         }
     }
 }

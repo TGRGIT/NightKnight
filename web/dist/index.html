@@ -142,6 +142,30 @@
         </section>
       </div>
 
+      <section class="card" id="export-card">
+        <div class="card-head">
+          <h2>Export &amp; Report <span class="info" tabindex="0" role="button" aria-label="About export">?<span class="tip">Generate a printable Ambulatory Glucose Profile one-pager to share with a clinician, or download your raw readings (CSV) and the full computed metric set (JSON) over a date range. Files are labelled with the range and generation time.</span></span></h2>
+        </div>
+        <p class="caption" id="export-caption">Choose a period, then open a printable report or download your data.</p>
+        <div class="export-controls">
+          <div class="seg export-preset" role="group" aria-label="Report range">
+            <button data-days="7" class="seg-btn">7d</button>
+            <button data-days="14" class="seg-btn is-active">14d</button>
+            <button data-days="30" class="seg-btn">30d</button>
+            <button data-days="90" class="seg-btn">90d</button>
+          </div>
+          <div class="export-dates">
+            <label>From <input type="date" id="export-start" /></label>
+            <label>To <input type="date" id="export-end" /></label>
+          </div>
+        </div>
+        <div class="export-actions">
+          <button type="button" class="export-btn primary" id="export-report">Open printable report</button>
+          <button type="button" class="export-btn" id="export-csv">Download readings (CSV)</button>
+          <button type="button" class="export-btn" id="export-json">Download metrics (JSON)</button>
+        </div>
+      </section>
+
       <p class="disclaimer">Not a medical device. These metrics are estimates for personal insight, not a basis for treatment decisions.</p>
     </main>
 

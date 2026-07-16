@@ -145,11 +145,13 @@ Planned work, not yet implemented:
   normalising into the canonical store with content dedup. Still to come: **Dexcom
   Clarity CSV** and a Nightscout `mongodump`/`treatments` path.
 - **Exportable reports.** The deeper analytics (GRI, AGP percentile bands, time-of-day
-  patterns, hypo/hyper event detection, advanced variability) now ship in the web and
-  iOS *Statistical Analysis* views — see
+  patterns, hypo/hyper event detection, advanced variability) ship in the web and
+  iOS *Statistical Analysis* views, and now export too: a **printable clinical AGP
+  one-pager** (a light-themed print-to-PDF page on the web, and a native `ImageRenderer`
+  PDF on iOS that works standalone), plus **CSV export of raw readings** and **JSON export
+  of the full computed metric set** over a date range via `GET /api/v4/export` — see
   [docs/STATISTICAL-ANALYSIS.md](docs/STATISTICAL-ANALYSIS.md) and
-  [docs/CGM-ANALYTICS-RESEARCH.md](docs/CGM-ANALYTICS-RESEARCH.md). Still to come: a
-  printable AGP one-pager and CSV/JSON export of the computed metric set.
+  [docs/CGM-ANALYTICS-RESEARCH.md](docs/CGM-ANALYTICS-RESEARCH.md).
 - **Android client.** A native Android app for feature parity with iOS.
 - **Sharing / followers.** A scoped, revocable read-only share model so a parent or care
   team member can follow your data without your credentials.

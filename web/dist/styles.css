@@ -190,6 +190,27 @@ small { font-size: 0.5em; font-weight: 600; color: var(--muted); margin-left: 2p
 /* ── Inner grids ──────────────────────────────────────────────────── */
 .grid-340 { grid-column: 1 / -1; display: grid; grid-template-columns: 340px 1fr; gap: var(--gap); align-items: start; }
 .grid-2 { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-items: start; }
+
+/* Export & report card */
+#export-card { grid-column: 1 / -1; }
+.export-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 2px 0 16px; }
+.export-dates { display: flex; gap: 12px; flex-wrap: wrap; }
+.export-dates label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.82rem; }
+.export-dates input[type="date"] {
+  background: var(--tile); border: 1px solid var(--rim); color: var(--text);
+  border-radius: var(--radius-sm); padding: 9px 11px; font: inherit; color-scheme: dark;
+}
+.export-dates input[type="date"]:focus { outline: none; border-color: var(--accent); }
+.export-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.export-btn {
+  background: var(--tile); color: var(--text); border: 1px solid var(--rim);
+  border-radius: var(--radius-sm); padding: 11px 18px; font: inherit; font-weight: 650; cursor: pointer;
+  transition: filter .15s, transform .05s, border-color .15s;
+}
+.export-btn:hover { border-color: #37424f; }
+.export-btn:active { transform: scale(0.97); }
+.export-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.export-btn.primary:hover { filter: brightness(1.08); }
 .metric-grid.three { grid-template-columns: repeat(3, 1fr); }
 .metric-grid.four { grid-template-columns: repeat(4, 1fr); }
 .metric-note { color: var(--muted); font-size: 0.74rem; margin-top: 4px; }
