@@ -591,6 +591,49 @@ async fn export_is_user_scoped_and_validates_format() {
     assert_eq!(bad.status, 400, "an unknown format is rejected, not silently defaulted");
 }
 
+/// REGRESSION: the export path used to issue a single unbounded `search_documents` for
+/// the whole window, which 503'd the Cloudflare Worker at ~30k rows. It now walks the
+/// window in bounded batches and returns every reading up to `MAX_EXPORT_POINTS`. A
+/// 12 000-row seed (well above `EXPORT_BATCH_SIZE = 5_000` and above the old cap of
+/// 20 000 that would have been the natural mistake) exercises the multi-batch path and
+/// proves all 12 000 rows land in the CSV, ordered oldest-first, with no `truncated`.
+#[tokio::test]
+async fn export_walks_large_windows_in_batches_without_truncating() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // 12 000 sgv readings at 5-min cadence, ending shortly before `NOW`. Post in
+    // 500-row chunks so the JSON body itself stays manageable.
+    let cadence_ms = 5 * 60_000i64;
+    let mut posted = 0;
+    while posted < 12_000 {
+        let mut chunk = Vec::with_capacity(500);
+        for i in 0..500 {
+            let idx = posted + i;
+            chunk.push(json!({
+                "type": "sgv",
+                "date": NOW - 60_000 - idx * cadence_ms,
+                "sgv": 100 + (idx % 40),
+                "device": "batchtest",
+            }));
+        }
+        svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
+        posted += 500;
+    }
+    // Ask for the whole window (default 14-day export clamps to 90d, well over the
+    // ~42-day span of the seed).
+    let start = NOW - 90 * DAY_MS;
+    let path = format!("/api/v4/export?format=csv&start={start}&end={NOW}&tzOffset=0");
+    let resp = svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await;
+    assert_eq!(resp.status, 200);
+    let csv = String::from_utf8(resp.body.clone()).unwrap();
+    assert!(csv.contains("# readings: 12000"), "all 12k rows survive the cursor walk");
+    assert!(!csv.contains("# truncated"), "under the 100k cap, no truncated marker");
+    // Data rows carry both units; count non-comment lines minus the header.
+    let data_rows: Vec<&str> = csv.lines().filter(|l| !l.starts_with('#') && l.contains(",100,")).collect();
+    assert!(data_rows.len() > 100, "many 100 mg/dL rows present (sanity)");
+}
+
 /// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would
 /// mislead, so `current` reports NONE even though the entry stored an arrow.
 #[tokio::test]

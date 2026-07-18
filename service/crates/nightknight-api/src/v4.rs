@@ -45,11 +45,20 @@ const MAX_ANALYTICS_POINTS: i64 = 20_000;
 /// days, so a bare `GET /api/v4/export` yields the report a clinician expects.
 const DEFAULT_EXPORT_DAYS: i64 = 14;
 /// Hard ceiling on an export window's span. Matches the 90-day AGP standard so an
-/// unbounded range can't blow the per-request compute budget (a 90-day 1-min-cadence
-/// sensor is ~130k rows, big but well under Postgres/D1 limits); a wider request is
-/// clamped to the most-recent 90 days. Unlike the summary analytics endpoints the
-/// export path itself is uncapped — see the `.limit()`-free query in `v4_export`.
+/// unbounded range can't blow the per-request compute budget; a wider request is
+/// clamped to the most-recent 90 days.
 const MAX_EXPORT_DAYS: i64 = 90;
+/// Rows per D1/Postgres query in the paginated export fetch. Keeping each subrequest
+/// small (~5k rows ≈ a few MB payload) is what lets a large export succeed on the
+/// Cloudflare Worker without blowing the per-request CPU or D1 payload limits — a
+/// single unbounded `search_documents` for 30k+ rows exceeds the Worker's budget.
+const EXPORT_BATCH_SIZE: i64 = 5_000;
+/// Absolute per-request ceiling on the export. 5× the summary-analytics cap: enough
+/// to comfortably fit a 90-day 5-min-cadence Dexcom (~26k) or 60 days of 1-min-cadence
+/// Libre (~86k) in one file, while still bounding the Worker's total compute so a
+/// pathological 15-second-cadence sensor can't OOM the runtime. If hit, the export
+/// carries a `truncated: true` marker (CSV preamble + JSON envelope).
+const MAX_EXPORT_POINTS: i64 = 100_000;
 /// How many recent readings `current` pulls to estimate a fallback trend — enough to
 /// span the 15-minute regression window at 5-minute cadence with headroom.
 const CURRENT_TREND_POINTS: i64 = 8;
@@ -561,29 +570,18 @@ impl<S: Storage> ApiService<S> {
             start = end;
         }
 
-        // Deliberately **no `.limit()`** on the export path: an AGP export needs every
-        // reading in the window (a 90-day 1-min-cadence sensor pulls ~130k rows, and a
-        // clinician sharing the file expects the WHOLE 90 days, not a most-recent slice).
-        // The other analytics endpoints stay capped at `MAX_ANALYTICS_POINTS` because they
-        // compute summary metrics that saturate long before then. The `truncated` marker
-        // in the file format is kept for a future paginated/streamed export; the current
-        // uncapped path always emits `truncated: false`.
-        let docs = self
-            .storage
-            .search_documents(
-                Collection::Entries,
-                &principal.user.id,
-                &DocQuery::new().doc_type("sgv").date_gte(start).date_lte(end),
-            )
+        // Paginated cursor-walk fetch: pull the window in `EXPORT_BATCH_SIZE`-row batches
+        // walking backward from `end`, up to `MAX_EXPORT_POINTS` total. A single unbounded
+        // query for 30k+ rows exceeds the Cloudflare Worker's per-request CPU/subrequest
+        // budget (503 "exceeded resource limit"); each batched subrequest stays cheap and
+        // the loop bounds total work. Storage returns newest-first, so we accumulate
+        // newest→oldest and stamp `truncated` when the cap is hit before the window is
+        // fully drained; `readings_csv` sorts to oldest-first for the file itself.
+        let (readings, truncated) = self
+            .fetch_export_readings(&principal.user.id, start, end)
             .await?;
-        let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
-        let range = ExportRange {
-            start_ms: start,
-            end_ms: end,
-            generated_ms: now_ms,
-            tz,
-            truncated: false,
-        };
+        let range =
+            ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz, truncated };
         let t = TirThresholds::default();
 
         // `format` defaults to json; anything else is a client error, not a silent fallback.
@@ -607,6 +605,77 @@ impl<S: Storage> ApiService<S> {
                 "unknown export format '{other}' (use csv or json)"
             ))),
         }
+    }
+
+    /// Pull the caller's sgv readings in `[start, end]` from storage in bounded batches
+    /// so a large window can't blow the Cloudflare Worker's per-request CPU or D1's per-
+    /// query payload limits (a single unbounded fetch for 30k+ rows 503s the Worker).
+    ///
+    /// Walks backward from `end`: each iteration asks for at most `EXPORT_BATCH_SIZE`
+    /// rows with `mills ≤ cursor`, appends them, then steps the cursor to
+    /// `oldest.mills - 1` for the next batch. Stops when the window drains (a short
+    /// batch), when the total reaches `MAX_EXPORT_POINTS` (returns `truncated = true`),
+    /// or when the cursor crosses `start`. Storage returns rows newest-first, so the
+    /// returned vector is newest-first too — the CSV/JSON producers sort or re-anchor
+    /// as needed. Readings that don't parse (impossibly-old / bad-value rows) are
+    /// silently dropped, matching the other analytics endpoints.
+    async fn fetch_export_readings(
+        &self,
+        user_id: &str,
+        start: i64,
+        end: i64,
+    ) -> Result<(Vec<GlucoseReading>, bool), ApiError> {
+        let mut readings: Vec<GlucoseReading> = Vec::new();
+        let mut cursor_end = end;
+        let mut truncated = false;
+        // A safety fuse on the loop itself: `MAX_EXPORT_POINTS / EXPORT_BATCH_SIZE`
+        // full batches, plus a few extra for the final short one. Prevents an
+        // adversarial storage backend that never advances the cursor from spinning
+        // forever, without changing any legitimate behaviour.
+        let max_batches = (MAX_EXPORT_POINTS / EXPORT_BATCH_SIZE) as usize + 4;
+        for _ in 0..max_batches {
+            let remaining = MAX_EXPORT_POINTS - readings.len() as i64;
+            if remaining <= 0 {
+                truncated = true;
+                break;
+            }
+            if cursor_end < start {
+                break;
+            }
+            let batch_size = remaining.min(EXPORT_BATCH_SIZE);
+            let docs = self
+                .storage
+                .search_documents(
+                    Collection::Entries,
+                    user_id,
+                    &DocQuery::new()
+                        .doc_type("sgv")
+                        .date_gte(start)
+                        .date_lte(cursor_end)
+                        .limit(batch_size),
+                )
+                .await?;
+            if docs.is_empty() {
+                break;
+            }
+            let batch_len = docs.len() as i64;
+            // Rows are ordered mills DESC; the LAST row is the oldest of the batch and
+            // the anchor for the next cursor step. Subtract 1 so `date_lte` (inclusive)
+            // doesn't re-select the same document; ms-level collisions between distinct
+            // sgv readings don't happen in practice.
+            let oldest_mills = docs.last().map(|d| d.mills).unwrap_or(cursor_end);
+            for d in &docs {
+                if let Some(r) = reading_from_doc(d) {
+                    readings.push(r);
+                }
+            }
+            if batch_len < batch_size {
+                // A short batch means the window is drained — no more rows to fetch.
+                break;
+            }
+            cursor_end = oldest_mills.saturating_sub(1);
+        }
+        Ok((readings, truncated))
     }
 
     /// Import a glucose CSV export (the raw CSV is the request body) into the caller's
