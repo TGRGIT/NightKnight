@@ -44,9 +44,11 @@ const MAX_ANALYTICS_POINTS: i64 = 20_000;
 /// Default export window when the caller gives no `start`/`end` — the AGP-standard 14
 /// days, so a bare `GET /api/v4/export` yields the report a clinician expects.
 const DEFAULT_EXPORT_DAYS: i64 = 14;
-/// Hard ceiling on an export window's span. Matches the 90-day analytics ceiling so an
-/// unbounded range can't blow the `MAX_ANALYTICS_POINTS` cap or the per-request compute
-/// budget; a wider request is clamped to the most-recent 90 days.
+/// Hard ceiling on an export window's span. Matches the 90-day AGP standard so an
+/// unbounded range can't blow the per-request compute budget (a 90-day 1-min-cadence
+/// sensor is ~130k rows, big but well under Postgres/D1 limits); a wider request is
+/// clamped to the most-recent 90 days. Unlike the summary analytics endpoints the
+/// export path itself is uncapped — see the `.limit()`-free query in `v4_export`.
 const MAX_EXPORT_DAYS: i64 = 90;
 /// How many recent readings `current` pulls to estimate a fallback trend — enough to
 /// span the 15-minute regression window at 5-minute cadence with headroom.
@@ -559,25 +561,29 @@ impl<S: Storage> ApiService<S> {
             start = end;
         }
 
+        // Deliberately **no `.limit()`** on the export path: an AGP export needs every
+        // reading in the window (a 90-day 1-min-cadence sensor pulls ~130k rows, and a
+        // clinician sharing the file expects the WHOLE 90 days, not a most-recent slice).
+        // The other analytics endpoints stay capped at `MAX_ANALYTICS_POINTS` because they
+        // compute summary metrics that saturate long before then. The `truncated` marker
+        // in the file format is kept for a future paginated/streamed export; the current
+        // uncapped path always emits `truncated: false`.
         let docs = self
             .storage
             .search_documents(
                 Collection::Entries,
                 &principal.user.id,
-                &DocQuery::new()
-                    .doc_type("sgv")
-                    .date_gte(start)
-                    .date_lte(end)
-                    .limit(MAX_ANALYTICS_POINTS),
+                &DocQuery::new().doc_type("sgv").date_gte(start).date_lte(end),
             )
             .await?;
         let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
-        // If the fetch hit the point cap the export is a partial view (typically the
-        // most-recent slice — storage returns newest-first, we sort oldest-first for CSV).
-        // Surface the fact in the file so a clinician doesn't mistake a partial for a whole.
-        let truncated = docs.len() as i64 >= MAX_ANALYTICS_POINTS;
-        let range =
-            ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz, truncated };
+        let range = ExportRange {
+            start_ms: start,
+            end_ms: end,
+            generated_ms: now_ms,
+            tz,
+            truncated: false,
+        };
         let t = TirThresholds::default();
 
         // `format` defaults to json; anything else is a client error, not a silent fallback.
