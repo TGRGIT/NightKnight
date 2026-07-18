@@ -298,6 +298,25 @@ impl Storage for SqlStore {
             .collect()
     }
 
+    async fn downsampled_documents(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        start_ms: i64,
+        end_ms: i64,
+        bucket_ms: i64,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredDoc>> {
+        let (sql, params) =
+            sql::downsampled_documents(c, user_id, doc_type, start_ms, end_ms, bucket_ms, limit);
+        self.fetch_all(&sql, params)
+            .await?
+            .iter()
+            .map(row_to_doc)
+            .collect()
+    }
+
     async fn history_since(
         &self,
         c: Collection,

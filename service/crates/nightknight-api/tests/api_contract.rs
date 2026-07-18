@@ -634,6 +634,118 @@ async fn export_walks_large_windows_in_batches_without_truncating() {
     assert!(data_rows.len() > 100, "many 100 mg/dL rows present (sanity)");
 }
 
+/// The JSON/report export AGGREGATES server-side: it downsamples dense data to at most one
+/// reading per adaptive time-bucket, so a window of any density stays bounded (never 503s)
+/// while still covering the WHOLE span. Here 2 days of 15-second-cadence data (~11 500
+/// readings, 4/min) must collapse to ~1/min (~2 900) with the range still reading 2 days —
+/// proving the report covers every day without loading every reading. `?samples=1` returns
+/// the compact series the printable report draws its daily-profile thumbnails from.
+#[tokio::test]
+async fn export_json_downsamples_dense_data_but_covers_full_window() {
+    const DAY_MS: i64 = 86_400_000;
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // 2 days of 15-second-cadence sgv (4 readings/minute) = 11 520 readings. Post in chunks.
+    let cadence_ms = 15_000i64;
+    let total = 2 * 24 * 60 * 4; // 11 520
+    let mut posted = 0;
+    while posted < total {
+        let mut chunk = Vec::with_capacity(480);
+        for i in 0..480 {
+            let idx = posted + i;
+            chunk.push(json!({
+                "type": "sgv",
+                "date": NOW - 60_000 - (idx as i64) * cadence_ms,
+                "sgv": 100 + (idx % 40),
+                "device": "dense",
+            }));
+        }
+        svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
+        posted += 480;
+    }
+
+    let start = NOW - 2 * DAY_MS;
+    let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0&samples=1");
+    let resp = svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await;
+    assert_eq!(resp.status, 200);
+    let v = body_json(&resp);
+
+    // Not truncated — the aggregated path always covers the full window.
+    assert_eq!(v["truncated"], false);
+    assert_eq!(v["range"]["days"], 2, "the report still spans the full 2-day window");
+    assert_eq!(v["sampleBucketMs"], 60_000, "a 2-day window downsamples at 1-minute resolution");
+
+    // The dense 4/min data collapsed to ~1/min: far below the raw 11 520, but ~2 days' worth.
+    let n = v["analytics"]["n"].as_i64().unwrap();
+    assert!(n < 5_000, "dense data is downsampled, got n={n} (raw was 11520)");
+    assert!(n > 2_000, "but the full 2-day span is still represented, got n={n}");
+
+    // The samples series is present, matches n, and is oldest-first `[ms, mgdl]` pairs.
+    let samples = v["samples"].as_array().expect("samples array present");
+    assert_eq!(samples.len() as i64, n, "one sample per downsampled reading");
+    let first = samples.first().unwrap().as_array().unwrap();
+    let last = samples.last().unwrap().as_array().unwrap();
+    assert!(first[0].as_i64().unwrap() < last[0].as_i64().unwrap(), "samples are oldest-first");
+    assert!(first[1].is_number() && last[1].is_number(), "each sample is [epoch_ms, mg_dL]");
+
+    // The metric set is still fully populated over the downsampled series.
+    assert!(v["analytics"]["gri"]["value"].is_number(), "GRI computed");
+    assert!(v["analytics"]["timeInRange"]["inRangePct"].is_number(), "TIR computed");
+    assert_eq!(v["agp"]["bins"].as_array().unwrap().len(), 96, "AGP bands present");
+
+    // Without ?samples the download stays lean (no samples array).
+    let lean = svc
+        .handle(request("GET", &format!("/api/v4/export?format=json&start={start}&end={NOW}"), &[], Value::Null), NOW, Some(human("alice@cooney.be")))
+        .await;
+    assert!(body_json(&lean).get("samples").is_none(), "the plain metrics download omits samples");
+}
+
+/// The aggregated JSON fetch is PAGINATED (`EXPORT_BATCH_SIZE` per storage query, like the
+/// CSV path) so no single subrequest materialises a large result — and it de-dupes to one
+/// reading per bucket. This seeds > `EXPORT_BATCH_SIZE` distinct 1-minute buckets so the
+/// downsample fetch must span multiple batches, and adds a duplicate-timestamp reading to
+/// prove the per-bucket de-dup: the sample count equals the number of distinct minutes, not
+/// the raw row count.
+#[tokio::test]
+async fn export_json_downsample_paginates_and_dedupes_buckets() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // 7 000 readings at 1-minute cadence = 7 000 distinct minute-buckets (> EXPORT_BATCH_SIZE
+    // of 5 000, so the downsample fetch pages at least twice). Window is ~5 days.
+    let minutes = 7_000i64;
+    let mut posted = 0;
+    while posted < minutes {
+        let mut chunk = Vec::with_capacity(500);
+        for i in 0..500 {
+            let idx = posted + i;
+            chunk.push(json!({
+                "type": "sgv", "date": NOW - 60_000 - idx * 60_000,
+                "sgv": 100 + (idx % 50), "device": "d1",
+            }));
+        }
+        svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
+        posted += 500;
+    }
+    // A second device sampling the SAME instant as an existing reading (distinct identifier,
+    // duplicate mills) — the per-bucket de-dup must keep the bucket at one reading.
+    let dup_ms = NOW - 60_000 - 100 * 60_000;
+    svc.handle(
+        request("POST", "/api/v1/entries", &[], json!([{ "type": "sgv", "date": dup_ms, "sgv": 200, "device": "d2" }])),
+        NOW, edge.clone(),
+    ).await;
+
+    let start = NOW - 6 * 86_400_000;
+    let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0&samples=1");
+    let v = body_json(&svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await);
+
+    // Exactly one sample per distinct minute-bucket: 7 000, NOT 7 001 (the duplicate collapsed).
+    let n = v["analytics"]["n"].as_i64().unwrap();
+    assert_eq!(n, 7_000, "one reading per minute-bucket across batches, duplicate timestamp de-duped");
+    assert_eq!(v["samples"].as_array().unwrap().len() as i64, n, "samples match the bucket count");
+    assert_eq!(v["sampleBucketMs"], 60_000, "a ~5-day window stays at 1-minute buckets");
+    assert_eq!(v["truncated"], false);
+}
+
 /// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would
 /// mislead, so `current` reports NONE even though the entry stored an arrow.
 #[tokio::test]

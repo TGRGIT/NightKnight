@@ -129,5 +129,27 @@ async fn postgres_parity() {
     assert_eq!(days[1].first_ms, base + 1_000);
     assert_eq!(days[1].last_ms, base + 2_000);
 
+    // Downsample aggregation must behave identically on Postgres — the report's server-side
+    // aggregation relies on `mills / bucket_ms` dividing as INTEGER (not REAL) exactly as on
+    // SQLite/D1, so a dense bucket collapses to its earliest reading rather than exploding.
+    let dsuser = format!("pg-ds-{now}");
+    // Bucket 1000 ms. Bucket 0 [0,1000): three dense readings → earliest survives. Bucket 3: one.
+    for (i, t) in [base + 100, base + 300, base + 900, base + 3_500].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc(&dsuser, &format!("s{i}"), *t, 120, now))
+            .await
+            .unwrap();
+    }
+    let ds = store
+        .downsampled_documents(Collection::Entries, &dsuser, "sgv", base, base + 4_000, 1_000, None)
+        .await
+        .unwrap();
+    let ds_mills: Vec<i64> = ds.iter().map(|r| r.mills).collect();
+    assert_eq!(
+        ds_mills,
+        vec![base + 3_500, base + 100],
+        "Postgres downsample keeps one earliest-per-bucket row, newest first (integer bucket division)"
+    );
+
     eprintln!("postgres_parity passed against {url}");
 }

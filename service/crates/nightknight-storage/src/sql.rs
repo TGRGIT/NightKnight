@@ -207,6 +207,68 @@ pub fn daily_counts(
     (sql, vec![Param::text(user_id), Param::text(doc_type)])
 }
 
+/// One representative row per `bucket_ms`-wide time-bucket across `[start_ms, end_ms]`,
+/// newest first — the downsampled fetch behind long-window aggregate reports.
+///
+/// The inner query buckets on the indexed `mills` column alone (`GROUP BY mills /
+/// bucket_ms`, index-only, no document bodies) and takes each bucket's earliest reading;
+/// the outer query then reads the full bodies of only those `MIN(mills)` rows. So a
+/// 90-day window over arbitrarily-dense data collapses to at most `window / bucket`
+/// rows — the same cheap index-scan the [`daily_counts`] coverage view relies on, but
+/// yielding the readings themselves so the analytics engine can run over them.
+///
+/// `bucket_ms` is **inlined as an integer literal**, not bound — exactly as
+/// [`daily_counts`] inlines its offset — because the D1 backend binds integer params as
+/// JS floats, which would turn `mills / bucket_ms` into REAL division and shatter every
+/// row into its own bucket. It is a server-computed, clamped `i64` (never user SQL), so
+/// interpolating the number is safe. `start_ms`/`end_ms` are bound (used only in
+/// comparisons, where float-binding is harmless).
+///
+/// `limit` caps the outer fetch (`None` = all buckets). The caller paginates a long window
+/// by shrinking `end_ms` and re-requesting, so a single subrequest never materialises more
+/// than `limit` document bodies — keeping each query under the runtime's per-request budget
+/// the same way the raw-CSV fetch batches. Because the bucketing is on absolute
+/// `mills / bucket_ms`, the buckets a shrunk window sees are a prefix of the full set, so
+/// walking newest→oldest visits every bucket exactly once with no gaps.
+pub fn downsampled_documents(
+    c: Collection,
+    user_id: &str,
+    doc_type: &str,
+    start_ms: i64,
+    end_ms: i64,
+    bucket_ms: i64,
+    limit: Option<i64>,
+) -> (String, Vec<Param>) {
+    let t = c.table();
+    // Guard against a zero/negative bucket collapsing the divisor to nonsense.
+    let bucket_ms = bucket_ms.max(1);
+    let mut sql = format!(
+        "SELECT {DOC_COLS} FROM {t} \
+         WHERE user_id=? AND is_valid=1 AND doc_type=? AND mills>=? AND mills<=? \
+           AND mills IN ( \
+             SELECT MIN(mills) FROM {t} \
+             WHERE user_id=? AND is_valid=1 AND doc_type=? AND mills>=? AND mills<=? \
+             GROUP BY mills / {bucket_ms} \
+           ) \
+         ORDER BY mills DESC"
+    );
+    let mut params = vec![
+        Param::text(user_id),
+        Param::text(doc_type),
+        Param::Int(start_ms),
+        Param::Int(end_ms),
+        Param::text(user_id),
+        Param::text(doc_type),
+        Param::Int(start_ms),
+        Param::Int(end_ms),
+    ];
+    if let Some(limit) = limit {
+        sql.push_str(" LIMIT ?");
+        params.push(Param::Int(limit));
+    }
+    (sql, params)
+}
+
 /// Soft-delete: flag `is_valid=0` so the document drops out of normal results but
 /// still surfaces in history. Only affects a currently-valid row.
 pub fn soft_delete_document(

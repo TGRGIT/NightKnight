@@ -48,17 +48,27 @@ const DEFAULT_EXPORT_DAYS: i64 = 14;
 /// unbounded range can't blow the per-request compute budget; a wider request is
 /// clamped to the most-recent 90 days.
 const MAX_EXPORT_DAYS: i64 = 90;
-/// Rows per D1/Postgres query in the paginated export fetch. Keeping each subrequest
-/// small (~5k rows ≈ a few MB payload) is what lets a large export succeed on the
-/// Cloudflare Worker without blowing the per-request CPU or D1 payload limits — a
+/// Rows per D1/Postgres query in the paginated **CSV** export fetch. Keeping each
+/// subrequest small (~5k rows ≈ a few MB payload) is what lets a raw export succeed on
+/// the Cloudflare Worker without blowing the per-request CPU or D1 payload limits — a
 /// single unbounded `search_documents` for 30k+ rows exceeds the Worker's budget.
 const EXPORT_BATCH_SIZE: i64 = 5_000;
-/// Absolute per-request ceiling on the export. 5× the summary-analytics cap: enough
-/// to comfortably fit a 90-day 5-min-cadence Dexcom (~26k) or 60 days of 1-min-cadence
-/// Libre (~86k) in one file, while still bounding the Worker's total compute so a
-/// pathological 15-second-cadence sensor can't OOM the runtime. If hit, the export
-/// carries a `truncated: true` marker (CSV preamble + JSON envelope).
+/// Absolute per-request ceiling on the **raw CSV** export. A raw dump can't be
+/// downsampled (it's the verbatim readings), so a very dense window is still bounded and
+/// the file marks itself `truncated: true` when the cap is hit. The aggregated JSON/report
+/// path has no such cap — it downsamples server-side (see `EXPORT_TARGET_SAMPLES`) and
+/// always covers the whole window.
 const MAX_EXPORT_POINTS: i64 = 100_000;
+/// Target sample count for the **aggregated JSON/report** export. The server picks a
+/// whole-minute bucket width so a window of any density collapses to about this many
+/// representative readings via `Storage::downsampled_documents` — plenty for faithful
+/// AGP/analytics (hundreds–thousands of points per time-of-day bin across a 90-day
+/// report) while bounding the Worker's fetch + compute so it never 503s on dense data.
+const EXPORT_TARGET_SAMPLES: i64 = 40_000;
+/// Floor on the downsample bucket width: one minute. Finer than clinical CGM resolution,
+/// so normal-cadence data (1–5 min) passes through un-thinned; only sub-minute-dense
+/// sources (merged feeds, raw xDrip) get collapsed to one reading per minute.
+const MIN_EXPORT_BUCKET_MS: i64 = 60_000;
 /// How many recent readings `current` pulls to estimate a fallback trend — enough to
 /// span the 15-minute regression window at 5-minute cadence with headroom.
 const CURRENT_TREND_POINTS: i64 = 8;
@@ -570,33 +580,77 @@ impl<S: Storage> ApiService<S> {
             start = end;
         }
 
-        // Paginated cursor-walk fetch: pull the window in `EXPORT_BATCH_SIZE`-row batches
-        // walking backward from `end`, up to `MAX_EXPORT_POINTS` total. A single unbounded
-        // query for 30k+ rows exceeds the Cloudflare Worker's per-request CPU/subrequest
-        // budget (503 "exceeded resource limit"); each batched subrequest stays cheap and
-        // the loop bounds total work. Storage returns newest-first, so we accumulate
-        // newest→oldest and stamp `truncated` when the cap is hit before the window is
-        // fully drained; `readings_csv` sorts to oldest-first for the file itself.
-        let (readings, truncated) = self
-            .fetch_export_readings(&principal.user.id, start, end)
-            .await?;
-        let range =
-            ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz, truncated };
         let t = TirThresholds::default();
 
         // `format` defaults to json; anything else is a client error, not a silent fallback.
         match req.query_get("format").unwrap_or("json") {
             "csv" => {
+                // Raw dump: paginated cursor-walk in `EXPORT_BATCH_SIZE`-row batches, up to
+                // `MAX_EXPORT_POINTS`. A raw export can't be downsampled (it's the verbatim
+                // readings), so a very dense window is bounded and the file self-marks
+                // `truncated`. Each small batch stays under the Worker's per-request budget.
+                let (readings, truncated) = self
+                    .fetch_export_readings(&principal.user.id, start, end)
+                    .await?;
+                let range =
+                    ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz, truncated };
                 let body = export::readings_csv(&readings, &range).into_bytes();
                 let name = format!("{}.csv", export::filename_stem("readings", &range));
                 Ok(ApiResponse::bytes(200, "text/csv; charset=utf-8", body)
                     .with_header("content-disposition", attachment(&name)))
             }
             "json" => {
-                let bin = req.query_int("bin").unwrap_or(export::DEFAULT_AGP_BIN_MINUTES).clamp(5, 60);
-                let value = export::metrics_json(&readings, &range, bin, &t);
-                // Pretty-printed: the JSON export is meant to be human-readable too.
-                let body = serde_json::to_vec_pretty(&value).unwrap_or_else(|_| b"{}".to_vec());
+                // Aggregate over the WHOLE window via a server-side downsample: one
+                // representative reading per adaptive whole-minute bucket (an index-only
+                // `GROUP BY mills` in storage), so a 90-day report covers every day
+                // regardless of source density and never 503s. The bucket widens only as
+                // far as needed to keep the sample count near `EXPORT_TARGET_SAMPLES`, so
+                // normal 1–5-min data passes through un-thinned. The fetch is paginated in
+                // `EXPORT_BATCH_SIZE` batches (like the CSV path) so no single subrequest
+                // materialises more than that many document bodies.
+                let window_ms = (end - start).max(1);
+                let bucket_ms = downsample_bucket_ms(window_ms);
+                let readings = self
+                    .fetch_downsampled_readings(&principal.user.id, start, end, bucket_ms)
+                    .await?;
+                let range = ExportRange {
+                    start_ms: start,
+                    end_ms: end,
+                    generated_ms: now_ms,
+                    tz,
+                    truncated: false,
+                };
+                let bin =
+                    req.query_int("bin").unwrap_or(export::DEFAULT_AGP_BIN_MINUTES).clamp(5, 60);
+                let mut value = export::metrics_json(&readings, &range, bin, &t);
+                // Record the downsample resolution so a reader knows the metrics reflect
+                // one reading per `sampleBucketMs`, and (on request) attach the compact
+                // sample series the printable report draws its daily-profile thumbnails
+                // from — so the report needs no second, unbounded `/entries` fetch.
+                let want_samples = req
+                    .query_get("samples")
+                    .is_some_and(|s| s == "1" || s.eq_ignore_ascii_case("true"));
+                if let Some(obj) = value.as_object_mut() {
+                    obj.insert("sampleBucketMs".into(), json!(bucket_ms));
+                    if want_samples {
+                        let mut ordered: Vec<&GlucoseReading> = readings.iter().collect();
+                        ordered.sort_by_key(|r| r.date_ms);
+                        // Compact `[epoch_ms, mg_dL]` pairs, oldest first.
+                        let arr: Vec<Value> = ordered
+                            .iter()
+                            .map(|r| json!([r.date_ms, r.value.mgdl_rounded()]))
+                            .collect();
+                        obj.insert("samples".into(), json!(arr));
+                    }
+                }
+                // Pretty-print the lean metrics-only download; serialise the report variant
+                // (with its thousands of sample pairs) compactly.
+                let body = if want_samples {
+                    serde_json::to_vec(&value)
+                } else {
+                    serde_json::to_vec_pretty(&value)
+                }
+                .unwrap_or_else(|_| b"{}".to_vec());
                 let name = format!("{}.json", export::filename_stem("metrics", &range));
                 Ok(ApiResponse::bytes(200, "application/json; charset=utf-8", body)
                     .with_header("content-disposition", attachment(&name)))
@@ -676,6 +730,73 @@ impl<S: Storage> ApiService<S> {
             cursor_end = oldest_mills.saturating_sub(1);
         }
         Ok((readings, truncated))
+    }
+
+    /// Pull a **downsampled** series for the aggregated JSON/report export: one reading per
+    /// `bucket_ms` time-bucket across `[start, end]`, newest first, covering the whole
+    /// window. Paginated in `EXPORT_BATCH_SIZE` batches (like [`fetch_export_readings`]) so
+    /// no single storage query materialises more than that many document bodies — the JSON
+    /// path holds the same per-subrequest budget as the raw CSV path, and a 90-day dense
+    /// window can't 503 the Worker.
+    ///
+    /// Buckets are absolute (`mills / bucket_ms`), so shrinking the `end` cursor each batch
+    /// walks a prefix of the same bucket set with no gaps or overlaps. Ties are de-duped by
+    /// bucket index (two documents sharing a millisecond that is a bucket minimum both match
+    /// storage's group-min `IN`-set; we keep the first and drop the rest), guaranteeing
+    /// exactly one reading per occupied bucket regardless of duplicate timestamps.
+    async fn fetch_downsampled_readings(
+        &self,
+        user_id: &str,
+        start: i64,
+        end: i64,
+        bucket_ms: i64,
+    ) -> Result<Vec<GlucoseReading>, ApiError> {
+        let bucket_ms = bucket_ms.max(1);
+        let mut readings: Vec<GlucoseReading> = Vec::new();
+        let mut seen_buckets: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        let mut cursor_end = end;
+        // The representative set is bounded by `window / bucket ≤ EXPORT_TARGET_SAMPLES`, so
+        // ~`target / batch` batches drain it; the ×4 slack absorbs tie-inflated batches
+        // (duplicate mills add rows without adding buckets) and the final short batch, and
+        // the whole bound fuses a backend that never advances the cursor.
+        let max_batches = (EXPORT_TARGET_SAMPLES / EXPORT_BATCH_SIZE) as usize * 4 + 8;
+        for _ in 0..max_batches {
+            if cursor_end < start {
+                break;
+            }
+            let docs = self
+                .storage
+                .downsampled_documents(
+                    Collection::Entries,
+                    user_id,
+                    "sgv",
+                    start,
+                    cursor_end,
+                    bucket_ms,
+                    Some(EXPORT_BATCH_SIZE),
+                )
+                .await?;
+            if docs.is_empty() {
+                break;
+            }
+            let batch_len = docs.len() as i64;
+            let oldest_mills = docs.last().map(|d| d.mills).unwrap_or(cursor_end);
+            for d in &docs {
+                // One reading per bucket: on a tie at a bucket minimum, `downsampled_documents`
+                // can return more than one row for the same bucket — keep the first seen.
+                if seen_buckets.insert(d.mills / bucket_ms) {
+                    if let Some(r) = reading_from_doc(d) {
+                        readings.push(r);
+                    }
+                }
+            }
+            if batch_len < EXPORT_BATCH_SIZE {
+                // A short batch means every remaining bucket in the window is drained.
+                break;
+            }
+            cursor_end = oldest_mills.saturating_sub(1);
+        }
+        Ok(readings)
     }
 
     /// Import a glucose CSV export (the raw CSV is the request body) into the caller's
@@ -1138,6 +1259,21 @@ fn attachment(name: &str) -> String {
     format!("attachment; filename=\"{name}\"")
 }
 
+/// The whole-minute downsample bucket for an aggregated export over a `window_ms`-long
+/// range: the smallest bucket that keeps `window / bucket ≤ EXPORT_TARGET_SAMPLES`,
+/// floored at `MIN_EXPORT_BUCKET_MS` (one minute). Widening the bucket only as far as the
+/// window demands means short/normal-cadence exports aren't thinned at all (a 14-day
+/// window stays at 1-minute buckets), while a 90-day window settles on a few-minute bucket
+/// that still gives thousands of points per AGP bin.
+fn downsample_bucket_ms(window_ms: i64) -> i64 {
+    let window_ms = window_ms.max(1);
+    // ceil(window / target) = minimum ms-per-sample to land at/under the target count.
+    let per_sample = (window_ms + EXPORT_TARGET_SAMPLES - 1) / EXPORT_TARGET_SAMPLES;
+    // Round that up to a whole minute, floored at one minute.
+    let minutes = ((per_sample + MIN_EXPORT_BUCKET_MS - 1) / MIN_EXPORT_BUCKET_MS).max(1);
+    minutes * MIN_EXPORT_BUCKET_MS
+}
+
 /// The caller's UTC offset in minutes (east of UTC), for localising time-of-day
 /// analytics. Defaults to 0 (UTC) and is clamped to the real-world ±14h range.
 fn tz_offset(req: &ApiRequest) -> i64 {
@@ -1235,6 +1371,25 @@ mod tests {
         // Global 10-min cadence → 144 expected.
         let expected = day_expected_per_day(&d, None, 10 * 60_000, 0);
         assert_eq!(expected, 144);
+    }
+
+    /// The aggregated-export bucket widens only as far as a long window needs, and never
+    /// below one minute — so normal-length exports keep every reading while a 90-day
+    /// report stays bounded near `EXPORT_TARGET_SAMPLES`.
+    #[test]
+    fn downsample_bucket_scales_with_window_but_floors_at_one_minute() {
+        let day = timeutil::DAY_MS;
+        // Short/normal windows: 1-minute buckets (no thinning of 1–5-min CGM data).
+        assert_eq!(downsample_bucket_ms(day), 60_000, "a 1-day window stays at 1-min buckets");
+        assert_eq!(downsample_bucket_ms(14 * day), 60_000, "the default 14-day window is un-thinned");
+        assert_eq!(downsample_bucket_ms(1), 60_000, "a degenerate tiny window floors at 1 min");
+        // A 90-day window widens the bucket, but the resulting sample count stays bounded.
+        let b90 = downsample_bucket_ms(90 * day);
+        assert!(b90 > 60_000, "a 90-day window needs a wider bucket, got {b90}");
+        assert_eq!(b90 % 60_000, 0, "buckets are whole minutes");
+        assert!(90 * day / b90 <= EXPORT_TARGET_SAMPLES, "sample count is held under the target");
+        // And it's the SMALLEST such whole-minute bucket (one minute narrower would overshoot).
+        assert!(90 * day / (b90 - 60_000) > EXPORT_TARGET_SAMPLES, "bucket is the minimal width needed");
     }
 }
 
