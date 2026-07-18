@@ -544,14 +544,16 @@ impl<S: Storage> ApiService<S> {
         let tz = tz_offset(req);
 
         // Resolve the window. Accept both the `start`/`end` and the `from`/`to` spellings.
+        // Use saturating arithmetic throughout so a client passing an extreme `end`/`start`
+        // near the i64 rails can't overflow the span/default-start math into a bogus window.
         let end = req.query_int("end").or_else(|| req.query_int("to")).unwrap_or(now_ms);
-        let default_start = end - DEFAULT_EXPORT_DAYS * timeutil::DAY_MS;
+        let default_start = end.saturating_sub(DEFAULT_EXPORT_DAYS * timeutil::DAY_MS);
         let mut start = req.query_int("start").or_else(|| req.query_int("from")).unwrap_or(default_start);
         // Clamp the span so an unbounded range can't exceed the point cap / compute budget:
         // keep the most-recent MAX_EXPORT_DAYS, and never let start run past end.
         let max_span = MAX_EXPORT_DAYS * timeutil::DAY_MS;
-        if end - start > max_span {
-            start = end - max_span;
+        if end.saturating_sub(start) > max_span {
+            start = end.saturating_sub(max_span);
         }
         if start > end {
             start = end;
@@ -570,7 +572,12 @@ impl<S: Storage> ApiService<S> {
             )
             .await?;
         let readings: Vec<GlucoseReading> = docs.iter().filter_map(reading_from_doc).collect();
-        let range = ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz };
+        // If the fetch hit the point cap the export is a partial view (typically the
+        // most-recent slice — storage returns newest-first, we sort oldest-first for CSV).
+        // Surface the fact in the file so a clinician doesn't mistake a partial for a whole.
+        let truncated = docs.len() as i64 >= MAX_ANALYTICS_POINTS;
+        let range =
+            ExportRange { start_ms: start, end_ms: end, generated_ms: now_ms, tz, truncated };
         let t = TirThresholds::default();
 
         // `format` defaults to json; anything else is a client error, not a silent fallback.

@@ -137,7 +137,7 @@ function header(rangeText, nDays, generated) {
 function statsSection(a, cov, gri) {
   const stats = el("div", { class: "stat-grid" });
   stats.append(
-    stat("% Time CGM Active", pct(cov.percentActive) + "%", `${(a.n || 0).toLocaleString()} readings · ${cov.daysCovered ?? "--"} days`),
+    stat("% Time CGM Active", pct(cov.percentActive) + "%", `${(a.n || 0).toLocaleString()} readings · ${cov.daysCovered == null ? "--" : cov.daysCovered.toFixed(1)} days`),
     stat("Average Glucose", `${fmtGlu(a.meanMgdl)}<small>${unitName()}</small>`, `SD ${fmtGlu(a.sdMgdl)}`, true),
     stat("Glucose Mgmt Indicator", pct(a.uGmiPercent, 1) + "%", `uGMI · GMI ${pct(a.gmiPercent, 1)}%`),
     stat("Variability (CV)", pct(a.cvPercent) + "%", a.cvPercent == null ? "—" : a.cvPercent <= 36 ? "stable (≤36%)" : "elevated"),

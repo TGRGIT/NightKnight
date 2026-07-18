@@ -32,7 +32,7 @@ const HOUR_MS: i64 = 3_600_000;
 /// The date range and generation metadata every export is labelled with. All instants are
 /// epoch **milliseconds**; `tz` is minutes east of UTC — the caller's local clock, used
 /// both for the AGP/time-of-day maths and for the local timestamps written into the CSV.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ExportRange {
     /// Inclusive window start (epoch ms).
     pub start_ms: i64,
@@ -42,6 +42,11 @@ pub struct ExportRange {
     pub generated_ms: i64,
     /// Minutes east of UTC.
     pub tz: i64,
+    /// The window's reading count hit the server's fetch cap, so the export is a
+    /// **partial** view — the most-recent readings only. Surfaced in the CSV preamble
+    /// and the JSON envelope so a clinician isn't quietly given fewer rows than the
+    /// range implies.
+    pub truncated: bool,
 }
 
 impl ExportRange {
@@ -94,6 +99,9 @@ pub fn readings_csv(readings: &[GlucoseReading], range: &ExportRange) -> String 
         timeutil::to_iso8601_offset(range.end_ms, range.tz),
     ));
     out.push_str(&format!("# readings: {}\n", rows.len()));
+    if range.truncated {
+        out.push_str("# truncated: true (window exceeded the server's fetch cap; only the most-recent readings are included)\n");
+    }
     out.push_str("# NOT A MEDICAL DEVICE \u{2014} for personal/clinical review, not treatment decisions.\n");
     out.push_str("timestamp,epoch_ms,mg_dL,mmol_L\n");
     for r in rows {
@@ -131,6 +139,7 @@ pub fn metrics_json(
     json!({
         "report": "NightKnight glucose metrics export",
         "notMedicalDevice": true,
+        "truncated": range.truncated,
         "generated": {
             "ms": range.generated_ms,
             "iso": timeutil::to_iso8601_ms(range.generated_ms),
@@ -167,19 +176,19 @@ mod tests {
     /// A fixed range: 14 local days ending at a stable instant, UTC.
     fn range() -> ExportRange {
         let end = 19_500 * DAY_MS; // midnight UTC on a stable day
-        ExportRange { start_ms: end - 14 * DAY_MS, end_ms: end, generated_ms: end, tz: 0 }
+        ExportRange { start_ms: end - 14 * DAY_MS, end_ms: end, generated_ms: end, tz: 0, truncated: false }
     }
 
     /// The window helpers round *up* to whole hours/days so a partial window never
     /// under-reports its span (which sets the coverage denominator and AGP day count).
     #[test]
     fn range_days_and_hours_round_up() {
-        let r = ExportRange { start_ms: 0, end_ms: DAY_MS + 1, generated_ms: 0, tz: 0 };
+        let r = ExportRange { start_ms: 0, end_ms: DAY_MS + 1, generated_ms: 0, tz: 0, truncated: false };
         assert_eq!(r.days(), 2);
-        let r2 = ExportRange { start_ms: 0, end_ms: HOUR_MS * 3 + 1, generated_ms: 0, tz: 0 };
+        let r2 = ExportRange { start_ms: 0, end_ms: HOUR_MS * 3 + 1, generated_ms: 0, tz: 0, truncated: false };
         assert_eq!(r2.hours(), 4);
         // A zero-width window still reports at least one day / hour, never zero.
-        let z = ExportRange { start_ms: 5, end_ms: 5, generated_ms: 0, tz: 0 };
+        let z = ExportRange { start_ms: 5, end_ms: 5, generated_ms: 0, tz: 0, truncated: false };
         assert_eq!(z.days(), 1);
         assert_eq!(z.hours(), 1);
     }
@@ -189,7 +198,7 @@ mod tests {
     #[test]
     fn filename_stem_carries_the_local_date_range() {
         let end = 19_500 * DAY_MS;
-        let r = ExportRange { start_ms: end - 2 * DAY_MS, end_ms: end, generated_ms: end, tz: 0 };
+        let r = ExportRange { start_ms: end - 2 * DAY_MS, end_ms: end, generated_ms: end, tz: 0, truncated: false };
         let stem = filename_stem("readings", &r);
         let end_date = timeutil::date_string_from_day_number(19_500);
         let start_date = timeutil::date_string_from_day_number(19_498);
@@ -222,6 +231,23 @@ mod tests {
         assert!(data[1].ends_with(",10.0"), "180 mg/dL is 10.0 mmol/L");
         // Each data row carries the epoch ms too.
         assert!(data[0].contains(&r.start_ms.to_string()));
+    }
+
+    /// A truncated export surfaces the fact in the CSV preamble AND the JSON envelope,
+    /// so a downstream reader doesn't mistake a partial file for a complete one.
+    #[test]
+    fn truncated_export_labels_itself() {
+        let mut r = range();
+        r.truncated = true;
+        let csv = readings_csv(&[at(r.start_ms, 100.0)], &r);
+        assert!(csv.contains("# truncated: true"), "CSV preamble carries the marker");
+        let v = metrics_json(&[], &r, DEFAULT_AGP_BIN_MINUTES, &TirThresholds::default());
+        assert_eq!(v["truncated"], true, "JSON envelope carries the marker");
+        // A non-truncated export must NOT falsely claim truncation.
+        let ok = range();
+        assert!(!readings_csv(&[], &ok).contains("# truncated"));
+        let vok = metrics_json(&[], &ok, DEFAULT_AGP_BIN_MINUTES, &TirThresholds::default());
+        assert_eq!(vok["truncated"], false);
     }
 
     /// An empty window still yields a valid CSV: the preamble + header, zero data rows.

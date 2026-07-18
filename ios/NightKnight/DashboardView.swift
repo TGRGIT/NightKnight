@@ -936,7 +936,13 @@ struct AnalysisView: View {
     @MainActor
     private func exportJSON() {
         guard let a = model.analytics else { return }
-        let data = GlucoseExport.metricsJSON(analytics: a, agp: model.agp, range: exportRange())
+        // Pass the user's actual TIR thresholds through so the export labels the numbers with
+        // the same low/high the app used to compute them; veryLow/veryHigh stay at the
+        // ADA/ATTD consensus levels (54/250) which the analytics engine also hard-codes.
+        let data = GlucoseExport.metricsJSON(
+            analytics: a, agp: model.agp, range: exportRange(),
+            thresholds: (54, lowMgdl, highMgdl, 250)
+        )
         if let url = ExportFile.write(data, name: "NightKnight-metrics-\(model.period)d.json") {
             shareItem = ReportShareItem(url: url)
         }
