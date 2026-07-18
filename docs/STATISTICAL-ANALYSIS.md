@@ -37,7 +37,8 @@ Most of this roadmap now ships. The pure maths lives in
 | Advanced variability — J-index, MAGE, CONGA(n), MODD | ✅ shipped |
 | Research-based trend arrows (first-party + least-squares fallback + stale guard) | ✅ shipped |
 | Per-day Data view (`/api/v4/days`) — coverage + per-day summary across the **whole** history | ✅ shipped |
-| Day-of-week patterns; printable AGP one-pager; CSV/JSON export | ⏳ follow-up |
+| Printable AGP one-pager (web + iOS) and CSV/JSON export (`/api/v4/export`) | ✅ shipped |
+| Day-of-week patterns | ⏳ follow-up |
 
 ### Data view per-day stats — coverage & gap handling
 
@@ -240,13 +241,24 @@ For users who want depth. In rough order of value/clarity:
 - **API:** an opt-in `GET /api/v4/analytics?advanced=true` block, so the default payload
   stays lean.
 
-#### 3.7 Exportable reports
+#### 3.7 Exportable reports — ✅ shipped
 
-- **CSV / JSON export** of entries + treatments + the computed metric set, for sharing
-  with a clinician or importing elsewhere. Pairs with the planned historical-import work.
-- **AGP one-pager** as a printable HTML / PDF report (client-side render of the AGP +
-  the consensus metric table).
-- **API:** `GET /api/v4/export?from=&to=&format=csv|json`.
+- **CSV / JSON export** — `GET /api/v4/export?format=csv|json&start=&end=&tzOffset=`
+  (`from`/`to` accepted as aliases). CSV is the raw readings (labelled preamble +
+  `timestamp,epoch_ms,mg_dL,mmol_L`, oldest first); JSON is the full computed metric set
+  (the `/analytics` payload + the AGP bands) wrapped with the generation timestamp and the
+  local date range. The window defaults to 14 days and is clamped to 90; every export is
+  scoped to the authenticated caller and served as a `Content-Disposition: attachment`
+  download stamped with the range. The composition lives in
+  [`nightknight-core::analytics::export`](../service/crates/nightknight-core/src/analytics/export.rs),
+  shared verbatim by the server and the iOS on-device path so the numbers can never drift.
+- **AGP one-pager** — the standard clinical Ambulatory Glucose Profile report (statistics,
+  a Time-in-Range goal bar, the AGP percentile chart, a daily-profiles calendar, and a
+  methodology/citation footer). On the **web**, a print-optimised light-themed page at
+  `/report.html?start=&end=&unit=` (opened from the Analysis view's *Export & Report* card)
+  that prints to PDF. On **iOS**, a native `ImageRenderer` PDF built from the on-device
+  analytics — so it works standalone (Dexcom Share / LibreLinkUp / Nightscout) — shared via
+  the system share sheet from the Analysis view's export menu, alongside the CSV/JSON files.
 
 ---
 

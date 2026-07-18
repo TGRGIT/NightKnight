@@ -634,6 +634,67 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v4/export:
+    get:
+      tags: [v4]
+      operationId: v4Export
+      summary: Export readings (CSV) or the computed metric set (JSON) over a date range
+      description: |
+        Downloads the caller's own data over a date range as a machine-readable file
+        (`Content-Disposition: attachment`, with a filename stamped with the range):
+
+        * `format=csv` → the raw `sgv` readings, one row per reading (oldest first), with a
+          labelled `#` metadata preamble then `timestamp,epoch_ms,mg_dL,mmol_L`. Both units
+          are emitted so the file is unit-agnostic.
+        * `format=json` (the default) → the full computed metric set — the `/analytics`
+          payload (GRI, Time-in-Range, GMI/uGMI/eA1c, SD/CV, J-index/MAGE/CONGA/MODD,
+          time-of-day patterns and episode roll-ups) plus the AGP percentile bands — wrapped
+          with the generation timestamp and the local date range. This is the data behind the
+          printable AGP one-pager.
+
+        The window is `start`/`end` (epoch ms; `from`/`to` are accepted aliases), defaulting
+        to the last 14 days and clamped to a 90-day span. `tzOffset` (minutes east of UTC)
+        localises timestamps and the AGP/time-of-day maths; `bin` sets the AGP bin width for
+        the JSON export. Every export is scoped to the authenticated caller's readings only.
+      parameters:
+        - name: format
+          in: query
+          description: Export format. Defaults to `json`.
+          schema: { type: string, enum: [csv, json], default: json }
+        - name: start
+          in: query
+          description: Inclusive window start (epoch ms). Alias `from`. Default `end − 14 days`.
+          schema: { type: integer, format: int64 }
+        - name: end
+          in: query
+          description: Inclusive window end (epoch ms). Alias `to`. Default now.
+          schema: { type: integer, format: int64 }
+        - name: bin
+          in: query
+          description: AGP bin width in minutes (JSON export). Default 15.
+          schema: { type: integer, minimum: 5, maximum: 60, default: 15 }
+        - name: tzOffset
+          in: query
+          description: Minutes east of UTC, for local timestamps and time-of-day analytics.
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: |
+            The export file. `Content-Disposition` carries an `attachment` filename stamped
+            with the date range (e.g. `nightknight-readings-2024-01-01_2024-01-14.csv`).
+          headers:
+            Content-Disposition:
+              description: "`attachment; filename=\"nightknight-…\"` download prompt."
+              schema: { type: string }
+          content:
+            text/csv:
+              schema: { type: string, description: Raw readings, one row per reading. }
+            application/json:
+              schema: { $ref: "#/components/schemas/V4MetricsExport" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/v4/me:
     get:
       tags: [v4]
@@ -1307,6 +1368,57 @@ components:
           type: [number, "null"]
           description: "Coefficient of variation (SD/mean × 100); ≤ 36% is considered stable."
         timeInRange: { $ref: "#/components/schemas/TimeInRange" }
+
+    V4MetricsExport:
+      type: object
+      description: |
+        The `format=json` export body: the full computed metric set for the window, wrapped
+        with generation + range metadata so the file is self-describing.
+      properties:
+        report: { type: string, examples: ["NightKnight glucose metrics export"] }
+        notMedicalDevice: { type: boolean, examples: [true] }
+        generated:
+          type: object
+          properties:
+            ms: { type: integer, format: int64, description: "Generation time, epoch ms." }
+            iso: { type: string, format: date-time }
+        range:
+          type: object
+          properties:
+            startMs: { type: integer, format: int64 }
+            endMs: { type: integer, format: int64 }
+            start: { type: string, format: date-time, description: "Local ISO-8601 with offset." }
+            end: { type: string, format: date-time }
+            tzOffset: { type: integer }
+            days: { type: integer }
+            hours: { type: integer }
+        thresholds:
+          type: object
+          description: "TIR band thresholds (mg/dL) the metrics were computed against."
+          properties:
+            veryLow: { type: number }
+            low: { type: number }
+            high: { type: number }
+            veryHigh: { type: number }
+        analytics:
+          allOf: [{ $ref: "#/components/schemas/V4Analytics" }]
+          description: "The full `/api/v4/analytics` payload for the window."
+        agp:
+          type: object
+          description: "The `/api/v4/agp` percentile bands for the window."
+          properties:
+            bins:
+              type: array
+              items:
+                type: object
+                properties:
+                  minuteOfDay: { type: integer }
+                  n: { type: integer }
+                  p05: { type: [number, "null"] }
+                  p25: { type: [number, "null"] }
+                  p50: { type: [number, "null"] }
+                  p75: { type: [number, "null"] }
+                  p95: { type: [number, "null"] }
 
     TimeInRange:
       type: object

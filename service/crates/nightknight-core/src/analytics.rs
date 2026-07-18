@@ -20,6 +20,7 @@
 use crate::timeutil::{self, DAY_MS};
 use crate::units::GlucoseValue;
 
+pub mod export;
 pub mod report;
 
 /// A timestamped glucose reading — the unit of all analytics and charting.

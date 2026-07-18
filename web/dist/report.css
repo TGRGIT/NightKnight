@@ -1,0 +1,214 @@
+/* NightKnight — printable AGP one-pager.
+ *
+ * A standalone, light-themed clinical report (the SPA ships dark; a report has to
+ * print on white paper and read like the standard Ambulatory Glucose Profile one-pager).
+ * Screen and print share one layout; the @page block + print overrides tune it for A4/Letter. */
+
+:root {
+  --paper: #ffffff;
+  --ink: #131720;
+  --muted: #5b6675;
+  --faint: #8a94a1;
+  --line: #e2e6ec;
+  --line-soft: #eef1f5;
+  --card: #ffffff;
+  --rim: #dce1e8;
+  --accent: #e5484d;
+  --shadow: 0 1px 3px rgba(19, 23, 32, 0.06), 0 8px 24px rgba(19, 23, 32, 0.05);
+
+  /* Clinical AGP band palette (dark-red low → green target → orange very-high). */
+  --b-vlow: #a01e1e;
+  --b-low: #db5245;
+  --b-inrange: #2f9e57;
+  --b-high: #f2c14e;
+  --b-vhigh: #e08b2f;
+  --target-band: rgba(47, 158, 87, 0.10);
+  --target-line: rgba(47, 158, 87, 0.55);
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  margin: 0;
+  background: #eef1f5;
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.sheet {
+  max-width: 1040px;
+  margin: 18px auto;
+  background: var(--paper);
+  padding: 28px 32px 24px;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+/* ── toolbar (screen only) ─────────────────────────────────────────────── */
+.toolbar {
+  max-width: 1040px;
+  margin: 18px auto -6px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.toolbar .spacer { margin-right: auto; font-size: 13px; color: var(--muted); }
+.btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--rim);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover { border-color: #c3cad4; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.05); }
+
+/* ── header ────────────────────────────────────────────────────────────── */
+.rpt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ink);
+}
+.rpt-brand { display: flex; align-items: center; gap: 11px; }
+.rpt-logo { width: 34px; height: 34px; flex: none; }
+.rpt-title h1 { margin: 0; font-size: 19px; letter-spacing: -0.01em; }
+.rpt-title .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.rpt-meta { text-align: right; font-size: 12.5px; color: var(--muted); }
+.rpt-meta .range { color: var(--ink); font-weight: 600; font-size: 13.5px; }
+.rpt-meta .row { margin-top: 2px; }
+
+/* ── section scaffolding ───────────────────────────────────────────────── */
+.section { margin-top: 20px; break-inside: avoid; }
+.section-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cols {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 22px;
+  align-items: start;
+}
+
+/* ── statistics tiles ──────────────────────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat {
+  border: 1px solid var(--rim);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.stat.wide { grid-column: 1 / -1; }
+.stat .k { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
+.stat .v { font-size: 23px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+.stat .v small { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+.stat .s { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+/* GRI accent + zone chip */
+.gri-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; color: #fff;
+  padding: 1px 8px; border-radius: 999px; margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ── Time in Range goal bar (vertical, AGP convention) ─────────────────── */
+.tir { display: flex; gap: 14px; align-items: stretch; }
+.tir-bar {
+  width: 82px; flex: none;
+  border-radius: 8px; overflow: hidden;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--rim);
+}
+.tir-seg { display: flex; align-items: center; justify-content: center; min-height: 10px; }
+.tir-seg span { font-size: 10.5px; font-weight: 700; color: rgba(255,255,255,0.96); text-shadow: 0 1px 1px rgba(0,0,0,0.18); }
+.tir-key { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.tir-row { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; font-size: 12px; }
+.tir-row .sw { width: 12px; height: 12px; border-radius: 3px; }
+.tir-row .lab { color: var(--ink); }
+.tir-row .lab b { font-weight: 600; }
+.tir-row .lab i { font-style: normal; color: var(--faint); }
+.tir-row .pct { font-weight: 700; }
+.tir-row .goal { grid-column: 2 / -1; font-size: 10.5px; color: var(--faint); margin-top: -4px; }
+
+/* ── AGP chart ─────────────────────────────────────────────────────────── */
+.agp-card { border: 1px solid var(--rim); border-radius: 10px; padding: 12px 14px 6px; background: #fff; }
+.agp-card svg { display: block; width: 100%; height: auto; }
+.agp-legend {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; padding-top: 8px;
+  border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--muted);
+}
+.agp-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.agp-legend .sw { width: 18px; height: 10px; border-radius: 2px; }
+.agp-legend .ln { width: 18px; height: 0; border-top: 2px solid var(--ink); }
+.agp-legend .ln.target { border-top: 2px dashed var(--target-line); }
+
+/* ── daily profiles grid ───────────────────────────────────────────────── */
+.days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.days-dow {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 4px;
+}
+.days-dow span { text-align: center; }
+.day {
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 5px 2px; background: #fff;
+  min-height: 62px; display: flex; flex-direction: column;
+}
+.day.empty { background: #f6f8fa; }
+.day .d-top { display: flex; justify-content: space-between; align-items: baseline; }
+.day .d-date { font-size: 10px; font-weight: 700; color: var(--muted); }
+.day .d-tir { font-size: 9.5px; font-weight: 700; }
+.day svg { display: block; width: 100%; height: auto; margin-top: 1px; }
+.day .d-empty { font-size: 9.5px; color: var(--faint); margin: auto; }
+
+/* ── footer / methodology ──────────────────────────────────────────────── */
+.rpt-foot {
+  margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 10.5px; color: var(--muted); line-height: 1.5;
+}
+.rpt-foot .disc { font-weight: 700; color: var(--ink); }
+.rpt-foot a { color: var(--muted); }
+
+.status { padding: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+.status.err { color: var(--accent); }
+
+/* ── responsive (screen) ───────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .cols { grid-template-columns: 1fr; }
+  .days-grid, .days-dow { grid-template-columns: repeat(4, 1fr); }
+  .sheet { padding: 20px 16px; margin: 10px; }
+}
+
+/* ── print ─────────────────────────────────────────────────────────────── */
+@page { size: A4; margin: 11mm; }
+@media print {
+  body { background: #fff; }
+  .toolbar { display: none !important; }
+  .sheet { max-width: none; margin: 0; padding: 0; box-shadow: none; border-radius: 0; }
+  .section { break-inside: avoid; }
+  .day, .stat, .agp-card { break-inside: avoid; }
+  .days-grid, .days-dow { grid-template-columns: repeat(7, 1fr); }
+  a[href]:after { content: ""; }
+}

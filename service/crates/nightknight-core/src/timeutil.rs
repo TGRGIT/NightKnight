@@ -189,6 +189,30 @@ pub fn to_iso8601_ms(ms: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}.{millis:03}Z")
 }
 
+/// Format epoch milliseconds as a **local** ISO-8601 timestamp carrying its numeric
+/// offset, e.g. `2024-01-01T09:30:00.000+02:00` (or `…Z` at UTC). `offset_min` is minutes
+/// east of UTC. Unlike [`to_iso8601_ms`] this shows the wall-clock time a person actually
+/// saw, with the offset making it unambiguous — the form clinical CGM exports use.
+pub fn to_iso8601_offset(ms: i64, offset_min: i64) -> String {
+    let local = ms + offset_min * 60_000;
+    let (days, mut rem) = (local.div_euclid(DAY_MS), local.rem_euclid(DAY_MS));
+    let (y, m, d) = civil_from_days(days);
+    let millis = rem % 1000;
+    rem /= 1000;
+    let ss = rem % 60;
+    rem /= 60;
+    let mm = rem % 60;
+    let hh = rem / 60;
+    let zone = if offset_min == 0 {
+        "Z".to_string()
+    } else {
+        let sign = if offset_min > 0 { '+' } else { '-' };
+        let abs = offset_min.abs();
+        format!("{sign}{:02}:{:02}", abs / 60, abs % 60)
+    };
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}.{millis:03}{zone}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +289,21 @@ mod tests {
         assert_eq!(minute_of_day(t, 60), 13 * 60); // CET: 13:00 local
         let near_midnight = parse_iso8601_ms("2023-06-01T23:30:00Z").unwrap();
         assert_eq!(minute_of_day(near_midnight, 60), 30); // 00:30 next local day
+    }
+
+    /// Local ISO-8601 with offset shows wall-clock time and an unambiguous zone suffix:
+    /// UTC gets `Z`, a positive offset `+HH:MM`, a negative one `-HH:MM`. Parsing it back
+    /// must recover the original instant (the offset cancels the local shift).
+    #[test]
+    fn to_iso8601_offset_shows_local_wall_clock_and_round_trips() {
+        let t = parse_iso8601_ms("2024-01-01T07:30:00.000Z").unwrap();
+        assert_eq!(to_iso8601_offset(t, 0), "2024-01-01T07:30:00.000Z");
+        assert_eq!(to_iso8601_offset(t, 120), "2024-01-01T09:30:00.000+02:00");
+        assert_eq!(to_iso8601_offset(t, -300), "2024-01-01T02:30:00.000-05:00");
+        for off in [0, 60, -300, 330, -690] {
+            let s = to_iso8601_offset(t, off);
+            assert_eq!(parse_iso8601_ms(&s), Some(t), "round-trip failed for {s}");
+        }
     }
 
     /// Day numbering is consecutive across local midnight and the offset can push an

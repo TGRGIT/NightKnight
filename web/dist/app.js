@@ -30,6 +30,7 @@ const state = {
   unit: localStorage.getItem("nk-unit") || "mg/dl",
   periodDays: 7,          // dashboard trailing summary
   aPeriodDays: 14,        // analysis page
+  exportDays: 14,         // export/report trailing range preset
   chartHours: 24,
   provider: "dexcom",
   targetLow: Number(localStorage.getItem("nk-target-low")) || 70,   // mg/dL (chart band)
@@ -435,6 +436,42 @@ async function refreshAnalysis() {
   } catch (e) { if (!/unauthorized|forbidden/.test(String(e))) console.error(e); }
 }
 
+// ── export & printable report ──────────────────────────────────────────────────
+// The date range is either a trailing-days preset (7/14/30/90) or an explicit From/To.
+// When both `From` and `To` carry a value they win; otherwise the preset trails `now`.
+function exportRange() {
+  const startInput = $("#export-start").value;
+  const endInput = $("#export-end").value;
+  if (startInput && endInput) {
+    // Local midnight → end of the `To` day, so the range is inclusive of both dates.
+    const startMs = new Date(startInput + "T00:00:00").getTime();
+    const endMs = new Date(endInput + "T23:59:59").getTime();
+    if (isFinite(startMs) && isFinite(endMs) && endMs >= startMs) return { startMs, endMs };
+  }
+  const end = Date.now();
+  return { startMs: end - state.exportDays * DAY_MS, endMs: end };
+}
+
+// Trigger a file download from the export endpoint. A same-origin anchor navigation carries
+// the session cookie / proxy identity, and the server's Content-Disposition names the file.
+function downloadExport(fmt) {
+  const { startMs, endMs } = exportRange();
+  const q = new URLSearchParams({ format: fmt, start: startMs, end: endMs, tzOffset: state.tzOffset });
+  const a = el("a");
+  a.href = `/api/v4/export?${q.toString()}`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// Open the printable AGP one-pager in a new tab, carrying the range + display unit.
+function openReport() {
+  const { startMs, endMs } = exportRange();
+  const q = new URLSearchParams({ start: startMs, end: endMs, tz: state.tzOffset, unit: state.unit });
+  window.open(`/report.html?${q.toString()}`, "_blank", "noopener");
+}
+
 // ── data coverage page ─────────────────────────────────────────────────────────
 const DAY_MS = 86_400_000;
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -771,6 +808,15 @@ function wire() {
   $$(".aperiod-toggle .seg-btn").forEach((b) => b.addEventListener("click", () => {
     state.aPeriodDays = Number(b.dataset.days); syncActive($(".aperiod-toggle"), "days", state.aPeriodDays); refreshAnalysis();
   }));
+  // Export & report: preset picks a trailing range and clears any custom dates.
+  $$(".export-preset .seg-btn").forEach((b) => b.addEventListener("click", () => {
+    state.exportDays = Number(b.dataset.days);
+    syncActive($(".export-preset"), "days", state.exportDays);
+    $("#export-start").value = ""; $("#export-end").value = "";
+  }));
+  $("#export-report").addEventListener("click", openReport);
+  $("#export-csv").addEventListener("click", () => downloadExport("csv"));
+  $("#export-json").addEventListener("click", () => downloadExport("json"));
   syncActive($(".cal-mode-toggle"), "mode", state.calMode);
   $$(".cal-mode-toggle .seg-btn").forEach((b) => b.addEventListener("click", () => {
     state.calMode = b.dataset.mode; localStorage.setItem("nk-cal-mode", state.calMode);

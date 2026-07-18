@@ -117,6 +117,17 @@ impl ApiResponse {
         }
     }
 
+    /// A response carrying a raw byte body under an explicit content type — for file
+    /// downloads (CSV, a pretty-printed JSON export) where the caller then attaches a
+    /// `Content-Disposition` via [`with_header`](Self::with_header).
+    pub fn bytes(status: u16, content_type: impl Into<String>, body: Vec<u8>) -> ApiResponse {
+        ApiResponse {
+            status,
+            headers: vec![("content-type".into(), content_type.into())],
+            body,
+        }
+    }
+
     /// An empty response with just a status code.
     pub fn empty(status: u16) -> ApiResponse {
         ApiResponse {
