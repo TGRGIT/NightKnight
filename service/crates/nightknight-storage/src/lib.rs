@@ -104,6 +104,35 @@ pub trait Storage {
         tz_offset_ms: i64,
     ) -> Result<Vec<DayCount>>;
 
+    /// One representative document per fixed time-bucket across `[start_ms, end_ms]`,
+    /// newest first — a **downsampled** view for aggregate reports (AGP, the metrics
+    /// export) that must cover a long window without loading every reading.
+    ///
+    /// `bucket_ms` is the bucket width in milliseconds (e.g. 300_000 for 5-minute
+    /// resolution). Within each bucket the earliest reading is kept. Like
+    /// [`daily_counts`](Self::daily_counts) the bucketing is an **index-only `GROUP BY`
+    /// on `mills`** (no JSON parsing, no document bodies scanned for the grouping), so a
+    /// 90-day window collapses to a few tens of thousands of rows regardless of how dense
+    /// the source data is — bounding the per-request work that was 503-ing the Worker on
+    /// an unbounded fetch. Only the surviving representative rows have their bodies read.
+    ///
+    /// `limit` caps the returned rows (`None` = all buckets, newest first). A caller
+    /// paginating a large window passes `Some(batch)` and re-requests with a shrunk
+    /// `end_ms`, so no single call materialises more than `limit` document bodies.
+    // The window/bucket/limit are distinct scalars; bundling them into a struct would
+    // obscure more than it helps for a single call site.
+    #[allow(clippy::too_many_arguments)]
+    async fn downsampled_documents(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        start_ms: i64,
+        end_ms: i64,
+        bucket_ms: i64,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredDoc>>;
+
     /// Documents changed since `since_srv_modified` (oldest first, capped at `limit`),
     /// including soft-deleted ones so clients learn about deletions.
     async fn history_since(

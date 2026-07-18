@@ -63,6 +63,61 @@ async function fetchJson(path) {
   return res.json();
 }
 
+// Fetch a JSON document while reporting download progress. The server aggregates the whole
+// window server-side, so this one request carries the entire report (metrics + downsampled
+// samples); streaming the body lets the loading bar reflect real bytes received rather than
+// a fake timer. `onProgress(receivedBytes, totalBytes|0)` fires per chunk (total 0 = unknown).
+async function fetchJsonWithProgress(path, onProgress) {
+  const res = await fetch(path, { credentials: "include" });
+  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  // No readable stream (old browser) — fall back to a plain parse; the bar stays indeterminate.
+  if (!res.body || !res.body.getReader) return res.json();
+  const reader = res.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    onProgress(received, total);
+  }
+  const buf = new Uint8Array(received);
+  let pos = 0;
+  for (const c of chunks) { buf.set(c, pos); pos += c.length; }
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+
+// ── loading progress bar ──────────────────────────────────────────────────────
+function setLoaderIndeterminate(text) {
+  const bar = document.getElementById("progress");
+  if (bar) bar.classList.add("indeterminate");
+  const sub = document.getElementById("loader-sub");
+  if (sub) sub.textContent = text;
+}
+function setLoaderProgress(received, total) {
+  const bar = document.getElementById("progress");
+  const fill = document.getElementById("progress-fill");
+  const sub = document.getElementById("loader-sub");
+  if (!bar || !fill) return;
+  const kb = (received / 1024).toFixed(0);
+  if (total > 0) {
+    bar.classList.remove("indeterminate");
+    fill.style.width = Math.min(100, Math.round((received / total) * 100)) + "%";
+    if (sub) sub.textContent = `Loaded ${kb} KB of ${(total / 1024).toFixed(0)} KB`;
+  } else if (sub) {
+    sub.textContent = `Loaded ${kb} KB…`;
+  }
+}
+function loaderError(msg) {
+  const loader = document.getElementById("loader");
+  if (loader) {
+    loader.innerHTML = "";
+    loader.appendChild(el("div", { class: "status err", text: msg }));
+  }
+}
+
 // ── entry point ──────────────────────────────────────────────────────────────
 async function main() {
   document.getElementById("tb-print").addEventListener("click", () => window.print());
@@ -71,20 +126,26 @@ async function main() {
     else location.href = "/#analysis";
   });
   try {
-    const q = new URLSearchParams({ format: "json", start: startMs, end: endMs, tzOffset: tz, bin });
-    const hours = Math.ceil((now - startMs) / 3_600_000) + 1;
-    const [rep, entriesResp] = await Promise.all([
-      fetchJson(`/api/v4/export?${q}`),
-      fetchJson(`/api/v4/entries?hours=${hours}&count=20000`).catch(() => ({ entries: [] })),
-    ]);
-    render(rep, entriesResp.entries || []);
+    // One request: the server aggregates the WHOLE window (downsampled to a bounded sample
+    // set) and returns the metrics plus the `samples` series the daily-profile thumbnails
+    // need — so there's no second, unbounded `/entries` fetch that could exceed the runtime's
+    // per-request budget on a long/dense history.
+    setLoaderIndeterminate("Aggregating your glucose data…");
+    const q = new URLSearchParams({
+      format: "json", start: startMs, end: endMs, tzOffset: tz, bin, samples: "1",
+    });
+    const rep = await fetchJsonWithProgress(`/api/v4/export?${q}`, setLoaderProgress);
+    // `samples` are compact `[epoch_ms, mg_dL]` pairs; map to the shape the daily-profile
+    // renderer expects. Falls back to an empty set if an older server omits them.
+    const samples = (rep.samples || []).map(([date, mgdl]) => ({ date, mgdl }));
+    render(rep, samples);
     if (params.get("print") === "1") setTimeout(() => window.print(), 400);
   } catch (e) {
-    const msg = /→ 401/.test(String(e))
-      ? "Not signed in — open the report from inside the authenticated app."
-      : `Could not load the report (${e}).`;
-    document.getElementById("status").className = "status err";
-    document.getElementById("status").textContent = msg;
+    loaderError(
+      /→ 401/.test(String(e))
+        ? "Not signed in — open the report from inside the authenticated app."
+        : `Could not load the report (${e}).`,
+    );
   }
 }
 

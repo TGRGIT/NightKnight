@@ -16,7 +16,11 @@
   </div>
 
   <main class="sheet" id="sheet">
-    <div class="status" id="status">Loading your glucose report…</div>
+    <div class="loader" id="loader">
+      <div class="loader-title">Loading your glucose report…</div>
+      <div class="progress indeterminate" id="progress"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="loader-sub" id="loader-sub">Preparing…</div>
+    </div>
   </main>
 
   <script type="module" src="/report.js"></script>

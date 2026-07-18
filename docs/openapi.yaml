@@ -652,10 +652,21 @@ paths:
           with the generation timestamp and the local date range. This is the data behind the
           printable AGP one-pager.
 
+        The two formats fetch differently. **CSV** is a raw dump: it streams the verbatim
+        readings in bounded batches and, for an exceptionally dense window, self-marks
+        `truncated` when it hits the row ceiling. **JSON is aggregated server-side**: it
+        downsamples to one representative reading per adaptive whole-minute bucket (chosen so
+        the sample count stays bounded), so a report over a long, dense window always covers
+        the entire span without exceeding the runtime's per-request budget — it never
+        truncates. `sampleBucketMs` in the body reports the chosen resolution; normal
+        1–5-minute data is not thinned.
+
         The window is `start`/`end` (epoch ms; `from`/`to` are accepted aliases), defaulting
         to the last 14 days and clamped to a 90-day span. `tzOffset` (minutes east of UTC)
         localises timestamps and the AGP/time-of-day maths; `bin` sets the AGP bin width for
-        the JSON export. Every export is scoped to the authenticated caller's readings only.
+        the JSON export; `samples=1` (JSON only) additionally returns the compact downsampled
+        `[epoch_ms, mg_dL]` series that the printable report draws its daily-profile
+        thumbnails from. Every export is scoped to the authenticated caller's readings only.
       parameters:
         - name: format
           in: query
@@ -673,6 +684,12 @@ paths:
           in: query
           description: AGP bin width in minutes (JSON export). Default 15.
           schema: { type: integer, minimum: 5, maximum: 60, default: 15 }
+        - name: samples
+          in: query
+          description: >
+            JSON export only. `1`/`true` appends the downsampled `[epoch_ms, mg_dL]` sample
+            series (oldest first) used for the report's daily-profile thumbnails.
+          schema: { type: string, enum: ["1", "true"] }
         - name: tzOffset
           in: query
           description: Minutes east of UTC, for local timestamps and time-of-day analytics.
@@ -1377,6 +1394,30 @@ components:
       properties:
         report: { type: string, examples: ["NightKnight glucose metrics export"] }
         notMedicalDevice: { type: boolean, examples: [true] }
+        truncated:
+          type: boolean
+          description: >
+            Always `false` for the aggregated JSON export — it downsamples server-side and
+            covers the whole window. (The field exists for parity with the CSV export, whose
+            raw dump can be truncated on an exceptionally dense window.)
+        sampleBucketMs:
+          type: integer
+          format: int64
+          description: >
+            The downsample bucket width (ms) the metrics were computed at — one representative
+            reading per bucket. 60000 (1 min) means the data was not thinned; a wider value
+            means a long/dense window was collapsed to keep the sample count bounded.
+        samples:
+          type: array
+          description: >
+            Present only when `?samples=1`. The compact downsampled series, oldest first, as
+            `[epoch_ms, mg_dL]` pairs — what the printable report draws its daily-profile
+            thumbnails from (so it needs no second raw fetch).
+          items:
+            type: array
+            items: { type: integer }
+            minItems: 2
+            maxItems: 2
         generated:
           type: object
           properties:

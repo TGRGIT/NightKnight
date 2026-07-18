@@ -280,6 +280,135 @@ async fn daily_counts_resists_float_offset_binding_explosion() {
     assert_eq!(exploded.len(), 5, "a float-bound offset explodes to one group per reading");
 }
 
+/// GUARANTEE: `downsampled_documents` returns exactly one representative reading per
+/// time-bucket — the earliest in each bucket — so dense data collapses to a bounded
+/// series while sparse data passes through untouched. This is what lets a long-window
+/// aggregate report cover the whole range without loading every reading. Scoping (user,
+/// type, validity, window) matches `search_documents`.
+#[tokio::test]
+async fn downsampled_documents_keeps_one_reading_per_bucket() {
+    let store = fresh_store().await;
+    // Bucket width 1000 ms. Bucket 0 [0,1000): three dense readings at 100/300/900 →
+    // only the earliest (100) survives. Bucket 2 [2000,3000): one reading at 2500.
+    // Bucket 5 [5000,6000): one reading at 5500. A 4th bucket reading is out of window.
+    for (i, (t, sgv)) in [(100i64, 90), (300, 95), (900, 99), (2_500, 120), (5_500, 150), (9_500, 200)]
+        .iter()
+        .enumerate()
+    {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("a{i}"), *t, *sgv, 1))
+            .await
+            .unwrap();
+    }
+    // Excluded: another user, a non-sgv type, and a soft-deleted reading in an occupied bucket.
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u2", "z", 200, 100, 1))
+        .await
+        .unwrap();
+    let mut mbg = sgv_doc("u1", "m", 400, 88, 1);
+    mbg.doc_type = Some("mbg".into());
+    store.upsert_document(Collection::Entries, mbg).await.unwrap();
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "del", 50, 77, 1))
+        .await
+        .unwrap();
+    store.soft_delete_document(Collection::Entries, "u1", "del", 2).await.unwrap();
+
+    // Window [0, 6000] with 1000 ms buckets → buckets 0, 2, 5 each contribute one row.
+    let rows = store
+        .downsampled_documents(Collection::Entries, "u1", "sgv", 0, 6_000, 1_000, None)
+        .await
+        .unwrap();
+    let mills: Vec<i64> = rows.iter().map(|r| r.mills).collect();
+    // Newest first, one representative (earliest) per occupied bucket; 9_500 is out of window.
+    assert_eq!(mills, vec![5_500, 2_500, 100], "one earliest-per-bucket row, newest first, in window");
+    // The 50 ms soft-deleted reading did NOT become bucket 0's representative.
+    assert!(rows.iter().all(|r| r.mills != 50), "soft-deleted rows are excluded from bucketing");
+
+    // `limit` caps the outer fetch (newest first) so a caller can paginate a long window
+    // without materialising every bucket in one query.
+    let capped = store
+        .downsampled_documents(Collection::Entries, "u1", "sgv", 0, 6_000, 1_000, Some(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        capped.iter().map(|r| r.mills).collect::<Vec<_>>(),
+        vec![5_500, 2_500],
+        "limit keeps the newest N bucket representatives"
+    );
+}
+
+/// REGRESSION (mirrors `daily_counts_resists_float_offset_binding_explosion`): the
+/// bucket divisor must be an INTEGER literal, not a bound param. If D1 bound `bucket_ms`
+/// as a JS float, `mills / bucket_ms` would be REAL division and every reading would land
+/// in its own fractional bucket — defeating the downsample and re-exposing the unbounded
+/// row count that 503s the Worker. The shipped query inlines the divisor; this proves the
+/// float regime would explode and that the shipped path does not.
+#[tokio::test]
+async fn downsampled_documents_resists_float_bucket_binding_explosion() {
+    let store = fresh_store().await;
+    // Five dense readings inside a single 1000 ms bucket.
+    for (i, t) in [10i64, 100, 300, 600, 900].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("e{i}"), *t, 100, 1))
+            .await
+            .unwrap();
+    }
+    // Shipped query (divisor inlined as integer): the whole bucket collapses to one row.
+    let rows = store
+        .downsampled_documents(Collection::Entries, "u1", "sgv", 0, 1_000, 1_000, None)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "inlined-integer bucketing keeps one row for the dense bucket");
+    assert_eq!(rows[0].mills, 10, "and it is the earliest reading in the bucket");
+    // Simulate D1's float bind into the same expression: REAL division → one group per reading.
+    let exploded = sqlx::query(
+        "SELECT MIN(mills) AS m FROM entries \
+         WHERE user_id=? AND is_valid=1 AND doc_type='sgv' GROUP BY mills / ?",
+    )
+    .bind("u1")
+    .bind(1000.0_f64)
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(exploded.len(), 5, "a float-bound divisor explodes to one group per reading");
+}
+
+/// DOCUMENTS a known edge of the `mills IN (SELECT MIN(mills) ...)` groupwise-min: when two
+/// distinct documents share the SAME `mills` (allowed — the PK is `(user_id, identifier)`
+/// and the `mills` index is non-unique, e.g. two devices sampling the same instant), and
+/// that shared timestamp is a bucket minimum, the `IN` matches BOTH rows, so the bucket
+/// emits two rows. The API layer that consumes this (`v4_export`) de-dupes to one reading
+/// per bucket in Rust; this test pins the storage-level behaviour so that contract is explicit.
+#[tokio::test]
+async fn downsampled_documents_may_emit_duplicate_mills_within_a_bucket() {
+    let store = fresh_store().await;
+    // Two distinct docs at the same mills (100) in bucket 0, plus one later reading.
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "dexcom-100", 100, 90, 1))
+        .await
+        .unwrap();
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "libre-100", 100, 95, 1))
+        .await
+        .unwrap();
+    store
+        .upsert_document(Collection::Entries, sgv_doc("u1", "b", 2_500, 120, 1))
+        .await
+        .unwrap();
+    let rows = store
+        .downsampled_documents(Collection::Entries, "u1", "sgv", 0, 3_000, 1_000, None)
+        .await
+        .unwrap();
+    let bucket0: Vec<i64> = rows.iter().filter(|r| r.mills == 100).map(|r| r.mills).collect();
+    assert_eq!(bucket0.len(), 2, "tied-mills docs both match the bucket-min IN-set (deduped upstream)");
+    // Deduping by bucket index (mills / 1000) collapses them to the intended one-per-bucket.
+    let mut buckets: Vec<i64> = rows.iter().map(|r| r.mills / 1_000).collect();
+    buckets.sort_unstable();
+    buckets.dedup();
+    assert_eq!(buckets, vec![0, 2], "two occupied buckets once de-duped");
+}
+
 /// GUARANTEE: a soft-deleted document disappears from normal search but remains
 /// available through history (so a synced device learns it was removed), and the
 /// collection's `last_modified` advances.
