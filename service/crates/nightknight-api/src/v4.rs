@@ -600,19 +600,29 @@ impl<S: Storage> ApiService<S> {
                     .with_header("content-disposition", attachment(&name)))
             }
             "json" => {
-                // Aggregate over the WHOLE window via a server-side downsample: one
-                // representative reading per adaptive whole-minute bucket (an index-only
-                // `GROUP BY mills` in storage), so a 90-day report covers every day
-                // regardless of source density and never 503s. The bucket widens only as
-                // far as needed to keep the sample count near `EXPORT_TARGET_SAMPLES`, so
-                // normal 1–5-min data passes through un-thinned. The fetch is paginated in
-                // `EXPORT_BATCH_SIZE` batches (like the CSV path) so no single subrequest
-                // materialises more than that many document bodies.
-                let window_ms = (end - start).max(1);
-                let bucket_ms = downsample_bucket_ms(window_ms);
-                let readings = self
-                    .fetch_downsampled_readings(&principal.user.id, start, end, bucket_ms)
+                // Cover the WHOLE window without ever exceeding the per-request budget.
+                //
+                // First ask how many readings the window actually holds — an index-only
+                // `COUNT(*)` on `mills`, cheap at any history size. If they already fit
+                // under `EXPORT_TARGET_SAMPLES` the metrics are computed from the RAW
+                // readings, so a normal-cadence report is EXACT with no approximation.
+                // Only a genuinely denser window is downsampled: one representative reading
+                // per adaptive whole-minute bucket (an index-only `GROUP BY mills` in
+                // storage), fetched in `EXPORT_BATCH_SIZE` batches like the CSV path. Either
+                // way the report spans every day and never 503s.
+                let raw_readings = self
+                    .storage
+                    .count_documents(Collection::Entries, &principal.user.id, "sgv", start, end)
                     .await?;
+                let window_ms = (end - start).max(1);
+                let downsampled = raw_readings > EXPORT_TARGET_SAMPLES;
+                let bucket_ms = if downsampled { downsample_bucket_ms(window_ms) } else { 0 };
+                let readings = if downsampled {
+                    self.fetch_downsampled_readings(&principal.user.id, start, end, bucket_ms)
+                        .await?
+                } else {
+                    self.fetch_export_readings(&principal.user.id, start, end).await?.0
+                };
                 let range = ExportRange {
                     start_ms: start,
                     end_ms: end,
@@ -623,15 +633,22 @@ impl<S: Storage> ApiService<S> {
                 let bin =
                     req.query_int("bin").unwrap_or(export::DEFAULT_AGP_BIN_MINUTES).clamp(5, 60);
                 let mut value = export::metrics_json(&readings, &range, bin, &t);
-                // Record the downsample resolution so a reader knows the metrics reflect
-                // one reading per `sampleBucketMs`, and (on request) attach the compact
-                // sample series the printable report draws its daily-profile thumbnails
-                // from — so the report needs no second, unbounded `/entries` fetch.
+                // Report BOTH counts so a reader can always tell whether the metrics came
+                // from every stored reading or from a downsampled series, and at what
+                // resolution. `bucketMs` is null when nothing was downsampled.
                 let want_samples = req
                     .query_get("samples")
                     .is_some_and(|s| s == "1" || s.eq_ignore_ascii_case("true"));
                 if let Some(obj) = value.as_object_mut() {
-                    obj.insert("sampleBucketMs".into(), json!(bucket_ms));
+                    obj.insert(
+                        "sampling".into(),
+                        json!({
+                            "rawReadings": raw_readings,
+                            "usedReadings": readings.len(),
+                            "downsampled": downsampled,
+                            "bucketMs": if downsampled { json!(bucket_ms) } else { Value::Null },
+                        }),
+                    );
                     if want_samples {
                         let mut ordered: Vec<&GlucoseReading> = readings.iter().collect();
                         ordered.sort_by_key(|r| r.date_ms);

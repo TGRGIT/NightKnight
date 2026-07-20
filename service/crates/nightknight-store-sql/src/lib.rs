@@ -298,6 +298,21 @@ impl Storage for SqlStore {
             .collect()
     }
 
+    async fn count_documents(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<i64> {
+        let (sql, params) = sql::count_documents(c, user_id, doc_type, start_ms, end_ms);
+        match self.fetch_optional(&sql, params).await? {
+            Some(row) => Ok(row.try_get::<i64, _>(0).map_err(backend_err)?),
+            None => Ok(0),
+        }
+    }
+
     async fn downsampled_documents(
         &self,
         c: Collection,

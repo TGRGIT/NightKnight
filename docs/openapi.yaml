@@ -654,12 +654,19 @@ paths:
 
         The two formats fetch differently. **CSV** is a raw dump: it streams the verbatim
         readings in bounded batches and, for an exceptionally dense window, self-marks
-        `truncated` when it hits the row ceiling. **JSON is aggregated server-side**: it
-        downsamples to one representative reading per adaptive whole-minute bucket (chosen so
-        the sample count stays bounded), so a report over a long, dense window always covers
-        the entire span without exceeding the runtime's per-request budget — it never
-        truncates. `sampleBucketMs` in the body reports the chosen resolution; normal
-        1–5-minute data is not thinned.
+        `truncated` when it hits the row ceiling. **JSON adapts**: if the window's readings
+        already fit under the sample target the metrics are computed from **every stored
+        reading** (exact); only a denser window is **aggregated server-side**, keeping one
+        representative reading per adaptive whole-minute bucket. Either way the report covers
+        the entire span without exceeding the runtime's per-request budget, and it never
+        truncates.
+
+        The `sampling` object in the body always reports both counts — `rawReadings` (what is
+        stored in the window) and `usedReadings` (what the metrics were computed from) — plus
+        `downsampled` and the chosen `bucketMs` (null when nothing was thinned). At the
+        resulting densities the averages, Time in Range, GMI/CV and AGP percentile bands are
+        unaffected; only excursions shorter than `bucketMs` can be under-represented, so a
+        brief low or high may read less extreme than it was.
 
         The window is `start`/`end` (epoch ms; `from`/`to` are accepted aliases), defaulting
         to the last 14 days and clamped to a 90-day span. `tzOffset` (minutes east of UTC)
@@ -1397,16 +1404,38 @@ components:
         truncated:
           type: boolean
           description: >
-            Always `false` for the aggregated JSON export — it downsamples server-side and
-            covers the whole window. (The field exists for parity with the CSV export, whose
+            Always `false` for the JSON export — it covers the whole window, aggregating
+            server-side when needed. (The field exists for parity with the CSV export, whose
             raw dump can be truncated on an exceptionally dense window.)
-        sampleBucketMs:
-          type: integer
-          format: int64
+        sampling:
+          type: object
           description: >
-            The downsample bucket width (ms) the metrics were computed at — one representative
-            reading per bucket. 60000 (1 min) means the data was not thinned; a wider value
-            means a long/dense window was collapsed to keep the sample count bounded.
+            How the metrics were sampled. Always reports BOTH counts so the figure shown to a
+            reader can never be mistaken for the stored total.
+          properties:
+            rawReadings:
+              type: integer
+              format: int64
+              description: "Readings actually stored in the window (index-only COUNT)."
+            usedReadings:
+              type: integer
+              format: int64
+              description: >
+                Readings the metrics were computed from. Equals `rawReadings` when nothing
+                was thinned.
+            downsampled:
+              type: boolean
+              description: >
+                `false` when every stored reading fed the metrics (exact); `true` when the
+                window was denser than the sample target and was thinned to one reading per
+                `bucketMs`.
+            bucketMs:
+              type: [integer, "null"]
+              format: int64
+              description: >
+                Sample interval (ms) when `downsampled` is true, else null. Averages, Time in
+                Range, GMI/CV and the AGP bands are unaffected at these densities; only
+                excursions shorter than this can be under-represented.
         samples:
           type: array
           description: >

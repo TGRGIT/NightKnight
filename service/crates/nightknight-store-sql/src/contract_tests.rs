@@ -374,6 +374,42 @@ async fn downsampled_documents_resists_float_bucket_binding_explosion() {
     assert_eq!(exploded.len(), 5, "a float-bound divisor explodes to one group per reading");
 }
 
+/// GUARANTEE: `count_documents` counts exactly the valid rows of the given type inside the
+/// window — excluding other users, other types, soft-deleted rows and out-of-window rows.
+/// The aggregated export trusts this to decide whether a window needs downsampling at all
+/// (and to report the true stored reading count), so an over- or under-count would either
+/// thin data needlessly or blow the per-request budget.
+#[tokio::test]
+async fn count_documents_counts_only_valid_in_window_rows() {
+    let store = fresh_store().await;
+    for (i, t) in [100i64, 500, 900, 5_000].iter().enumerate() {
+        store
+            .upsert_document(Collection::Entries, sgv_doc("u1", &format!("a{i}"), *t, 100, 1))
+            .await
+            .unwrap();
+    }
+    // Excluded: another user, a non-sgv type, a soft-deleted row, and an out-of-window row.
+    store.upsert_document(Collection::Entries, sgv_doc("u2", "z", 200, 100, 1)).await.unwrap();
+    let mut mbg = sgv_doc("u1", "m", 300, 99, 1);
+    mbg.doc_type = Some("mbg".into());
+    store.upsert_document(Collection::Entries, mbg).await.unwrap();
+    store.upsert_document(Collection::Entries, sgv_doc("u1", "del", 400, 88, 1)).await.unwrap();
+    store.soft_delete_document(Collection::Entries, "u1", "del", 2).await.unwrap();
+    store.upsert_document(Collection::Entries, sgv_doc("u1", "far", 99_000, 77, 1)).await.unwrap();
+
+    let n = store
+        .count_documents(Collection::Entries, "u1", "sgv", 0, 6_000)
+        .await
+        .unwrap();
+    assert_eq!(n, 4, "only u1's valid in-window sgv rows are counted");
+    // An empty window counts zero rather than erroring.
+    let none = store
+        .count_documents(Collection::Entries, "u1", "sgv", 200_000, 300_000)
+        .await
+        .unwrap();
+    assert_eq!(none, 0);
+}
+
 /// DOCUMENTS a known edge of the `mills IN (SELECT MIN(mills) ...)` groupwise-min: when two
 /// distinct documents share the SAME `mills` (allowed — the PK is `(user_id, identifier)`
 /// and the `mills` index is non-unique, e.g. two devices sampling the same instant), and

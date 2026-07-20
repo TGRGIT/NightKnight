@@ -634,51 +634,74 @@ async fn export_walks_large_windows_in_batches_without_truncating() {
     assert!(data_rows.len() > 100, "many 100 mg/dL rows present (sanity)");
 }
 
-/// The JSON/report export AGGREGATES server-side: it downsamples dense data to at most one
-/// reading per adaptive time-bucket, so a window of any density stays bounded (never 503s)
-/// while still covering the WHOLE span. Here 2 days of 15-second-cadence data (~11 500
-/// readings, 4/min) must collapse to ~1/min (~2 900) with the range still reading 2 days —
-/// proving the report covers every day without loading every reading. `?samples=1` returns
-/// the compact series the printable report draws its daily-profile thumbnails from.
+/// The JSON/report export AGGREGATES server-side once a window holds more readings than it
+/// will sample: it keeps one reading per adaptive time-bucket, so the span stays bounded
+/// (never 503s) while still covering EVERY day. The fetch is paginated
+/// (`EXPORT_BATCH_SIZE` per storage query, like the CSV path) so no single subrequest
+/// materialises a large result, and it de-dupes to one reading per bucket.
+///
+/// Seeds 6 days at 10-second cadence (51 840 readings — above the sample target, so
+/// downsampling engages) which yields 8 640 one-minute buckets (above `EXPORT_BATCH_SIZE`,
+/// so the fetch must page), plus a duplicate-timestamp reading from a second device to
+/// prove the per-bucket de-dup.
 #[tokio::test]
-async fn export_json_downsamples_dense_data_but_covers_full_window() {
+async fn export_json_downsamples_dense_windows_paginating_and_deduping() {
     const DAY_MS: i64 = 86_400_000;
     let svc = service().await;
     let edge = Some(human("alice@cooney.be"));
-    // 2 days of 15-second-cadence sgv (4 readings/minute) = 11 520 readings. Post in chunks.
-    let cadence_ms = 15_000i64;
-    let total = 2 * 24 * 60 * 4; // 11 520
-    let mut posted = 0;
+    let cadence_ms = 10_000i64;
+    let total: i64 = 6 * 24 * 60 * 6; // 51 840 readings at 6/min
+    let mut posted = 0i64;
     while posted < total {
-        let mut chunk = Vec::with_capacity(480);
-        for i in 0..480 {
+        let mut chunk = Vec::with_capacity(720);
+        for i in 0..720i64 {
             let idx = posted + i;
             chunk.push(json!({
                 "type": "sgv",
-                "date": NOW - 60_000 - (idx as i64) * cadence_ms,
+                "date": NOW - 60_000 - idx * cadence_ms,
                 "sgv": 100 + (idx % 40),
                 "device": "dense",
             }));
         }
         svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
-        posted += 480;
+        posted += 720;
     }
+    // A second device sampling the SAME instant as an existing reading (distinct identifier,
+    // duplicate mills) — the per-bucket de-dup must keep that bucket at one reading.
+    svc.handle(
+        request("POST", "/api/v1/entries", &[],
+            json!([{ "type": "sgv", "date": NOW - 60_000, "sgv": 200, "device": "d2" }])),
+        NOW, edge.clone(),
+    ).await;
 
-    let start = NOW - 2 * DAY_MS;
+    let start = NOW - 7 * DAY_MS;
     let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0&samples=1");
     let resp = svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await;
     assert_eq!(resp.status, 200);
     let v = body_json(&resp);
 
-    // Not truncated — the aggregated path always covers the full window.
+    // Never truncated — the aggregated path always covers the full window.
     assert_eq!(v["truncated"], false);
-    assert_eq!(v["range"]["days"], 2, "the report still spans the full 2-day window");
-    assert_eq!(v["sampleBucketMs"], 60_000, "a 2-day window downsamples at 1-minute resolution");
+    assert_eq!(v["sampling"]["downsampled"], true, "above the sample target, downsampling engages");
+    assert_eq!(v["sampling"]["bucketMs"], 60_000, "a 7-day window samples at 1-minute resolution");
 
-    // The dense 4/min data collapsed to ~1/min: far below the raw 11 520, but ~2 days' worth.
+    // 6 days of 6/min data collapsed to ~1/min: far below the raw 51 840, but ~6 days' worth.
+    // The expected count is exactly the number of DISTINCT minute-buckets the seed touches —
+    // computed here rather than hard-coded, which also proves the de-dup: the extra
+    // duplicate-timestamp reading shares a bucket, so it must not add a sample.
+    let expected_buckets: std::collections::HashSet<i64> =
+        (0..total).map(|idx| (NOW - 60_000 - idx * cadence_ms) / 60_000).collect();
     let n = v["analytics"]["n"].as_i64().unwrap();
-    assert!(n < 5_000, "dense data is downsampled, got n={n} (raw was 11520)");
-    assert!(n > 2_000, "but the full 2-day span is still represented, got n={n}");
+    assert_eq!(
+        n,
+        expected_buckets.len() as i64,
+        "one reading per distinct minute-bucket across batches, duplicate timestamp de-duped"
+    );
+    assert!(n < total / 5, "dense data really was thinned: {n} samples from {total} readings");
+
+    // BOTH counts are reported, so the sample count is never mistaken for the stored total.
+    assert_eq!(v["sampling"]["rawReadings"], total + 1, "the true stored reading count");
+    assert_eq!(v["sampling"]["usedReadings"], n, "and the sample count the metrics used");
 
     // The samples series is present, matches n, and is oldest-first `[ms, mgdl]` pairs.
     let samples = v["samples"].as_array().expect("samples array present");
@@ -700,50 +723,32 @@ async fn export_json_downsamples_dense_data_but_covers_full_window() {
     assert!(body_json(&lean).get("samples").is_none(), "the plain metrics download omits samples");
 }
 
-/// The aggregated JSON fetch is PAGINATED (`EXPORT_BATCH_SIZE` per storage query, like the
-/// CSV path) so no single subrequest materialises a large result — and it de-dupes to one
-/// reading per bucket. This seeds > `EXPORT_BATCH_SIZE` distinct 1-minute buckets so the
-/// downsample fetch must span multiple batches, and adds a duplicate-timestamp reading to
-/// prove the per-bucket de-dup: the sample count equals the number of distinct minutes, not
-/// the raw row count.
+/// When the window's readings already fit under the sample target, NOTHING is downsampled:
+/// the metrics are computed from every stored reading, `sampling.downsampled` is false and
+/// `bucketMs` is null — so a normal-cadence report is exact, with no approximation at all.
 #[tokio::test]
-async fn export_json_downsample_paginates_and_dedupes_buckets() {
+async fn export_json_uses_raw_readings_when_they_already_fit() {
     let svc = service().await;
     let edge = Some(human("alice@cooney.be"));
-    // 7 000 readings at 1-minute cadence = 7 000 distinct minute-buckets (> EXPORT_BATCH_SIZE
-    // of 5 000, so the downsample fetch pages at least twice). Window is ~5 days.
-    let minutes = 7_000i64;
-    let mut posted = 0;
-    while posted < minutes {
-        let mut chunk = Vec::with_capacity(500);
-        for i in 0..500 {
-            let idx = posted + i;
-            chunk.push(json!({
-                "type": "sgv", "date": NOW - 60_000 - idx * 60_000,
-                "sgv": 100 + (idx % 50), "device": "d1",
-            }));
-        }
-        svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
-        posted += 500;
+    // 600 readings at 5-minute cadence — far under EXPORT_TARGET_SAMPLES.
+    let mut chunk = Vec::with_capacity(600);
+    for i in 0..600i64 {
+        chunk.push(json!({
+            "type": "sgv", "date": NOW - 60_000 - i * 300_000,
+            "sgv": 100 + (i % 60), "device": "t",
+        }));
     }
-    // A second device sampling the SAME instant as an existing reading (distinct identifier,
-    // duplicate mills) — the per-bucket de-dup must keep the bucket at one reading.
-    let dup_ms = NOW - 60_000 - 100 * 60_000;
-    svc.handle(
-        request("POST", "/api/v1/entries", &[], json!([{ "type": "sgv", "date": dup_ms, "sgv": 200, "device": "d2" }])),
-        NOW, edge.clone(),
-    ).await;
+    svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
 
-    let start = NOW - 6 * 86_400_000;
-    let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0&samples=1");
+    let start = NOW - 3 * 86_400_000;
+    let path = format!("/api/v4/export?format=json&start={start}&end={NOW}&tzOffset=0");
     let v = body_json(&svc.handle(request("GET", &path, &[], Value::Null), NOW, edge).await);
 
-    // Exactly one sample per distinct minute-bucket: 7 000, NOT 7 001 (the duplicate collapsed).
-    let n = v["analytics"]["n"].as_i64().unwrap();
-    assert_eq!(n, 7_000, "one reading per minute-bucket across batches, duplicate timestamp de-duped");
-    assert_eq!(v["samples"].as_array().unwrap().len() as i64, n, "samples match the bucket count");
-    assert_eq!(v["sampleBucketMs"], 60_000, "a ~5-day window stays at 1-minute buckets");
-    assert_eq!(v["truncated"], false);
+    assert_eq!(v["sampling"]["downsampled"], false, "no downsampling when the data already fits");
+    assert!(v["sampling"]["bucketMs"].is_null(), "no bucket resolution to report");
+    assert_eq!(v["sampling"]["rawReadings"], 600);
+    assert_eq!(v["sampling"]["usedReadings"], 600, "every stored reading fed the metrics");
+    assert_eq!(v["analytics"]["n"], 600, "metrics are exact — computed from the raw series");
 }
 
 /// A stale latest reading gets no trend arrow — a half-hour-old "DoubleUp" would

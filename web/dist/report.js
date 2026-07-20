@@ -167,7 +167,7 @@ function render(rep, rawEntries) {
   sheet.innerHTML = "";
   sheet.append(
     header(rangeText, periodDays, rep.generated),
-    statsSection(a, cov, gri),
+    statsSection(a, cov, gri, rep.sampling),
     agpSection(rep.agp, a),
     dailyProfilesSection(rawEntries, startDay, endDay),
     footer(rep),
@@ -195,10 +195,18 @@ function header(rangeText, nDays, generated) {
 }
 
 // ── statistics + TIR goal bar ─────────────────────────────────────────────────
-function statsSection(a, cov, gri) {
+function statsSection(a, cov, gri, sampling) {
   const stats = el("div", { class: "stat-grid" });
+  const days = cov.daysCovered == null ? "--" : cov.daysCovered.toFixed(1);
+  // Show BOTH counts when the server downsampled, so the figure is never mistaken for the
+  // full stored series: "25,655 of 1,102,394 readings". Otherwise the metrics used every
+  // stored reading and one number is the whole truth.
+  const used = (a.n || 0).toLocaleString();
+  const readingsLine = sampling && sampling.downsampled
+    ? `${used} of ${(sampling.rawReadings || 0).toLocaleString()} readings · ${days} days`
+    : `${used} readings · ${days} days`;
   stats.append(
-    stat("% Time CGM Active", pct(cov.percentActive) + "%", `${(a.n || 0).toLocaleString()} readings · ${cov.daysCovered == null ? "--" : cov.daysCovered.toFixed(1)} days`),
+    stat("% Time CGM Active", pct(cov.percentActive) + "%", readingsLine),
     stat("Average Glucose", `${fmtGlu(a.meanMgdl)}<small>${unitName()}</small>`, `SD ${fmtGlu(a.sdMgdl)}`, true),
     stat("Glucose Mgmt Indicator", pct(a.uGmiPercent, 1) + "%", `uGMI · GMI ${pct(a.gmiPercent, 1)}%`),
     stat("Variability (CV)", pct(a.cvPercent) + "%", a.cvPercent == null ? "—" : a.cvPercent <= 36 ? "stable (≤36%)" : "elevated"),
@@ -431,6 +439,21 @@ function footer(rep) {
       "Time-in-Range bands and goals follow the 2019 international consensus (Battelino et al., Diabetes Care 2019); " +
       "GMI = 3.31 + 0.02392 × mean; uGMI is the 2026 Diabetologia revision; the Glycemia Risk Index follows Klonoff et al. 2023."),
   ]));
+  // When the window was dense enough to need downsampling, say so plainly — including the
+  // one thing it can actually affect: an excursion shorter than the sample interval may be
+  // under-represented, so a brief nadir/peak can read less extreme than it truly was.
+  const s = rep.sampling;
+  if (s && s.downsampled) {
+    const mins = Math.round((s.bucketMs || 0) / 60000);
+    foot.appendChild(el("p", {}, [
+      el("span", { class: "disc", text: "Sampling. " }),
+      document.createTextNode(
+        `Computed from ${(s.usedReadings || 0).toLocaleString()} samples at ${mins}-minute resolution, ` +
+        `taken evenly across the period from ${(s.rawReadings || 0).toLocaleString()} stored readings. ` +
+        "Averages, Time in Range, GMI/CV and the AGP percentile bands are unaffected at this density; " +
+        `excursions shorter than ${mins} minutes may be under-represented, so a brief low or high can read less extreme than it was.`),
+    ]));
+  }
   foot.appendChild(el("p", { text: "NightKnight — private, self-hosted CGM. https://github.com/TGRGIT/NightKnight" }));
   return foot;
 }

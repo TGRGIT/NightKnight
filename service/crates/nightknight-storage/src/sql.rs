@@ -207,6 +207,35 @@ pub fn daily_counts(
     (sql, vec![Param::text(user_id), Param::text(doc_type)])
 }
 
+/// How many valid documents of `doc_type` fall in `[start_ms, end_ms]`. Touches only the
+/// indexed `mills` column (no document bodies), so it is cheap on any history size — used
+/// to decide whether an aggregated export needs downsampling at all, and to report the
+/// true underlying reading count alongside the sample count actually used.
+///
+/// Aliased `AS n` so backends that read results by column name (D1) can find it.
+pub fn count_documents(
+    c: Collection,
+    user_id: &str,
+    doc_type: &str,
+    start_ms: i64,
+    end_ms: i64,
+) -> (String, Vec<Param>) {
+    let t = c.table();
+    let sql = format!(
+        "SELECT COUNT(*) AS n FROM {t} \
+         WHERE user_id=? AND is_valid=1 AND doc_type=? AND mills>=? AND mills<=?"
+    );
+    (
+        sql,
+        vec![
+            Param::text(user_id),
+            Param::text(doc_type),
+            Param::Int(start_ms),
+            Param::Int(end_ms),
+        ],
+    )
+}
+
 /// One representative row per `bucket_ms`-wide time-bucket across `[start_ms, end_ms]`,
 /// newest first — the downsampled fetch behind long-window aggregate reports.
 ///

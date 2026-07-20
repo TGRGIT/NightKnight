@@ -241,6 +241,18 @@ impl Storage for D1Store {
         Ok(self.rows(&q, params).await?.iter().map(row_to_day_count).collect())
     }
 
+    async fn count_documents(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<i64> {
+        let (q, params) = sql::count_documents(c, user_id, doc_type, start_ms, end_ms);
+        Ok(self.first(&q, params).await?.map(|v| col_i64(&v, "n")).unwrap_or(0))
+    }
+
     async fn downsampled_documents(
         &self,
         c: Collection,

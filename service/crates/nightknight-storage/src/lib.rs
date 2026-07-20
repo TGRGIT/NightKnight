@@ -104,6 +104,19 @@ pub trait Storage {
         tz_offset_ms: i64,
     ) -> Result<Vec<DayCount>>;
 
+    /// How many valid documents of `doc_type` fall in `[start_ms, end_ms]`. Index-only on
+    /// `mills` (no document bodies), so it is cheap on any history size — lets a caller
+    /// decide whether a window needs downsampling before fetching anything, and report the
+    /// true underlying reading count next to the sample count actually used.
+    async fn count_documents(
+        &self,
+        c: Collection,
+        user_id: &str,
+        doc_type: &str,
+        start_ms: i64,
+        end_ms: i64,
+    ) -> Result<i64>;
+
     /// One representative document per fixed time-bucket across `[start_ms, end_ms]`,
     /// newest first — a **downsampled** view for aggregate reports (AGP, the metrics
     /// export) that must cover a long window without loading every reading.
