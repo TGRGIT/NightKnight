@@ -3,16 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="dark" />
   <title>NightKnight — AGP Report</title>
   <link rel="icon" href="/favicon.svg" />
   <link rel="stylesheet" href="/report.css" />
 </head>
 <body>
+  <div class="aurora" aria-hidden="true"></div>
+
   <div class="toolbar" id="toolbar">
-    <span class="spacer" id="tb-range">Preparing report…</span>
+    <span class="tb-range" id="tb-range">Preparing report…</span>
+    <button class="btn" id="tb-bands" type="button" aria-expanded="false" aria-controls="bands-panel">Bands</button>
     <button class="btn" id="tb-back" type="button">← Back to app</button>
     <button class="btn primary" id="tb-print" type="button">Print / Save as PDF</button>
+
+    <!-- Severity-band editor. Defaults come from the app's saved target range; anything set
+         here overrides it for this report and is sent to the API, so the percentages are
+         COMPUTED against these bands rather than merely coloured by them. -->
+    <div class="bands-panel" id="bands-panel" hidden>
+      <div class="bands-grid">
+        <label>Very low below <input type="number" id="band-vlow" step="any" inputmode="decimal" /></label>
+        <label>Low below <input type="number" id="band-low" step="any" inputmode="decimal" /></label>
+        <label>High above <input type="number" id="band-high" step="any" inputmode="decimal" /></label>
+        <label>Very high above <input type="number" id="band-vhigh" step="any" inputmode="decimal" /></label>
+        <span class="bands-unit" id="bands-unit">mg/dL</span>
+      </div>
+      <div class="bands-actions">
+        <span class="bands-msg" id="bands-msg"></span>
+        <button class="btn" id="bands-reset" type="button">Reset to defaults</button>
+        <button class="btn primary" id="bands-apply" type="button">Apply</button>
+      </div>
+    </div>
   </div>
 
   <main class="sheet" id="sheet">
@@ -22,6 +43,22 @@
       <div class="loader-sub" id="loader-sub">Preparing…</div>
     </div>
   </main>
+
+  <!-- Day detail: opened by clicking a day in the calendar; data is fetched on demand. -->
+  <div class="modal" id="day-modal" hidden role="dialog" aria-modal="true" aria-labelledby="day-modal-title">
+    <div class="modal-panel" id="day-modal-panel">
+      <div class="modal-head">
+        <h2 class="modal-title" id="day-modal-title">Day</h2>
+        <button class="icon-btn" id="day-prev" type="button" aria-label="Previous day" title="Previous day (←)">‹</button>
+        <button class="icon-btn" id="day-next" type="button" aria-label="Next day" title="Next day (→)">›</button>
+        <input type="date" id="day-picker" aria-label="Jump to date" />
+        <button class="icon-btn" id="day-close" type="button" aria-label="Close" title="Close (Esc)">✕</button>
+      </div>
+      <div id="day-modal-body">
+        <div class="modal-status">Loading…</div>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/report.js"></script>
 </body>

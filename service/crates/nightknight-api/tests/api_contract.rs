@@ -723,6 +723,47 @@ async fn export_json_downsamples_dense_windows_paginating_and_deduping() {
     assert!(body_json(&lean).get("samples").is_none(), "the plain metrics download omits samples");
 }
 
+/// SCENARIO: a user whose clinician set a tighter target range reports against it. Custom
+/// band boundaries must be COMPUTED against, not merely coloured against — otherwise the
+/// report's percentages would contradict its own legend. A mis-ordered or implausible set
+/// is a clean 400 rather than a silently-clamped report that looks valid but isn't.
+#[tokio::test]
+async fn export_honours_custom_band_thresholds() {
+    let svc = service().await;
+    let edge = Some(human("alice@cooney.be"));
+    // Readings at 100 and 160 mg/dL: both in range by consensus (70–180), but 160 is "high"
+    // under a tighter 70–140 target.
+    let mut chunk = Vec::new();
+    for i in 0..40i64 {
+        chunk.push(json!({ "type": "sgv", "date": NOW - 60_000 - i * 300_000, "sgv": if i % 2 == 0 { 100 } else { 160 }, "device": "t" }));
+    }
+    svc.handle(request("POST", "/api/v1/entries", &[], Value::Array(chunk)), NOW, edge.clone()).await;
+    let start = NOW - 86_400_000;
+
+    // Consensus bands: everything is in range.
+    let base = body_json(&svc
+        .handle(request("GET", &format!("/api/v4/export?format=json&start={start}&end={NOW}"), &[], Value::Null), NOW, edge.clone())
+        .await);
+    assert_eq!(base["analytics"]["timeInRange"]["inRangePct"], 100.0, "all in range at 70–180");
+    assert_eq!(base["thresholds"]["high"], 180.0, "the echoed thresholds report what was used");
+
+    // Tighter target: the 160s become "high", so TIR drops to ~50% and the echo updates.
+    let tight = body_json(&svc
+        .handle(request("GET", &format!("/api/v4/export?format=json&start={start}&end={NOW}&high=140"), &[], Value::Null), NOW, edge.clone())
+        .await);
+    assert_eq!(tight["thresholds"]["high"], 140.0, "custom threshold echoed back");
+    assert_eq!(tight["analytics"]["timeInRange"]["inRangePct"], 50.0, "metrics recomputed against it");
+    assert_eq!(tight["analytics"]["timeInRange"]["highPct"], 50.0);
+
+    // Mis-ordered and implausible sets are rejected outright.
+    for bad in ["low=200&high=100", "veryLow=5", "veryHigh=900", "low=abc"] {
+        let resp = svc
+            .handle(request("GET", &format!("/api/v4/export?format=json&{bad}"), &[], Value::Null), NOW, edge.clone())
+            .await;
+        assert_eq!(resp.status, 400, "rejected an invalid threshold set: {bad}");
+    }
+}
+
 /// When the window's readings already fit under the sample target, NOTHING is downsampled:
 /// the metrics are computed from every stored reading, `sampling.downsampled` is false and
 /// `bucketMs` is null — so a normal-cadence report is exact, with no approximation at all.

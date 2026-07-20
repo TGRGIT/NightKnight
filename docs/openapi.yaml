@@ -701,6 +701,25 @@ paths:
           in: query
           description: Minutes east of UTC, for local timestamps and time-of-day analytics.
           schema: { type: integer, default: 0 }
+        - name: veryLow
+          in: query
+          description: >
+            Time-in-Range band boundary (mg/dL): below this is "very low". Default 54.
+          schema: { type: number, default: 54 }
+        - name: low
+          in: query
+          description: >
+            Bottom of the target range (mg/dL). Default 70. Overriding it recomputes every
+            band-dependent metric (TIR, GRI, episodes), not just the labels.
+          schema: { type: number, default: 70 }
+        - name: high
+          in: query
+          description: Top of the target range (mg/dL). Default 180.
+          schema: { type: number, default: 180 }
+        - name: veryHigh
+          in: query
+          description: Above this is "very high" (mg/dL). Default 250.
+          schema: { type: number, default: 250 }
       responses:
         "200":
           description: |

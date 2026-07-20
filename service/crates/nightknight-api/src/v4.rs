@@ -580,7 +580,11 @@ impl<S: Storage> ApiService<S> {
             start = end;
         }
 
-        let t = TirThresholds::default();
+        // Band boundaries. Callers may override the defaults (a user whose clinician set a
+        // tighter target, say) — the metrics must then be COMPUTED against those bands, not
+        // merely coloured against them, or the report's percentages would contradict its own
+        // legend. The echoed `thresholds` block reports whatever was used.
+        let t = tir_thresholds(req)?;
 
         // `format` defaults to json; anything else is a client error, not a silent fallback.
         match req.query_get("format").unwrap_or("json") {
@@ -1274,6 +1278,46 @@ fn day_expected_per_day(
 /// escaping and carries no user-controlled text.
 fn attachment(name: &str) -> String {
     format!("attachment; filename=\"{name}\"")
+}
+
+/// Resolve the Time-in-Range band boundaries for a request: the ADA/ATTD consensus
+/// defaults (54/70/180/250 mg/dL), with any of `veryLow`, `low`, `high`, `veryHigh`
+/// overridden by query params so a caller can report against their own target range.
+///
+/// The four values must be strictly increasing and inside a plausible sensor range;
+/// anything else is a client error rather than a silently-clamped set, because a
+/// mis-ordered band would produce percentages that look valid but mean nothing.
+fn tir_thresholds(req: &ApiRequest) -> Result<TirThresholds, ApiError> {
+    let d = TirThresholds::default();
+    let get = |k: &str, fallback: f64| -> Result<f64, ApiError> {
+        match req.query_get(k) {
+            None => Ok(fallback),
+            Some(raw) => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| ApiError::BadRequest(format!("{k} must be a number (mg/dL)"))),
+        }
+    };
+    let t = TirThresholds {
+        very_low: get("veryLow", d.very_low)?,
+        low: get("low", d.low)?,
+        high: get("high", d.high)?,
+        very_high: get("veryHigh", d.very_high)?,
+    };
+    if !(t.very_low < t.low && t.low < t.high && t.high < t.very_high) {
+        return Err(ApiError::BadRequest(
+            "thresholds must increase: veryLow < low < high < veryHigh".into(),
+        ));
+    }
+    // The physiological range a CGM can even report; keeps a typo from producing a report
+    // where every reading lands in one band.
+    if t.very_low < 20.0 || t.very_high > 600.0 {
+        return Err(ApiError::BadRequest(
+            "thresholds must lie between 20 and 600 mg/dL".into(),
+        ));
+    }
+    Ok(t)
 }
 
 /// The whole-minute downsample bucket for an aggregated export over a `window_ms`-long
