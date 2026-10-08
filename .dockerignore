@@ -1,0 +1,26 @@
+# Build context for deploy/Dockerfile: only what the server build and the runtime image
+# need. Keeps local secrets (deploy/.env, keys), build output and the large app/marketing
+# assets out of the build stage.
+.git
+.github
+.claude
+.wrangler
+**/target
+**/node_modules
+
+ios
+marketing
+branding
+docs
+scripts
+
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p8
+**/*.sqlite
+**/*.sqlite3
+**/*.db
