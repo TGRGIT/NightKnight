@@ -1,0 +1,83 @@
+# cargo-deny policy — enforced in CI by .github/workflows/security.yml.
+#
+#   cargo deny check                 # everything below
+#   cargo deny check advisories      # RustSec vulnerabilities / unmaintained / unsound / yanked
+#
+# Scope: the dependency graph of the platforms NightKnight actually ships — the container
+# server (Linux), the Cloudflare Worker (wasm32) and the iOS FFI staticlib.
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+# Every ignore needs a reason a reviewer can check. Re-evaluate when a fix ships.
+ignore = [
+    # rsa — Marvin attack (timing side-channel in PKCS#1 v1.5 *private-key* operations;
+    # no patched release exists). NightKnight only VERIFIES RS256 JWTs with the public
+    # key (nightknight-auth); private keys appear solely in unit tests, which sign test
+    # tokens locally. Nothing reachable over the network performs a private-key operation.
+    { id = "RUSTSEC-2023-0071", reason = "public-key RS256 verification only; no private-key operations in shipped code" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Permissive licenses only for third-party code. Adding a license here is a deliberate,
+# reviewed change — a copyleft dependency would constrain how NightKnight is licensed.
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# First-party crates declare the workspace license (`license.workspace = true`).
+exceptions = [
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-api" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-apns" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-auth" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-connectors" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-core" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-crypto" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-ffi" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-server" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-storage" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-store-d1" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-store-sql" },
+    { allow = ["AGPL-3.0-or-later"], crate = "nightknight-worker" },
+]
+
+[bans]
+multiple-versions = "warn"
+# Workspace crates depend on each other by versionless `path`, which cargo-deny counts
+# as a wildcard. Registry versions are pinned (with checksums) by the committed
+# Cargo.lock, and crates.io itself rejects `*` requirements on publish.
+wildcards = "allow"
+# The TLS stack is pure-Rust rustls by design (it cross-compiles to wasm32 and keeps
+# OpenSSL out of the container image). Keep it that way.
+deny = [
+    { crate = "openssl", reason = "TLS is rustls-only" },
+    { crate = "openssl-sys", reason = "TLS is rustls-only" },
+    { crate = "native-tls", reason = "TLS is rustls-only" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

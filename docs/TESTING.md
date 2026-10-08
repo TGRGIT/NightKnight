@@ -49,6 +49,26 @@ docker rm -f nk-pg
 a day of synthetic data and open the dashboard (see SETUP.md → Verifying). For
 Cloudflare, `wrangler dev` runs the Worker against a local D1.
 
+## Security checks (CI)
+
+All on Linux runners; nothing needs macOS. Each one is also runnable locally.
+
+| Check | Workflow | Gates on | Locally |
+|---|---|---|---|
+| **Dependencies** — RustSec advisories (vulnerable, unmaintained, unsound, yanked), license allow-list, banned crates, allowed registries, across every shipped target | `security.yml` | any violation of `deny.toml` | `cargo deny check` |
+| **Secrets** — gitleaks over the PR's commits (full history on `main`) | `security.yml` | any finding not fingerprinted in `.gitleaksignore` | `gitleaks git .` |
+| **Workflows** — zizmor (injection, permissions, pinning, credential persistence) + actionlint | `security.yml` | any finding | `zizmor . && actionlint` |
+| **SAST** — semgrep JavaScript / Dockerfile / Rust rules (the SPA is outside CodeQL's default setup) | `security.yml` | WARNING or worse | see the job's `docker run` |
+| **Dependency review** — new dependencies on a PR | `security.yml` | moderate+ advisory | — |
+| **SBOMs** — CycloneDX per artifact (server, Worker, iOS FFI) + SPDX/CycloneDX for the repo | `security.yml` | — (artifact `sbom`, 90 days) | `cargo cyclonedx`, `syft` |
+| **Container** — builds `deploy/Dockerfile`, records its SBOM, grype scan | `container.yml` | High/Critical with a published fix | `docker build … && grype <image> --only-fixed --fail-on high` |
+
+`security.yml` also runs daily and `container.yml` weekly, so advisories published against
+unchanged code still surface. Actions are pinned by commit SHA and the Dockerfile's base
+images by digest; Dependabot proposes the bumps. An advisory that cannot apply to us goes in
+`deny.toml`'s `ignore` list **with the reason**; a gitleaks false positive is fingerprinted in
+`.gitleaksignore` with a comment.
+
 ## Still to add
 
 - Worker integration tests under Miniflare (Access JWT verify paths, routing).
