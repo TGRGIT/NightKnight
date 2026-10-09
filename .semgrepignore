@@ -1,0 +1,4 @@
+# Replaces semgrep's built-in ignore list, which skips every `dist/` directory —
+# web/dist is the hand-written SPA (no build step), so it must be scanned.
+target/
+marketing/

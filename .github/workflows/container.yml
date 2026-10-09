@@ -1,0 +1,78 @@
+# Builds the self-hosting container image (deploy/Dockerfile), records its SBOM and scans it
+# for OS-package vulnerabilities. Fails on High/Critical findings that have a published fix —
+# i.e. ones a rebuild/upgrade would resolve. Unfixable findings are visible in the report.
+#
+# The image's Rust dependencies are covered by cargo-deny in security.yml: the server binary
+# carries no embedded dependency metadata, so image scanners cannot see its crates.
+name: Container
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "deploy/**"
+      - "service/**"
+      - "web/dist/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
+      - ".github/workflows/container.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "deploy/**"
+      - "service/**"
+      - "web/dist/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".dockerignore"
+      - ".github/workflows/container.yml"
+  schedule:
+    # Weekly: base-image CVEs are published against an unchanged Dockerfile.
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build, SBOM and scan image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build --file deploy/Dockerfile --tag nightknight-server:ci .
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: syft@1.54.0
+      - name: Image SBOM (syft)
+        run: |
+          mkdir -p sbom
+          syft scan docker:nightknight-server:ci \
+            -o cyclonedx-json=sbom/nightknight-container.cdx.json \
+            -o spdx-json=sbom/nightknight-container.spdx.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-container
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Vulnerability scan (grype)
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: nightknight-server:ci
+          grype-version: v0.120.1
+          output-format: table
+          severity-cutoff: high
+          only-fixed: true
+          fail-build: true

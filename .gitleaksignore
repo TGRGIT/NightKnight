@@ -1,0 +1,10 @@
+# Reviewed gitleaks false positives (fingerprint = commit:file:rule:line).
+# Add a line only after confirming the match is not a live credential.
+
+# Throwaway P-256 test keys that exercise APNs ES256 signing in tests; they are not
+# registered with Apple and authenticate nothing.
+2a8fe992736dbeaecd75bd5483aa309a6bbb2a3f:service/crates/nightknight-apns/src/lib.rs:private-key:89
+2a8fe992736dbeaecd75bd5483aa309a6bbb2a3f:service/crates/nightknight-api/tests/api_contract.rs:private-key:979
+
+# A UserDefaults key name ("creds.migratedFromKeychain.v1"), not a secret.
+e2418077340222b01b49f42c7fccaf20a35a1112:ios/Shared/Settings.swift:generic-api-key:132

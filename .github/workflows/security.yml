@@ -1,0 +1,185 @@
+# Security gates: dependency advisories + license/source policy, secret scanning, workflow
+# hygiene, SAST and SBOM generation. Linux runners only — nothing here needs macOS (the iOS
+# app's Rust FFI is covered by the cross-target cargo-deny graph and the SBOM job).
+#
+# The container image scan lives in container.yml so the slow image build only runs when
+# the image's inputs change. Run the same checks locally: see docs/TESTING.md.
+name: Security
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    # Daily: a newly published advisory can affect dependencies that have not changed.
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # RustSec advisories (vulnerable / unmaintained / unsound / yanked), the license allow-list,
+  # banned crates and allowed registries — policy in deny.toml, across every shipped target.
+  cargo-deny:
+    name: Dependencies (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check
+        run: cargo deny --locked check --hide-inclusion-graph
+
+  # Gitleaks over git history: the PR's own commits on pull requests, the full history
+  # otherwise. Reviewed false positives are fingerprinted in .gitleaksignore.
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Install gitleaks (module checksum verified by sum.golang.org)
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Scan commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          range=""
+          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]; then
+            range="$BASE_SHA..$HEAD_SHA"
+          fi
+          "$(go env GOPATH)/bin/gitleaks" git --no-banner --redact --verbose ${range:+--log-opts="$range"} .
+
+  # Workflow security (zizmor: injection, excessive permissions, unpinned actions,
+  # credential persistence, impostor commits, …) and correctness (actionlint + shellcheck).
+  workflows:
+    name: Workflows (zizmor, actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: zizmor@1.30.1
+      - name: zizmor
+        env:
+          # Read-only token for zizmor's online audits (impostor commits, known-vulnerable
+          # actions, stale refs).
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format plain .
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - name: actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
+
+  # Static analysis for every language in the repo, on Linux: the Rust services, the Swift
+  # iOS app, the web SPA's JavaScript and the Dockerfile, plus semgrep's default
+  # cross-language rules. .semgrepignore replaces semgrep's built-in ignore list, which
+  # would otherwise skip web/dist. Gates on WARNING and above.
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: semgrep
+        # Pinned by digest (semgrep 1.180.0); bump deliberately.
+        run: >-
+          docker run --rm --volume "$PWD:/src" --workdir /src
+          semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3
+          semgrep scan --metrics=off --error --severity WARNING --severity ERROR
+          --config p/default --config p/rust --config p/swift
+          --config p/javascript --config p/dockerfile
+
+  # Software bill of materials for each shipped artifact, per target platform, plus a
+  # whole-repository SPDX/CycloneDX inventory. Kept as a workflow artifact for 90 days.
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-cyclonedx@0.5.9,syft@1.54.0
+      - name: Repository inventory (syft)
+        run: |
+          mkdir -p sbom
+          syft scan dir:. --exclude './target/**' --exclude './sbom/**' \
+            --source-name NightKnight --source-version "$GITHUB_SHA" \
+            -o spdx-json=sbom/nightknight-source.spdx.json \
+            -o cyclonedx-json=sbom/nightknight-source.cdx.json
+      - name: Per-artifact Rust SBOMs (cargo-cyclonedx)
+        run: |
+          # The container server (Linux), the Cloudflare Worker (wasm32) and the iOS
+          # FFI staticlib each link a different dependency set; build deps excluded.
+          for spec in nightknight-server:x86_64-unknown-linux-gnu \
+                      nightknight-worker:wasm32-unknown-unknown \
+                      nightknight-ffi:aarch64-apple-ios; do
+            crate="${spec%%:*}"; target="${spec##*:}"
+            cargo cyclonedx --manifest-path "service/crates/$crate/Cargo.toml" \
+              --format json --spec-version 1.5 --target "$target" --no-build-deps \
+              --override-filename "$crate.$target.cdx"
+            # cargo-cyclonedx writes one file per workspace member; keep the artifact's own.
+            mv "service/crates/$crate/$crate.$target.cdx.json" sbom/
+          done
+      - name: Summary
+        run: |
+          {
+            echo "### SBOM components"
+            echo "| SBOM | components |"
+            echo "|---|---|"
+            for f in sbom/*.cdx.json; do
+              echo "| $(basename "$f") | $(jq '.components | length' "$f") |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 90
+
+  # Blocks PRs that add a dependency (Cargo or GitHub Actions) with a known advisory.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          # Posting a PR comment would need pull-requests: write; the job log has the table.
+          comment-summary-in-pr: never

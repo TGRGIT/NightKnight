@@ -1,0 +1,35 @@
+# Keeps the pinned inputs current: action SHAs, the Dockerfile's base-image digests and
+# Cargo.lock. The cooldown lets a fresh release age a week before it is proposed, so a
+# compromised publish has time to be caught and yanked first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    # Lockfile-only: never rewrites Cargo.toml requirements (the root manifest feeds the
+    # iOS xcframework staleness hash, so a manifest bump would demand a macOS rebuild).
+    versioning-strategy: lockfile-only
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        update-types: ["minor", "patch"]
