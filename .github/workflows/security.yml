@@ -99,9 +99,10 @@ jobs:
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint"
 
-  # Pattern-based SAST for the code CodeQL default setup does not cover: the web SPA's
-  # JavaScript (web/dist is treated as generated, so it is skipped there) and the
-  # Dockerfile, plus a Rust ruleset. Gates on WARNING and above.
+  # Static analysis for every language in the repo, on Linux: the Rust services, the Swift
+  # iOS app, the web SPA's JavaScript and the Dockerfile, plus semgrep's default
+  # cross-language rules. .semgrepignore replaces semgrep's built-in ignore list, which
+  # would otherwise skip web/dist. Gates on WARNING and above.
   sast:
     name: SAST (semgrep)
     runs-on: ubuntu-latest
@@ -116,8 +117,8 @@ jobs:
           docker run --rm --volume "$PWD:/src" --workdir /src
           semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3
           semgrep scan --metrics=off --error --severity WARNING --severity ERROR
-          --config p/javascript --config p/dockerfile --config p/rust
-          --exclude target --exclude marketing
+          --config p/default --config p/rust --config p/swift
+          --config p/javascript --config p/dockerfile
 
   # Software bill of materials for each shipped artifact, per target platform, plus a
   # whole-repository SPDX/CycloneDX inventory. Kept as a workflow artifact for 90 days.

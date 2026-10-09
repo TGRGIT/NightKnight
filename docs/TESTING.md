@@ -58,7 +58,7 @@ All on Linux runners; nothing needs macOS. Each one is also runnable locally.
 | **Dependencies** — RustSec advisories (vulnerable, unmaintained, unsound, yanked), license allow-list, banned crates, allowed registries, across every shipped target | `security.yml` | any violation of `deny.toml` | `cargo deny check` |
 | **Secrets** — gitleaks over the PR's commits (full history on `main`) | `security.yml` | any finding not fingerprinted in `.gitleaksignore` | `gitleaks git .` |
 | **Workflows** — zizmor (injection, permissions, pinning, credential persistence) + actionlint | `security.yml` | any finding | `zizmor . && actionlint` |
-| **SAST** — semgrep JavaScript / Dockerfile / Rust rules (the SPA is outside CodeQL's default setup) | `security.yml` | WARNING or worse | see the job's `docker run` |
+| **SAST** — semgrep over Rust, Swift, the SPA's JavaScript and the Dockerfile, plus its default rules (`.semgrepignore` keeps `web/dist` in scope) | `security.yml` | WARNING or worse | see the job's `docker run` |
 | **Dependency review** — new dependencies on a PR | `security.yml` | moderate+ advisory | — |
 | **SBOMs** — CycloneDX per artifact (server, Worker, iOS FFI) + SPDX/CycloneDX for the repo | `security.yml` | — (artifact `sbom`, 90 days) | `cargo cyclonedx`, `syft` |
 | **Container** — builds `deploy/Dockerfile`, records its SBOM, grype scan | `container.yml` | High/Critical with a published fix | `docker build … && grype <image> --only-fixed --fail-on high` |
